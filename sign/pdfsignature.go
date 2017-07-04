@@ -81,7 +81,7 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	file_content = file_content[:len(file_content)-1]
 
 	// Collect the parts to sign.
-	sign_content := make([]byte, context.ByteRangeValues[1]+context.ByteRangeValues[3])
+	sign_content := make([]byte, 0)
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[0]:(context.ByteRangeValues[0]+context.ByteRangeValues[1])]...)
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[2]:(context.ByteRangeValues[2]+context.ByteRangeValues[3])]...)
 

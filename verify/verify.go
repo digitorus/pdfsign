@@ -123,10 +123,12 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 			// Read the byte range from the raw file and add it to the contents.
 			// This content will be hashed with the corresponding algorithm to
 			// verify the signature.
+
 			content, err := ioutil.ReadAll(io.NewSectionReader(file, v.Key("ByteRange").Index(i-1).Int64(), v.Key("ByteRange").Index(i).Int64()))
 			if err != nil {
 				apiResp.Error = fmt.Sprintln("Failed to get ByteRange:", i, err)
 			}
+
 			p7.Content = append(p7.Content, content...)
 		}
 
@@ -178,7 +180,7 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 				signer.ValidSignature = true
 				signer.TrustedIssuer = false
 			}
-			//apiResp.Error = fmt.Sprintln("Failed to verify signature:", err)
+			apiResp.Error = fmt.Sprintln("Failed to verify signature:", err)
 		} else {
 			signer.ValidSignature = true
 			signer.TrustedIssuer = true
