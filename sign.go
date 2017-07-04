@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"crypto"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -85,14 +84,9 @@ func main() {
 			log.Fatal(errors.New("failed to parse PEM block containing the private key"))
 		}
 
-		pkey, err := x509.ParsePKCS8PrivateKey(key_data_block.Bytes)
+		pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
 		if err != nil {
 			log.Fatal(err)
-		}
-
-		key, ok := pkey.(crypto.Signer)
-		if !ok {
-			log.Fatal(errors.New("private key does not implement crypto.Signer"))
 		}
 
 		err = sign.SignFile(input, output, sign.SignData{
@@ -105,7 +99,7 @@ func main() {
 					Date:        time.Now().Local(),
 				},
 			},
-			Signer:      key,
+			Signer:      pkey,
 			Certificate: cert,
 		})
 		if err != nil {
