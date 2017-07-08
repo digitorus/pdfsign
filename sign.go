@@ -98,6 +98,8 @@ func main() {
 					ContactInfo: "Geen",
 					Date:        time.Now().Local(),
 				},
+				CertType: 2,
+				Approval: false,
 			},
 			Signer:      pkey,
 			Certificate: cert,

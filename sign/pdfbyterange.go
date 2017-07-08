@@ -10,8 +10,7 @@ func (context *SignContext) updateByteRange() error {
 	// @todo: find out of this is safe.
 	output_file_stat, _ := context.OutputFile.Stat()
 
-	// Don't count last newline as file length.
-	output_file_size := output_file_stat.Size() - 1
+	output_file_size := output_file_stat.Size()
 
 	// Calculate ByteRange values to replace them.
 	context.ByteRangeValues = make([]int64, 4)
@@ -20,10 +19,10 @@ func (context *SignContext) updateByteRange() error {
 	context.ByteRangeValues[0] = int64(0)
 
 	// Signature ByteRange part 1 length always stops at the actual signature start byte.
-	context.ByteRangeValues[1] = context.SignatureContentsStartByte
+	context.ByteRangeValues[1] = context.SignatureContentsStartByte - 1
 
 	// Signature ByteRange part 2 start byte directly starts after the actual signature.
-	context.ByteRangeValues[2] = context.ByteRangeValues[1] + int64(signatureMaxLength)
+	context.ByteRangeValues[2] = context.ByteRangeValues[1] + 1 + int64(signatureMaxLength) + 1
 
 	// Signature ByteRange part 2 length is everything else of the file.
 	context.ByteRangeValues[3] = output_file_size - context.ByteRangeValues[2]

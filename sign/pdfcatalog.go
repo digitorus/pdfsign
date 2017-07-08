@@ -30,7 +30,7 @@ func (context *SignContext) createCatalog() (catalog string, err error) {
 	pages := root.Key("Pages").GetPtr()
 	catalog += " /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R"
 	catalog += " /AcroForm <<"
-	catalog += " /Fields [" + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R]"
+	catalog += " /Fields [" + strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 R]"
 
 	if !context.SignData.Signature.Approval {
 		catalog += " /NeedAppearances false"
@@ -44,12 +44,11 @@ func (context *SignContext) createCatalog() (catalog string, err error) {
 
 	catalog += " >>"
 
-	// @todo: what do these do?
 	if !context.SignData.Signature.Approval {
 		if context.SignData.Signature.CertType > 0 {
-			//catalog += " /Perms << /DocMDP " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>";
+			catalog += " /Perms << /DocMDP " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>";
 		} else {
-			//catalog += " /Perms << /UR3 " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>";
+			catalog += " /Perms << /UR3 " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>";
 		}
 	}
 

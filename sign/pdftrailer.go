@@ -19,7 +19,7 @@ func (context *SignContext) writeTrailer() error {
 	new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
 
 	size_string := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10)
-	new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+2, 10)
+	new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+3, 10)
 
 	trailer_string := string(trailer_buf)
 	trailer_string = strings.Replace(trailer_string, root_string, new_root, -1)
@@ -36,7 +36,7 @@ func (context *SignContext) writeTrailer() error {
 	}
 
 	// Write PDF ending.
-	if _, err := context.OutputFile.Write([]byte("%%EOF\n")); err != nil {
+	if _, err := context.OutputFile.Write([]byte("%%EOF")); err != nil {
 		return err
 	}
 

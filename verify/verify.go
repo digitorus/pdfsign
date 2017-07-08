@@ -14,6 +14,7 @@ import (
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
 	"golang.org/x/crypto/ocsp"
+	"go/src/log"
 )
 
 type RevocationInfoArchival struct {
@@ -70,9 +71,11 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 	finfo, _ := file.Stat()
 	size := finfo.Size()
 
+	file.Seek(0, 0)
+
 	rdr, err := pdf.NewReader(file, size)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to open file")
+		return nil, fmt.Errorf("Failed to open file: %v", err)
 	}
 
 	// AcroForm will contain a SigFlags value if the form contains a digital signature
@@ -129,6 +132,12 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 				apiResp.Error = fmt.Sprintln("Failed to get ByteRange:", i, err)
 			}
 
+			log.Println(v.Key("ByteRange").Index(i-1).Int64())
+			log.Println(v.Key("ByteRange").Index(i).Int64())
+			log.Println(string(content[0:60]))
+			log.Println(string(content[len(content)-60:len(content)]))
+			log.Println(len(content))
+
 			p7.Content = append(p7.Content, content...)
 		}
 
@@ -180,8 +189,10 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 				signer.ValidSignature = true
 				signer.TrustedIssuer = false
 			}
+			log.Println("Invalid sig")
 			apiResp.Error = fmt.Sprintln("Failed to verify signature:", err)
 		} else {
+			log.Println("Valid sig")
 			signer.ValidSignature = true
 			signer.TrustedIssuer = true
 		}

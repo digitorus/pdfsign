@@ -29,7 +29,7 @@ func (context *SignContext) createSignaturePlaceholder() (signature string, byte
 	// Create a placeholder for the actual signature content, we wil replace it later.
 	signature += " /Contents<" + strings.Repeat("0", int(signatureMaxLength)) + ">"
 
-	if context.SignData.Signature.Approval {
+	if !context.SignData.Signature.Approval {
 		signature += " /Reference [" // array of signature reference dictionaries
 		signature += " << /Type /SigRef"
 		if context.SignData.Signature.CertType > 0 {
@@ -77,9 +77,6 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	io.Copy(sign_buf, context.OutputFile)
 	file_content := sign_buf.Bytes()
 
-	// Remove trailing newline.
-	file_content = file_content[:len(file_content)-1]
-
 	// Collect the parts to sign.
 	sign_content := make([]byte, 0)
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[0]:(context.ByteRangeValues[0]+context.ByteRangeValues[1])]...)
@@ -111,7 +108,7 @@ func (context *SignContext) replaceSignature() error {
 	dst := make([]byte, hex.EncodedLen(len(signature)))
 	hex.Encode(dst, signature)
 
-	context.OutputFile.WriteAt(dst, context.ByteRangeValues[0]+context.ByteRangeValues[1])
+	context.OutputFile.WriteAt(dst, context.ByteRangeValues[0] + context.ByteRangeValues[1] + 1)
 
 	return nil
 }

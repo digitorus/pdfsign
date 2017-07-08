@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bitbucket.org/digitorus/pdf"
+	"io"
 )
 
 type CatalogData struct {
@@ -21,6 +22,11 @@ type SignData struct {
 	Signer           crypto.Signer
 	Certificate      *x509.Certificate
 	CertificateChain []*x509.Certificate
+}
+
+type VisualSignData struct {
+	ObjectId uint32
+	Length   int64
 }
 
 type SignDataSignature struct {
@@ -38,10 +44,12 @@ type SignDataSignatureInfo struct {
 }
 
 type SignContext struct {
+	Filesize                   int64
 	InputFile                  *os.File
 	OutputFile                 *os.File
 	SignData                   SignData
 	CatalogData                CatalogData
+	VisualSignData             VisualSignData
 	PDFReader                  *pdf.Reader
 	NewXrefStart               int64
 	ByteRangeStartByte         int64
@@ -73,14 +81,19 @@ func SignFile(input string, output string, sign_data SignData) error {
 		return err
 	}
 
-	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 1
+	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
+	// We do size+1 because we insert a newline.
 	context := SignContext{
+		Filesize:   size + 1,
 		PDFReader:  rdr,
 		InputFile:  input_file,
 		OutputFile: output_file,
-		CatalogData: CatalogData{
+		VisualSignData: VisualSignData{
 			ObjectId: uint32(rdr.XrefInformation.ItemCount),
+		},
+		CatalogData: CatalogData{
+			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
 		},
 		SignData: sign_data,
 	}
@@ -94,8 +107,30 @@ func SignFile(input string, output string, sign_data SignData) error {
 }
 
 func (context *SignContext) SignPDF() error {
-	// Write the PDF file to the output up til the xref.
-	if err := writePartFromSourceFileToTargetFile(context.InputFile, context.OutputFile, 0, context.PDFReader.XrefInformation.StartPos); err != nil {
+	// Copy old file into new file.
+	if _, err := io.Copy(context.OutputFile, context.InputFile); err != nil {
+		return err
+	}
+
+	err := context.OutputFile.Sync()
+	if err != nil {
+		return err
+	}
+
+	// File always needs an empty line after %%EOF.
+	if _, err := context.OutputFile.Write([]byte("\n")); err != nil {
+		return err
+	}
+
+	visual_signature, err := context.createVisualSignature()
+	if err != nil {
+		return err
+	}
+
+	context.VisualSignData.Length = int64(len(visual_signature))
+
+	// Write the new catalog object.
+	if _, err := context.OutputFile.Write([]byte(visual_signature)); err != nil {
 		return err
 	}
 
@@ -115,8 +150,8 @@ func (context *SignContext) SignPDF() error {
 	signature_object, byte_range_start_byte, signature_contents_start_byte := context.createSignaturePlaceholder()
 
 	// Positions are relative to old start position of xref table.
-	byte_range_start_byte += context.PDFReader.XrefInformation.StartPos + int64(len(catalog))
-	signature_contents_start_byte += context.PDFReader.XrefInformation.StartPos + int64(len(catalog))
+	byte_range_start_byte += context.Filesize + int64(len(catalog)) + int64(len(visual_signature))
+	signature_contents_start_byte += context.Filesize + int64(len(catalog)) + int64(len(visual_signature))
 
 	context.ByteRangeStartByte = byte_range_start_byte
 	context.SignatureContentsStartByte = signature_contents_start_byte
@@ -127,7 +162,7 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Calculate the new start position of the xref table.
-	context.NewXrefStart = context.PDFReader.XrefInformation.StartPos + int64(len(signature_object)) + int64(len(catalog))
+	context.NewXrefStart = context.Filesize + int64(len(signature_object)) + int64(len(catalog)) + int64(len(visual_signature))
 
 	if err := context.writeXref(); err != nil {
 		return err
@@ -142,6 +177,11 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	if err := context.replaceSignature(); err != nil {
+		return err
+	}
+
+	err = context.OutputFile.Sync()
+	if err != nil {
 		return err
 	}
 
