@@ -16,12 +16,19 @@ type CatalogData struct {
 	RootString string
 }
 
+type TSA struct {
+	URL           string
+	Username      string
+	Password      string
+}
+
 type SignData struct {
 	ObjectId         uint32
 	Signature        SignDataSignature
 	Signer           crypto.Signer
 	Certificate      *x509.Certificate
 	CertificateChain []*x509.Certificate
+	TSA              TSA
 }
 
 type VisualSignData struct {

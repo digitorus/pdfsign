@@ -103,6 +103,9 @@ func main() {
 			},
 			Signer:      pkey,
 			Certificate: cert,
+			TSA: sign.TSA{
+				URL:           "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+			},
 		})
 		if err != nil {
 			log.Println(err)

@@ -2,13 +2,31 @@ package sign
 
 import (
 	"bytes"
+	"encoding/asn1"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/digitorus/pkcs7"
+	"github.com/digitorus/timestamp"
 )
+
+type pkiStatusInfo struct {
+	Status       int
+	StatusString string `asn1:"optional"`
+	FailInfo     int    `asn1:"optional"`
+}
+
+// 2.4.2. Response Format
+type TSAResponse struct {
+	Status         pkiStatusInfo
+	TimeStampToken asn1.RawValue
+}
 
 var signatureMaxLength = uint32(11742)
 var signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
@@ -88,8 +106,41 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		return nil, err
 	}
 
+	signer_config := pkcs7.SignerInfoConfig{}
+
+	if context.SignData.TSA.URL != "" {
+		timestamp_response, err := context.GetTSA(sign_content)
+		if err != nil {
+			return nil, err
+		}
+
+		var rest []byte
+		var resp TSAResponse
+		if rest, err = asn1.Unmarshal(timestamp_response, &resp); err != nil {
+			return nil, err
+		}
+		if len(rest) > 0 {
+			return nil, errors.New("trailing data in Time-Stamp response")
+		}
+
+		if resp.Status.Status > 0 {
+			return nil, errors.New(fmt.Sprintf("%s: %s", timestamp.FailureInfo(resp.Status.FailInfo).String(), resp.Status.StatusString))
+		}
+
+		if len(resp.TimeStampToken.Bytes) == 0 {
+			return nil, errors.New("no pkcs7 data in Time-Stamp response")
+		}
+
+		timestamp_attribute := pkcs7.Attribute{
+			Type:  asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14},
+			Value: resp.TimeStampToken,
+		}
+		signer_config.ExtraUnsignedAttributes = append(signer_config.ExtraSignedAttributes, timestamp_attribute)
+	}
+
 	// Add the signer and sign the data.
-	if err := signed_data.AddSignerChain(context.SignData.Certificate, context.SignData.Signer, context.SignData.CertificateChain, pkcs7.SignerInfoConfig{}); err != nil {
+	if err := signed_data.AddSignerChain(context.SignData.Certificate, context.SignData.Signer, context.SignData.CertificateChain, signer_config); err != nil {
+
 		return nil, err
 	}
 
@@ -97,6 +148,55 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	signed_data.Detach()
 
 	return signed_data.Finish()
+}
+
+func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {
+	sign_reader := bytes.NewReader(sign_content)
+	ts_request, err := timestamp.CreateRequest(sign_reader, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	ts_request_reader := bytes.NewReader(ts_request)
+	req, err := http.NewRequest("POST", context.SignData.TSA.URL, ts_request_reader)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", "application/timestamp-query")
+	req.Header.Add("Content-Transfer-Encoding", "binary")
+
+	if context.SignData.TSA.Username != "" && context.SignData.TSA.Password != "" {
+		req.SetBasicAuth(context.SignData.TSA.Username, context.SignData.TSA.Password)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	code := 0
+
+	if resp != nil {
+		code = resp.StatusCode
+	}
+
+	if err != nil || (code < 200 || code > 299) {
+		if err == nil {
+			defer resp.Body.Close()
+			body, _ := ioutil.ReadAll(resp.Body)
+			err = errors.New("Non success response (" + strconv.Itoa(code) + "): " + string(body))
+		} else {
+			err = errors.New("Non success response (" + strconv.Itoa(code) + ")")
+		}
+
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+	timestamp_response_body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return timestamp_response_body, nil
 }
 
 func (context *SignContext) replaceSignature() error {
