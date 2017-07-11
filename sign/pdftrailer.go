@@ -19,11 +19,18 @@ func (context *SignContext) writeTrailer() error {
 	new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
 
 	size_string := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10)
-	new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+3, 10)
+	new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+4, 10)
+
+	info := context.PDFReader.Trailer().Key("Info")
+	infoPtr := info.GetPtr()
+
+	info_string := "Info " + strconv.Itoa(int(infoPtr.GetID())) + " " + strconv.Itoa(int(infoPtr.GetGen())) + " R"
+	new_info := "Info " + strconv.FormatInt(int64(context.InfoData.ObjectId), 10) + " 0 R"
 
 	trailer_string := string(trailer_buf)
 	trailer_string = strings.Replace(trailer_string, root_string, new_root, -1)
 	trailer_string = strings.Replace(trailer_string, size_string, new_size, -1)
+	trailer_string = strings.Replace(trailer_string, info_string, new_info, -1)
 
 	// Write the new trailer.
 	if _, err := context.OutputFile.Write([]byte(trailer_string)); err != nil {

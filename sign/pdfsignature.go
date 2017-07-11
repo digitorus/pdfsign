@@ -108,7 +108,7 @@ func (context *SignContext) replaceSignature() error {
 	dst := make([]byte, hex.EncodedLen(len(signature)))
 	hex.Encode(dst, signature)
 
-	context.OutputFile.WriteAt(dst, context.ByteRangeValues[0] + context.ByteRangeValues[1] + 1)
+	context.OutputFile.WriteAt(dst, context.ByteRangeValues[0]+context.ByteRangeValues[1]+1)
 
 	return nil
 }

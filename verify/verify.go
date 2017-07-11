@@ -13,8 +13,8 @@ import (
 	"bitbucket.org/digitorus/pdf"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-	"golang.org/x/crypto/ocsp"
 	"go/src/log"
+	"golang.org/x/crypto/ocsp"
 )
 
 type RevocationInfoArchival struct {
@@ -131,12 +131,6 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 			if err != nil {
 				apiResp.Error = fmt.Sprintln("Failed to get ByteRange:", i, err)
 			}
-
-			log.Println(v.Key("ByteRange").Index(i-1).Int64())
-			log.Println(v.Key("ByteRange").Index(i).Int64())
-			log.Println(string(content[0:60]))
-			log.Println(string(content[len(content)-60:len(content)]))
-			log.Println(len(content))
 
 			p7.Content = append(p7.Content, content...)
 		}

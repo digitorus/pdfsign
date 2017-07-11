@@ -46,9 +46,9 @@ func (context *SignContext) createCatalog() (catalog string, err error) {
 
 	if !context.SignData.Signature.Approval {
 		if context.SignData.Signature.CertType > 0 {
-			catalog += " /Perms << /DocMDP " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>";
+			catalog += " /Perms << /DocMDP " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>"
 		} else {
-			catalog += " /Perms << /UR3 " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>";
+			catalog += " /Perms << /UR3 " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>"
 		}
 	}
 

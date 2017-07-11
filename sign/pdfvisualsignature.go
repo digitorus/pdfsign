@@ -28,10 +28,16 @@ func (context *SignContext) createVisualSignature() (visual_signature string, er
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 
-	page := root.Key("Pages").Key("Kids").Index(0).GetPtr()
-	visual_signature += " /P " + strconv.Itoa(int(page.GetID())) + " " + strconv.Itoa(int(page.GetGen())) + " R"
+	first_page, err := findFirstPage(root.Key("Pages"))
+	if err != nil {
+		return "", err
+	}
 
-	visual_signature += " /F 4"
+	first_page_ptr := first_page.GetPtr()
+
+	visual_signature += " /P " + strconv.Itoa(int(first_page_ptr.GetID())) + " " + strconv.Itoa(int(first_page_ptr.GetGen())) + " R"
+
+	visual_signature += " /F 132"
 	visual_signature += " /FT /Sig"
 	visual_signature += " /T " + pdfString("Signature")
 	visual_signature += " /Ff 0"

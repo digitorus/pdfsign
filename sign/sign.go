@@ -3,11 +3,11 @@ package sign
 import (
 	"crypto"
 	"crypto/x509"
+	"io"
 	"os"
 	"time"
 
 	"bitbucket.org/digitorus/pdf"
-	"io"
 )
 
 type CatalogData struct {
@@ -25,6 +25,11 @@ type SignData struct {
 }
 
 type VisualSignData struct {
+	ObjectId uint32
+	Length   int64
+}
+
+type InfoData struct {
 	ObjectId uint32
 	Length   int64
 }
@@ -50,6 +55,7 @@ type SignContext struct {
 	SignData                   SignData
 	CatalogData                CatalogData
 	VisualSignData             VisualSignData
+	InfoData                   InfoData
 	PDFReader                  *pdf.Reader
 	NewXrefStart               int64
 	ByteRangeStartByte         int64
@@ -81,7 +87,7 @@ func SignFile(input string, output string, sign_data SignData) error {
 		return err
 	}
 
-	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 2
+	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
 
 	// We do size+1 because we insert a newline.
 	context := SignContext{
@@ -94,6 +100,9 @@ func SignFile(input string, output string, sign_data SignData) error {
 		},
 		CatalogData: CatalogData{
 			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
+		},
+		InfoData: InfoData{
+			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
 		},
 		SignData: sign_data,
 	}
@@ -149,9 +158,23 @@ func (context *SignContext) SignPDF() error {
 	// Create the signature object
 	signature_object, byte_range_start_byte, signature_contents_start_byte := context.createSignaturePlaceholder()
 
+	info, err := context.createInfo()
+	if err != nil {
+		return err
+	}
+
+	context.InfoData.Length = int64(len(info))
+
+	// Write the new catalog object.
+	if _, err := context.OutputFile.Write([]byte(info)); err != nil {
+		return err
+	}
+
+	appended_bytes := context.Filesize + int64(len(catalog)) + int64(len(visual_signature)) + int64(len(info))
+
 	// Positions are relative to old start position of xref table.
-	byte_range_start_byte += context.Filesize + int64(len(catalog)) + int64(len(visual_signature))
-	signature_contents_start_byte += context.Filesize + int64(len(catalog)) + int64(len(visual_signature))
+	byte_range_start_byte += appended_bytes
+	signature_contents_start_byte += appended_bytes
 
 	context.ByteRangeStartByte = byte_range_start_byte
 	context.SignatureContentsStartByte = signature_contents_start_byte
@@ -162,7 +185,7 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Calculate the new start position of the xref table.
-	context.NewXrefStart = context.Filesize + int64(len(signature_object)) + int64(len(catalog)) + int64(len(visual_signature))
+	context.NewXrefStart = appended_bytes + int64(len(signature_object))
 
 	if err := context.writeXref(); err != nil {
 		return err

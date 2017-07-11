@@ -1,6 +1,8 @@
 package sign
 
 import (
+	"bitbucket.org/digitorus/pdf"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -8,6 +10,20 @@ import (
 	"strings"
 	"time"
 )
+
+func findFirstPage(parent pdf.Value) (pdf.Value, error) {
+	value_type := parent.Key("Type").String()
+	if value_type == "/Pages" {
+		recurse_parent, recurse_err := findFirstPage(parent.Key("Kids").Index(0))
+		return recurse_parent, recurse_err
+	}
+
+	if value_type == "/Page" {
+		return parent, nil
+	}
+
+	return parent, errors.New("Could not find first page.")
+}
 
 func pdfString(text string) string {
 	text = strings.Replace(text, "\\", "\\\\", -1)
