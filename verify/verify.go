@@ -11,25 +11,12 @@ import (
 	"time"
 
 	"bitbucket.org/digitorus/pdf"
+	"bitbucket.org/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-	"go/src/log"
+	"log"
 	"golang.org/x/crypto/ocsp"
 )
-
-type RevocationInfoArchival struct {
-	CRL          RevCRL       `asn1:"tag:0,optional,explicit"`
-	OCSP         RevOCSP      `asn1:"tag:1,optional,explicit"`
-	OtherRevInfo OtherRevInfo `asn1:"tag:2,optional,explicit"`
-}
-
-type RevCRL []asn1.RawValue
-type RevOCSP []asn1.RawValue
-
-type OtherRevInfo struct {
-	Type  asn1.ObjectIdentifier
-	Value []byte
-}
 
 type Response struct {
 	Error string
@@ -192,7 +179,7 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 		}
 
 		// PDF signature certificate revocation information attribute (1.2.840.113583.1.1.8)
-		var revInfo RevocationInfoArchival
+		var revInfo revocation.InfoArchival
 		p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
 		// Parse OCSP response
