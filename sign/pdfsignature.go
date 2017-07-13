@@ -241,6 +241,10 @@ func (context *SignContext) replaceSignature() error {
 	dst := make([]byte, hex.EncodedLen(len(signature)))
 	hex.Encode(dst, signature)
 
+	if uint32(len(dst)) > signatureMaxLength {
+		return errors.New("Signature is too big to fit in reserved space.")
+	}
+
 	context.OutputFile.WriteAt(dst, context.ByteRangeValues[0]+context.ByteRangeValues[1]+1)
 
 	return nil
