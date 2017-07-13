@@ -17,7 +17,7 @@ import (
 )
 
 func usage() {
-	log.Fatal("Usage: sign input.pdf output.pdf certificate.crt private_key.key OR verify input.pdf")
+	log.Fatal("Usage: sign input.pdf output.pdf certificate.crt private_key.key [chain.crt] OR verify input.pdf")
 }
 
 func main() {
@@ -90,6 +90,33 @@ func main() {
 			log.Fatal(err)
 		}
 
+		certificate_chains := make([][]*x509.Certificate, 0)
+
+		if flag.Arg(5) != "" {
+			certificate_pool := x509.NewCertPool()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			chain_data, err := ioutil.ReadFile(flag.Arg(5))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			certificate_pool.AppendCertsFromPEM(chain_data)
+			certificate_chains, err = cert.Verify(x509.VerifyOptions{
+				Intermediates: certificate_pool,
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			chain_data_block, _ := pem.Decode(chain_data)
+			if chain_data_block == nil {
+				log.Fatal(errors.New("failed to parse PEM block containing the chain"))
+			}
+		}
+
 		err = sign.SignFile(input, output, sign.SignData{
 			Signature: sign.SignDataSignature{
 				Info: sign.SignDataSignatureInfo{
@@ -104,6 +131,7 @@ func main() {
 			},
 			Signer:      pkey,
 			Certificate: cert,
+			CertificateChains: certificate_chains,
 			TSA: sign.TSA{
 				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
 			},

@@ -30,7 +30,7 @@ type SignData struct {
 	Signature          SignDataSignature
 	Signer             crypto.Signer
 	Certificate        *x509.Certificate
-	CertificateChain   []*x509.Certificate
+	CertificateChains  [][]*x509.Certificate
 	TSA                TSA
 	RevocationData     revocation.InfoArchival
 	RevocationFunction RevocationFunction

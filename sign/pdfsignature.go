@@ -14,6 +14,7 @@ import (
 
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
+	"crypto/x509"
 )
 
 type pkiStatusInfo struct {
@@ -28,7 +29,7 @@ type TSAResponse struct {
 	TimeStampToken asn1.RawValue
 }
 
-var signatureMaxLength = uint32(11742)
+var signatureMaxLength = uint32(1000000)
 var signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
 func (context *SignContext) createSignaturePlaceholder() (signature string, byte_range_start_byte int64, signature_contents_start_byte int64) {
@@ -139,16 +140,21 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	}
 
 	if context.SignData.RevocationFunction != nil {
-		err = context.SignData.RevocationFunction(context.SignData.Certificate, nil, &context.SignData.RevocationData)
-		if err != nil {
-			return nil, err
-		}
-
-		if context.SignData.CertificateChain != nil && len(context.SignData.CertificateChain) > 0 {
-			for _, cert := range context.SignData.CertificateChain {
-				err = context.SignData.RevocationFunction(cert, nil, &context.SignData.RevocationData)
-				if err != nil {
-					return nil, err
+		if (len(context.SignData.CertificateChains) > 0) {
+			certificate_chain := context.SignData.CertificateChains[0]
+			if (len(certificate_chain) > 0) {
+				for i, certificate := range certificate_chain {
+					if i < len(certificate_chain)-1 {
+						err = context.SignData.RevocationFunction(certificate, certificate_chain[i + 1], &context.SignData.RevocationData)
+						if err != nil {
+							return nil, err
+						}
+					} else {
+						err = context.SignData.RevocationFunction(certificate, nil, &context.SignData.RevocationData)
+						if err != nil {
+							return nil, err
+						}
+					}
 				}
 			}
 		}
@@ -160,8 +166,14 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		signer_config.ExtraSignedAttributes = append(signer_config.ExtraSignedAttributes, revocation_attribute)
 	}
 
+	// Add the first certificate chain without our own certificate.
+	var certificate_chain []*x509.Certificate
+	if (len(context.SignData.CertificateChains) > 0 && len(context.SignData.CertificateChains[0]) > 1) {
+		certificate_chain = context.SignData.CertificateChains[0][1:]
+	}
+
 	// Add the signer and sign the data.
-	if err := signed_data.AddSignerChain(context.SignData.Certificate, context.SignData.Signer, context.SignData.CertificateChain, signer_config); err != nil {
+	if err := signed_data.AddSignerChain(context.SignData.Certificate, context.SignData.Signer, certificate_chain, signer_config); err != nil {
 		return nil, err
 	}
 

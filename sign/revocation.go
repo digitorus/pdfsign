@@ -21,6 +21,7 @@ func embedOCSPRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Inf
 
 	ocspUrl := fmt.Sprintf("%s/%s", strings.TrimRight(cert.OCSPServer[0], "/"),
 		base64.StdEncoding.EncodeToString(req))
+
 	resp, err := http.Get(ocspUrl)
 	if err != nil {
 		return err
@@ -70,7 +71,8 @@ func DefaultEmbedRevocationStatusFunction(cert, issuer *x509.Certificate, i *rev
 	// TODO: Implement revocation status caching (required for higher volume signing)
 
 	// using an OCSP server
-	if len(cert.OCSPServer) > 0 {
+	// OCSP requires issuer certificate.
+	if issuer != nil && len(cert.OCSPServer) > 0 {
 		err := embedOCSPRevocationStatus(cert, issuer, i)
 		if err != nil {
 			return err
