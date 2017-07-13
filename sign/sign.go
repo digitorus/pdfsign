@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bitbucket.org/digitorus/pdf"
+	"bitbucket.org/digitorus/pdfsign/revocation"
 )
 
 type CatalogData struct {
@@ -17,18 +18,22 @@ type CatalogData struct {
 }
 
 type TSA struct {
-	URL           string
-	Username      string
-	Password      string
+	URL      string
+	Username string
+	Password string
 }
 
+type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error
+
 type SignData struct {
-	ObjectId         uint32
-	Signature        SignDataSignature
-	Signer           crypto.Signer
-	Certificate      *x509.Certificate
-	CertificateChain []*x509.Certificate
-	TSA              TSA
+	ObjectId           uint32
+	Signature          SignDataSignature
+	Signer             crypto.Signer
+	Certificate        *x509.Certificate
+	CertificateChain   []*x509.Certificate
+	TSA                TSA
+	RevocationData     revocation.InfoArchival
+	RevocationFunction RevocationFunction
 }
 
 type VisualSignData struct {

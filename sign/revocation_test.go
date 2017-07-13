@@ -75,7 +75,7 @@ htN+laG7bS/8xGTPothL9Abgd/9L3X0KKGUDCdcpzRuy20CI7E4uygD8
 func TestEmbedRevocationStatus(t *testing.T) {
 	var ia revocation.InfoArchival
 
-	err := embedRevocationStatus(pemToCert(certPem), pemToCert(issuerPem), &ia)
+	err := DefaultEmbedRevocationStatusFunction(pemToCert(certPem), pemToCert(issuerPem), &ia)
 	if err != nil {
 		t.Errorf("%s", err.Error())
 	}

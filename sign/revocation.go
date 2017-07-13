@@ -3,7 +3,6 @@ package sign
 import (
 	"crypto/x509"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -38,8 +37,7 @@ func embedOCSPRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Inf
 		return err
 	}
 
-	i.AddOCSP(body)
-	return nil
+	return i.AddOCSP(body)
 }
 
 // embedCRLRevocationStatus requires an issuer as it needs to implement the
@@ -56,11 +54,10 @@ func embedCRLRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Info
 	}
 
 	// TODO: verify crl and certificate before embedding
-	i.AddCRL(body)
-	return nil
+	return i.AddCRL(body)
 }
 
-func embedRevocationStatus(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error {
+func DefaultEmbedRevocationStatusFunction(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error {
 	// For each certificate a revoction status needs to be included, this can be done
 	// by embedding a CRL or OCSP response. In most cases an OCSP response is smaller
 	// to embed in the document but and empty CRL (often seen of dediced high volume
@@ -74,15 +71,19 @@ func embedRevocationStatus(cert, issuer *x509.Certificate, i *revocation.InfoArc
 
 	// using an OCSP server
 	if len(cert.OCSPServer) > 0 {
-		embedOCSPRevocationStatus(cert, issuer, i)
-		return nil
+		err := embedOCSPRevocationStatus(cert, issuer, i)
+		if err != nil {
+			return err
+		}
 	}
 
 	// using a crl
 	if len(cert.CRLDistributionPoints) > 0 {
-		embedCRLRevocationStatus(cert, issuer, i)
-		return nil
+		err := embedCRLRevocationStatus(cert, issuer, i)
+		if err != nil {
+			return err
+		}
 	}
 
-	return errors.New("certificate contains no information to check status")
+	return nil
 }

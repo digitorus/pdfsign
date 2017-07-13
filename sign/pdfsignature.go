@@ -135,12 +135,33 @@ func (context *SignContext) createSignature() ([]byte, error) {
 			Type:  asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14},
 			Value: resp.TimeStampToken,
 		}
-		signer_config.ExtraUnsignedAttributes = append(signer_config.ExtraSignedAttributes, timestamp_attribute)
+		signer_config.ExtraUnsignedAttributes = append(signer_config.ExtraUnsignedAttributes, timestamp_attribute)
+	}
+
+	if context.SignData.RevocationFunction != nil {
+		err = context.SignData.RevocationFunction(context.SignData.Certificate, nil, &context.SignData.RevocationData)
+		if err != nil {
+			return nil, err
+		}
+
+		if context.SignData.CertificateChain != nil && len(context.SignData.CertificateChain) > 0 {
+			for _, cert := range context.SignData.CertificateChain {
+				err = context.SignData.RevocationFunction(cert, nil, &context.SignData.RevocationData)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		revocation_attribute := pkcs7.Attribute{
+			Type:  asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8},
+			Value: context.SignData.RevocationData,
+		}
+		signer_config.ExtraSignedAttributes = append(signer_config.ExtraSignedAttributes, revocation_attribute)
 	}
 
 	// Add the signer and sign the data.
 	if err := signed_data.AddSignerChain(context.SignData.Certificate, context.SignData.Signer, context.SignData.CertificateChain, signer_config); err != nil {
-
 		return nil, err
 	}
 

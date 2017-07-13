@@ -1,8 +1,8 @@
 package revocation
 
 import (
+	"crypto/x509"
 	"encoding/asn1"
-    "crypto/x509"
 )
 
 // InfoArchival is the pkcs7 container containing the revocation information for
@@ -21,13 +21,13 @@ type InfoArchival struct {
 // pass the bytes of a downloaded CRL to this function.
 func (r *InfoArchival) AddCRL(b []byte) error {
 	r.CRL = append(r.CRL, asn1.RawValue{FullBytes: b})
-    return nil
+	return nil
 }
 
 // AddOCSP is used to embed the raw bytes of an OCSP response.
 func (r *InfoArchival) AddOCSP(b []byte) error {
 	r.OCSP = append(r.OCSP, asn1.RawValue{FullBytes: b})
-    return nil
+	return nil
 }
 
 // IsRevoked checks if there is a status inclded for the certificate and returns
@@ -37,7 +37,7 @@ func (r *InfoArchival) AddOCSP(b []byte) error {
 // TODO: Information about the revocation (time, reason, etc) must be extractable
 func (r *InfoArchival) IsRevoked(c *x509.Certificate) bool {
 	// check the crl and ocsp to see if this certificate is revoked
-    return true
+	return true
 }
 
 // CRL contains the raw bytes of a pkix.CertificateList and can be parsed with
