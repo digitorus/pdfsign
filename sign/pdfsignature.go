@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
+	"crypto/x509"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-	"crypto/x509"
 )
 
 type pkiStatusInfo struct {
@@ -109,6 +109,8 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	signer_config := pkcs7.SignerInfoConfig{}
 
+	TSATokenChain := make([][]*x509.Certificate, 0)
+
 	if context.SignData.TSA.URL != "" {
 		timestamp_response, err := context.GetTSA(sign_content)
 		if err != nil {
@@ -128,6 +130,11 @@ func (context *SignContext) createSignature() ([]byte, error) {
 			return nil, errors.New(fmt.Sprintf("%s: %s", timestamp.FailureInfo(resp.Status.FailInfo).String(), resp.Status.StatusString))
 		}
 
+		timestamp_p7, err := pkcs7.Parse(resp.TimeStampToken.FullBytes)
+		if err != nil {
+			return nil, err
+		}
+
 		if len(resp.TimeStampToken.Bytes) == 0 {
 			return nil, errors.New("no pkcs7 data in Time-Stamp response")
 		}
@@ -137,15 +144,45 @@ func (context *SignContext) createSignature() ([]byte, error) {
 			Value: resp.TimeStampToken,
 		}
 		signer_config.ExtraUnsignedAttributes = append(signer_config.ExtraUnsignedAttributes, timestamp_attribute)
+
+		tsa_certificate_pool := x509.NewCertPool()
+		for _, certificate := range timestamp_p7.Certificates {
+			tsa_certificate_pool.AddCert(certificate)
+		}
+
+		if len(timestamp_p7.Certificates) > 0 {
+			TSATokenChain, err = timestamp_p7.Certificates[len(timestamp_p7.Certificates)-1].Verify(x509.VerifyOptions{
+				Intermediates: tsa_certificate_pool,
+			})
+		}
 	}
 
 	if context.SignData.RevocationFunction != nil {
-		if (len(context.SignData.CertificateChains) > 0) {
+		if context.SignData.CertificateChains != nil && (len(context.SignData.CertificateChains) > 0) {
 			certificate_chain := context.SignData.CertificateChains[0]
-			if (len(certificate_chain) > 0) {
+			if certificate_chain != nil && (len(certificate_chain) > 0) {
 				for i, certificate := range certificate_chain {
 					if i < len(certificate_chain)-1 {
-						err = context.SignData.RevocationFunction(certificate, certificate_chain[i + 1], &context.SignData.RevocationData)
+						err = context.SignData.RevocationFunction(certificate, certificate_chain[i+1], &context.SignData.RevocationData)
+						if err != nil {
+							return nil, err
+						}
+					} else {
+						err = context.SignData.RevocationFunction(certificate, nil, &context.SignData.RevocationData)
+						if err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
+		}
+
+		if TSATokenChain != nil && (len(TSATokenChain) > 0) {
+			certificate_chain := TSATokenChain[0]
+			if certificate_chain != nil && (len(certificate_chain) > 0) {
+				for i, certificate := range certificate_chain {
+					if i < len(certificate_chain)-1 {
+						err = context.SignData.RevocationFunction(certificate, certificate_chain[i+1], &context.SignData.RevocationData)
 						if err != nil {
 							return nil, err
 						}
@@ -168,7 +205,7 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	// Add the first certificate chain without our own certificate.
 	var certificate_chain []*x509.Certificate
-	if (len(context.SignData.CertificateChains) > 0 && len(context.SignData.CertificateChains[0]) > 1) {
+	if len(context.SignData.CertificateChains) > 0 && len(context.SignData.CertificateChains[0]) > 1 {
 		certificate_chain = context.SignData.CertificateChains[0][1:]
 	}
 
@@ -185,7 +222,9 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {
 	sign_reader := bytes.NewReader(sign_content)
-	ts_request, err := timestamp.CreateRequest(sign_reader, nil)
+	ts_request, err := timestamp.CreateRequest(sign_reader, &timestamp.RequestOptions{
+		Certificates: true,
+	})
 	if err != nil {
 		return nil, err
 	}

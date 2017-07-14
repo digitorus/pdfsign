@@ -110,11 +110,6 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			chain_data_block, _ := pem.Decode(chain_data)
-			if chain_data_block == nil {
-				log.Fatal(errors.New("failed to parse PEM block containing the chain"))
-			}
 		}
 
 		err = sign.SignFile(input, output, sign.SignData{
@@ -129,11 +124,11 @@ func main() {
 				CertType: 2,
 				Approval: false,
 			},
-			Signer:      pkey,
-			Certificate: cert,
+			Signer:            pkey,
+			Certificate:       cert,
 			CertificateChains: certificate_chains,
 			TSA: sign.TSA{
-				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+				URL:            "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
 			},
 			RevocationData:     revocation.InfoArchival{},
 			RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,
