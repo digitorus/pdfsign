@@ -100,7 +100,7 @@ func main() {
 				log.Fatal(err)
 			}
 
-			chain_data, err := ioutil.ReadFile(flag.Arg(5))
+			chain_data, err := ioutil.ReadFile(flag.Arg(4))
 			if err != nil {
 				log.Fatal(err)
 			}
