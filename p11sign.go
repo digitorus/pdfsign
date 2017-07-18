@@ -13,8 +13,6 @@ import (
 	"bitbucket.org/digitorus/pdfsign/sign"
 	"bitbucket.org/digitorus/pdfsign/verify"
 	"bitbucket.org/digitorus/pkcs11"
-
-	p11 "github.com/miekg/pkcs11"
 )
 
 func usage() {
@@ -69,7 +67,7 @@ func main() {
 		}
 
 		// Load Library
-		ctx := p11.New(lib)
+		ctx := pkcs11.New(lib)
 		if ctx == nil {
 			log.Fatal("Failed to load library")
 		}
