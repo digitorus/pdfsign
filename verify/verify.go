@@ -16,6 +16,7 @@ import (
 	"github.com/digitorus/timestamp"
 	"log"
 	"golang.org/x/crypto/ocsp"
+	"crypto"
 )
 
 type Response struct {
@@ -147,6 +148,22 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 						apiResp.Error = fmt.Sprintln("Failed to parse timestamp", err)
 					}
 
+					r := bytes.NewReader(s.EncryptedDigest)
+					h := crypto.SHA256.New()
+					b := make([]byte, 32)
+					for {
+						n, err := r.Read(b)
+						if err == io.EOF {
+							break
+						}
+
+						h.Write(b[:n])
+					}
+
+					if !bytes.Equal(h.Sum(nil), signer.TimeStamp.HashedMessage) {
+						apiResp.Error = fmt.Sprintln("Hash in timestamp is different from pkcs7")
+					}
+
 					break
 				}
 			}
@@ -217,7 +234,7 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 					signer.RevokedCertificate = true
 				}
 
-				if len(chain) > 1 && len(chain[0]) > 1 {
+				if len(chain) > 0 && len(chain[0]) > 1 {
 					issuer := chain[0][1]
 					if resp.Certificate != nil {
 						err = resp.Certificate.CheckSignatureFrom(issuer)

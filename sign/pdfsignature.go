@@ -111,52 +111,6 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	TSATokenChain := make([][]*x509.Certificate, 0)
 
-	if context.SignData.TSA.URL != "" {
-		timestamp_response, err := context.GetTSA(sign_content)
-		if err != nil {
-			return nil, err
-		}
-
-		var rest []byte
-		var resp TSAResponse
-		if rest, err = asn1.Unmarshal(timestamp_response, &resp); err != nil {
-			return nil, err
-		}
-		if len(rest) > 0 {
-			return nil, errors.New("trailing data in Time-Stamp response")
-		}
-
-		if resp.Status.Status > 0 {
-			return nil, errors.New(fmt.Sprintf("%s: %s", timestamp.FailureInfo(resp.Status.FailInfo).String(), resp.Status.StatusString))
-		}
-
-		timestamp_p7, err := pkcs7.Parse(resp.TimeStampToken.FullBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(resp.TimeStampToken.Bytes) == 0 {
-			return nil, errors.New("no pkcs7 data in Time-Stamp response")
-		}
-
-		timestamp_attribute := pkcs7.Attribute{
-			Type:  asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14},
-			Value: resp.TimeStampToken,
-		}
-		signer_config.ExtraUnsignedAttributes = append(signer_config.ExtraUnsignedAttributes, timestamp_attribute)
-
-		tsa_certificate_pool := x509.NewCertPool()
-		for _, certificate := range timestamp_p7.Certificates {
-			tsa_certificate_pool.AddCert(certificate)
-		}
-
-		if len(timestamp_p7.Certificates) > 0 {
-			TSATokenChain, err = timestamp_p7.Certificates[len(timestamp_p7.Certificates)-1].Verify(x509.VerifyOptions{
-				Intermediates: tsa_certificate_pool,
-			})
-		}
-	}
-
 	if context.SignData.RevocationFunction != nil {
 		if context.SignData.CertificateChains != nil && (len(context.SignData.CertificateChains) > 0) {
 			certificate_chain := context.SignData.CertificateChains[0]
@@ -216,6 +170,43 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	// PDF needs a detached signature, meaning the content isn't included.
 	signed_data.Detach()
+
+	if context.SignData.TSA.URL != "" {
+		signature_data := signed_data.GetSignedData()
+
+		timestamp_response, err := context.GetTSA(signature_data.SignerInfos[0].EncryptedDigest)
+		if err != nil {
+			return nil, err
+		}
+
+		var rest []byte
+		var resp TSAResponse
+		if rest, err = asn1.Unmarshal(timestamp_response, &resp); err != nil {
+			return nil, err
+		}
+		if len(rest) > 0 {
+			return nil, errors.New("trailing data in Time-Stamp response")
+		}
+
+		if resp.Status.Status > 0 {
+			return nil, errors.New(fmt.Sprintf("%s: %s", timestamp.FailureInfo(resp.Status.FailInfo).String(), resp.Status.StatusString))
+		}
+
+		_, err = pkcs7.Parse(resp.TimeStampToken.FullBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(resp.TimeStampToken.Bytes) == 0 {
+			return nil, errors.New("no pkcs7 data in Time-Stamp response")
+		}
+
+		timestamp_attribute := pkcs7.Attribute{
+			Type:  asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14},
+			Value: resp.TimeStampToken,
+		}
+		signature_data.SignerInfos[0].SetUnauthenticatedAttributes([]pkcs7.Attribute{timestamp_attribute})
+	}
 
 	return signed_data.Finish()
 }

@@ -106,6 +106,8 @@ func main() {
 			certificate_pool.AppendCertsFromPEM(chain_data)
 			certificate_chains, err = cert.Verify(x509.VerifyOptions{
 				Intermediates: certificate_pool,
+				CurrentTime:   cert.NotBefore,
+				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 			})
 			if err != nil {
 				log.Fatal(err)
