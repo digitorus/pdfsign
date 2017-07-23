@@ -29,7 +29,6 @@ type TSAResponse struct {
 	TimeStampToken asn1.RawValue
 }
 
-var signatureMaxLength = uint32(1000000)
 var signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
 func (context *SignContext) createSignaturePlaceholder() (signature string, byte_range_start_byte int64, signature_contents_start_byte int64) {
@@ -46,7 +45,7 @@ func (context *SignContext) createSignaturePlaceholder() (signature string, byte
 	signature_contents_start_byte = int64(len(signature)) + 11
 
 	// Create a placeholder for the actual signature content, we wil replace it later.
-	signature += " /Contents<" + strings.Repeat("0", int(signatureMaxLength)) + ">"
+	signature += " /Contents<" + strings.Repeat("0", int(context.SignatureMaxLength)) + ">"
 
 	if !context.SignData.Signature.Approval {
 		signature += " /Reference [" // array of signature reference dictionaries
@@ -88,6 +87,39 @@ func (context *SignContext) createSignaturePlaceholder() (signature string, byte
 	return signature, byte_range_start_byte, signature_contents_start_byte
 }
 
+func (context *SignContext) fetchRevocationData() error {
+	if context.SignData.RevocationFunction != nil {
+		if context.SignData.CertificateChains != nil && (len(context.SignData.CertificateChains) > 0) {
+			certificate_chain := context.SignData.CertificateChains[0]
+			if certificate_chain != nil && (len(certificate_chain) > 0) {
+				for i, certificate := range certificate_chain {
+					if i < len(certificate_chain)-1 {
+						err := context.SignData.RevocationFunction(certificate, certificate_chain[i+1], &context.SignData.RevocationData)
+						if err != nil {
+							return err
+						}
+					} else {
+						err := context.SignData.RevocationFunction(certificate, nil, &context.SignData.RevocationData)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Calculate space needed for signature.
+	for _, crl := range context.SignData.RevocationData.CRL {
+		context.SignatureMaxLength += uint32(len(crl.FullBytes) * 2)
+	}
+	for _, ocsp := range context.SignData.RevocationData.OCSP {
+		context.SignatureMaxLength += uint32(len(ocsp.FullBytes) * 2)
+	}
+
+	return nil
+}
+
 func (context *SignContext) createSignature() ([]byte, error) {
 
 	// Sadly we can't efficiently sign a file, we need to read all the bytes we want to sign.
@@ -107,54 +139,13 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		return nil, err
 	}
 
-	signer_config := pkcs7.SignerInfoConfig{}
-
-	TSATokenChain := make([][]*x509.Certificate, 0)
-
-	if context.SignData.RevocationFunction != nil {
-		if context.SignData.CertificateChains != nil && (len(context.SignData.CertificateChains) > 0) {
-			certificate_chain := context.SignData.CertificateChains[0]
-			if certificate_chain != nil && (len(certificate_chain) > 0) {
-				for i, certificate := range certificate_chain {
-					if i < len(certificate_chain)-1 {
-						err = context.SignData.RevocationFunction(certificate, certificate_chain[i+1], &context.SignData.RevocationData)
-						if err != nil {
-							return nil, err
-						}
-					} else {
-						err = context.SignData.RevocationFunction(certificate, nil, &context.SignData.RevocationData)
-						if err != nil {
-							return nil, err
-						}
-					}
-				}
-			}
-		}
-
-		if TSATokenChain != nil && (len(TSATokenChain) > 0) {
-			certificate_chain := TSATokenChain[0]
-			if certificate_chain != nil && (len(certificate_chain) > 0) {
-				for i, certificate := range certificate_chain {
-					if i < len(certificate_chain)-1 {
-						err = context.SignData.RevocationFunction(certificate, certificate_chain[i+1], &context.SignData.RevocationData)
-						if err != nil {
-							return nil, err
-						}
-					} else {
-						err = context.SignData.RevocationFunction(certificate, nil, &context.SignData.RevocationData)
-						if err != nil {
-							return nil, err
-						}
-					}
-				}
-			}
-		}
-
-		revocation_attribute := pkcs7.Attribute{
-			Type:  asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8},
-			Value: context.SignData.RevocationData,
-		}
-		signer_config.ExtraSignedAttributes = append(signer_config.ExtraSignedAttributes, revocation_attribute)
+	signer_config := pkcs7.SignerInfoConfig{
+		ExtraSignedAttributes: []pkcs7.Attribute{
+			{
+				Type:  asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8},
+				Value: context.SignData.RevocationData,
+			},
+		},
 	}
 
 	// Add the first certificate chain without our own certificate.
@@ -271,7 +262,7 @@ func (context *SignContext) replaceSignature() error {
 	dst := make([]byte, hex.EncodedLen(len(signature)))
 	hex.Encode(dst, signature)
 
-	if uint32(len(dst)) > signatureMaxLength {
+	if uint32(len(dst)) > context.SignatureMaxLength {
 		return errors.New("Signature is too big to fit in reserved space.")
 	}
 

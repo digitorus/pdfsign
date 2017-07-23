@@ -22,7 +22,7 @@ func (context *SignContext) updateByteRange() error {
 	context.ByteRangeValues[1] = context.SignatureContentsStartByte - 1
 
 	// Signature ByteRange part 2 start byte directly starts after the actual signature.
-	context.ByteRangeValues[2] = context.ByteRangeValues[1] + 1 + int64(signatureMaxLength) + 1
+	context.ByteRangeValues[2] = context.ByteRangeValues[1] + 1 + int64(context.SignatureMaxLength) + 1
 
 	// Signature ByteRange part 2 length is everything else of the file.
 	context.ByteRangeValues[3] = output_file_size - context.ByteRangeValues[2]

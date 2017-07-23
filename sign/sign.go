@@ -73,6 +73,7 @@ type SignContext struct {
 	ByteRangeStartByte         int64
 	SignatureContentsStartByte int64
 	ByteRangeValues            []int64
+	SignatureMaxLength         uint32
 }
 
 func SignFile(input string, output string, sign_data SignData) error {
@@ -142,6 +143,19 @@ func (context *SignContext) SignPDF() error {
 	if _, err := context.OutputFile.Write([]byte("\n")); err != nil {
 		return err
 	}
+
+	// Base size for signature.
+	context.SignatureMaxLength = 100000
+
+	// Add estimated size for TSA.
+	// We can't kow actual size of TSA until after signing.
+	if context.SignData.TSA.URL != "" {
+		context.SignatureMaxLength += 10000
+	}
+
+	// Fetch revocation data before adding signature placeholder.
+	// Revocation data can be quite large and we need to create enough space in the placeholder.
+	context.fetchRevocationData()
 
 	visual_signature, err := context.createVisualSignature()
 	if err != nil {
