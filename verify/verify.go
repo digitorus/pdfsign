@@ -12,11 +12,11 @@ import (
 
 	"bitbucket.org/digitorus/pdf"
 	"bitbucket.org/digitorus/pdfsign/revocation"
+	"crypto"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-	"log"
 	"golang.org/x/crypto/ocsp"
-	"crypto"
+	"log"
 )
 
 type Response struct {
