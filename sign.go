@@ -20,12 +20,12 @@ import (
 
 // usage is a usage function for the flags package.
 func usage() {
-	fmt.Fprintf(os.Stderr, "Pdfsign is a tool to sign and verifyPDF PDF digital signatures\n\n")
+	fmt.Fprintf(os.Stderr, "Pdfsign is a tool to sign and verify PDF digital signatures\n\n")
 	fmt.Fprintf(os.Stderr, "Usage:\n\n")
 	fmt.Fprintf(os.Stderr, "\tpdfsign command [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "The commands are:\n\n")
 	fmt.Fprintf(os.Stderr, "\tsign \t\tsign single PDF document\n")
-	fmt.Fprintf(os.Stderr, "\tverifyPDF \t\tverifyPDF signature of single PDF document\n")
+	fmt.Fprintf(os.Stderr, "\tverify \t\tverify signature of single PDF document\n")
 	fmt.Fprintf(os.Stderr, "\tserve \t\tserve web API with signing capabilities. API documentation url\n")
 	fmt.Fprintf(os.Stderr, "\twatch \t\tautomatically sign PDF files inside a folder\n")
 	fmt.Fprintf(os.Stderr, "\n\n")
@@ -43,7 +43,7 @@ func main() {
 	switch os.Args[1] {
 	case "sign":
 		simpleSign()
-	case "verifyPDF":
+	case "verify":
 		verifyPDF()
 	case "serve":
 	case "watch":
@@ -54,7 +54,7 @@ func main() {
 }
 
 func verifyPDF() {
-	verifyCommand := flag.NewFlagSet("verifyPDF", flag.ExitOnError)
+	verifyCommand := flag.NewFlagSet("verify", flag.ExitOnError)
 	input := verifyCommand.String("in", "", "")
 
 	input_file, err := os.Open(*input)
@@ -139,7 +139,7 @@ func p11sign() {
 	//}
 	//
 	//method := flag.Arg(0)
-	//if method != "sign" && method != "verifyPDF" {
+	//if method != "sign" && method != "verify" {
 	//	usage()
 	//}
 	//
@@ -148,7 +148,7 @@ func p11sign() {
 	//	usage()
 	//}
 	//
-	//if method == "verifyPDF" {
+	//if method == "verify" {
 	//	input_file, err := os.Open(input)
 	//	if err != nil {
 	//		log.Fatal(err)
