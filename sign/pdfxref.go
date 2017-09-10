@@ -130,7 +130,7 @@ func (context *SignContext) writeXrefStream() error {
 	id1 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 
 	new_xref := strconv.Itoa(int(context.SignData.ObjectId + 1)) + " 0 obj\n"
-	new_xref += "<< /Type /XRef /Length " + strconv.Itoa(len(streamBytes.Bytes()))  + " /Filter /FlateDecode /DecodeParms << /Columns 5 /Predictor 12 >> /W [ 1 3 1 ] /Prev " +  strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10) + " /Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+5, 10) + " /Index [ 5 " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10) + " ] /" + new_info + " /" + new_root + " /ID [<" + id0 + "><" + id1 + ">] >>\n"
+	new_xref += "<< /Type /XRef /Length " + strconv.Itoa(len(streamBytes.Bytes()))  + " /Filter /FlateDecode /DecodeParms << /Columns 5 /Predictor 12 >> /W [ 1 3 1 ] /Prev " +  strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10) + " /Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+5, 10) + " /Index [ " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10) + " 5 ] /" + new_info + " /" + new_root + " /ID [<" + id0 + "><" + id1 + ">] >>\n"
 	if _, err := context.OutputFile.Write([]byte(new_xref)); err != nil {
 		return err
 	}
