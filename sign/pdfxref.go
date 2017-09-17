@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"compress/zlib"
 	"bytes"
+	"log"
 )
 
 func (context *SignContext) writeXref() error {
@@ -78,8 +79,8 @@ func (context *SignContext) writeXrefTable() error {
 }
 
 func (context *SignContext) writeXrefStream() error {
-	// @todo: DO NOT FORGET TO ADD SELF REFERENCE!!!
-	// @todo: fix format (columns) for stream
+	// @todo: add self reference.
+	// @todo: fix format (columns) for stream, first column is 1 (sub) or 2 (up)
 	buffer := bytes.NewBuffer(nil)
 
 	// Create the new catalog xref line.
@@ -118,10 +119,25 @@ func (context *SignContext) writeXrefStream() error {
 		return err
 	}
 
-	streamBytes, err := EncodePNGUPBytes(5, buffer.Bytes())
-	if err != nil {
-		return err
+	predictor := context.PDFReader.Trailer().Key("DecodeParms").Key("Predictor").Int64()
+
+	streamBytes := []byte{}
+	err := errors.New("")
+
+	// If original uses PNG Sub, use that.
+	if predictor == 11 {
+		streamBytes, err = EncodePNGSUBBytes(5, buffer.Bytes())
+		if err != nil {
+			return err
+		}
+	} else {
+		// Do PNG - Up by default.
+		streamBytes, err = EncodePNGUPBytes(5, buffer.Bytes())
+		if err != nil {
+			return err
+		}
 	}
+
 
 	new_info := "Info " + strconv.FormatInt(int64(context.InfoData.ObjectId), 10) + " 0 R"
 	new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
@@ -152,8 +168,7 @@ func (context *SignContext) writeXrefStream() error {
 	return nil
 }
 
-func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
-	// @todo: this is PNG SUB, we need PNG UP.
+func EncodePNGSUBBytes(columns int, data []byte) ([]byte, error) {
 	rowCount := len(data) / columns
 	if len(data)%columns != 0 {
 		return nil, errors.New("Invalid row/column length")
@@ -167,6 +182,46 @@ func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
 		for j := 1; j < columns; j++ {
 			tmpRowData[j] = byte(int(rowData[j]-rowData[j-1]) % 256)
 		}
+
+		buffer.WriteByte(1)
+		buffer.Write(tmpRowData)
+	}
+
+	data = buffer.Bytes()
+
+	var b bytes.Buffer
+	w := zlib.NewWriter(&b)
+	w.Write(data)
+	w.Close()
+
+	return b.Bytes(), nil
+}
+
+
+func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
+	rowCount := len(data) / columns
+	if len(data)%columns != 0 {
+		return nil, errors.New("Invalid row/column length")
+	}
+
+	prevRowData := make([]byte, columns)
+
+	// Initially all previous data is zero.
+	for i := 0; i < columns; i++ {
+		prevRowData[i] = 0
+	}
+
+	buffer := bytes.NewBuffer(nil)
+	tmpRowData := make([]byte, columns)
+	for i := 0; i < rowCount; i++ {
+		rowData := data[columns*i : columns*(i+1)]
+		tmpRowData[0] = rowData[0]
+		for j := 1; j < columns; j++ {
+			tmpRowData[j] = byte(int(rowData[j]-prevRowData[j]) % 256)
+		}
+
+		// Save the previous row for prediction.
+		prevRowData = tmpRowData
 
 		buffer.WriteByte(1)
 		buffer.Write(tmpRowData)
