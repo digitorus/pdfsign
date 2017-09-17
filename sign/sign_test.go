@@ -84,6 +84,8 @@ func TestReaderCanReadPDF(t *testing.T) {
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
 		}
+
+		input_file.Close()
 	}
 }
 
