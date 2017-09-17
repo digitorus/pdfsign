@@ -80,16 +80,14 @@ func (context *SignContext) writeXrefTable() error {
 func (context *SignContext) writeXrefStream() error {
 	// @todo: DO NOT FORGET TO ADD SELF REFERENCE!!!
 	// @todo: fix format (columns) for stream
-	// @todo: add PNG-Up support.
-	var streamBytes bytes.Buffer
-	w := zlib.NewWriter(&streamBytes)
+	buffer := bytes.NewBuffer(nil)
 
 	// Create the new catalog xref line.
 	visual_signature_object_start_position := strconv.FormatInt(context.Filesize, 10)
 	visual_signature_xref_line := leftPad(visual_signature_object_start_position, "0", 10-len(visual_signature_object_start_position)) + " 00000 n \n"
 
 	// Write the new catalog xref line.
-	if _, err := w.Write([]byte(visual_signature_xref_line)); err != nil {
+	if _, err := buffer.Write([]byte(visual_signature_xref_line)); err != nil {
 		return err
 	}
 
@@ -98,7 +96,7 @@ func (context *SignContext) writeXrefStream() error {
 	catalog_xref_line := leftPad(catalog_object_start_position, "0", 10-len(catalog_object_start_position)) + " 00000 n \n"
 
 	// Write the new catalog xref line.
-	if _, err := w.Write([]byte(catalog_xref_line)); err != nil {
+	if _, err := buffer.Write([]byte(catalog_xref_line)); err != nil {
 		return err
 	}
 
@@ -107,7 +105,7 @@ func (context *SignContext) writeXrefStream() error {
 	info_xref_line := leftPad(info_object_start_position, "0", 10-len(info_object_start_position)) + " 00000 n \n"
 
 	// Write the new signature xref line.
-	if _, err := w.Write([]byte(info_xref_line)); err != nil {
+	if _, err := buffer.Write([]byte(info_xref_line)); err != nil {
 		return err
 	}
 
@@ -116,10 +114,14 @@ func (context *SignContext) writeXrefStream() error {
 	signature_xref_line := leftPad(signature_object_start_position, "0", 10-len(signature_object_start_position)) + " 00000 n \n"
 
 	// Write the new signature xref line.
-	if _, err := w.Write([]byte(signature_xref_line)); err != nil {
+	if _, err := buffer.Write([]byte(signature_xref_line)); err != nil {
 		return err
 	}
-	w.Close()
+
+	streamBytes, err := EncodePNGUPBytes(5, buffer.Bytes())
+	if err != nil {
+		return err
+	}
 
 	new_info := "Info " + strconv.FormatInt(int64(context.InfoData.ObjectId), 10) + " 0 R"
 	new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
@@ -130,7 +132,7 @@ func (context *SignContext) writeXrefStream() error {
 	id1 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 
 	new_xref := strconv.Itoa(int(context.SignData.ObjectId + 1)) + " 0 obj\n"
-	new_xref += "<< /Type /XRef /Length " + strconv.Itoa(len(streamBytes.Bytes()))  + " /Filter /FlateDecode /DecodeParms << /Columns 5 /Predictor 12 >> /W [ 1 3 1 ] /Prev " +  strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10) + " /Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+5, 10) + " /Index [ " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10) + " 5 ] /" + new_info + " /" + new_root + " /ID [<" + id0 + "><" + id1 + ">] >>\n"
+	new_xref += "<< /Type /XRef /Length " + strconv.Itoa(len(streamBytes))  + " /Filter /FlateDecode /DecodeParms << /Columns 5 /Predictor 12 >> /W [ 1 3 1 ] /Prev " +  strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10) + " /Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+5, 10) + " /Index [ " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10) + " 5 ] /" + new_info + " /" + new_root + " /ID [<" + id0 + "><" + id1 + ">] >>\n"
 	if _, err := context.OutputFile.Write([]byte(new_xref)); err != nil {
 		return err
 	}
@@ -139,7 +141,7 @@ func (context *SignContext) writeXrefStream() error {
 		return err
 	}
 
-	if _, err := context.OutputFile.Write(streamBytes.Bytes()); err != nil {
+	if _, err := context.OutputFile.Write(streamBytes); err != nil {
 		return err
 	}
 
@@ -148,4 +150,34 @@ func (context *SignContext) writeXrefStream() error {
 	}
 
 	return nil
+}
+
+func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
+	// @todo: this is PNG SUB, we need PNG UP.
+	rowCount := len(data) / columns
+	if len(data)%columns != 0 {
+		return nil, errors.New("Invalid row/column length")
+	}
+
+	buffer := bytes.NewBuffer(nil)
+	tmpRowData := make([]byte, columns)
+	for i := 0; i < rowCount; i++ {
+		rowData := data[columns*i : columns*(i+1)]
+		tmpRowData[0] = rowData[0]
+		for j := 1; j < columns; j++ {
+			tmpRowData[j] = byte(int(rowData[j]-rowData[j-1]) % 256)
+		}
+
+		buffer.WriteByte(1)
+		buffer.Write(tmpRowData)
+	}
+
+	data = buffer.Bytes()
+
+	var b bytes.Buffer
+	w := zlib.NewWriter(&b)
+	w.Write(data)
+	w.Close()
+
+	return b.Bytes(), nil
 }
