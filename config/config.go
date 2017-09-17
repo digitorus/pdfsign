@@ -4,9 +4,13 @@ import (
 	"log"
 	"os"
 
-	"bitbucket.org/digitorus/pdfsign/sign"
 	"github.com/BurntSushi/toml"
+	"github.com/asaskevich/govalidator"
 )
+
+func init() {
+	govalidator.SetFieldsRequiredByDefault(true)
+}
 
 var (
 	DefaultLocation string = "./pdfsign.conf" // Default location of the config file
@@ -15,8 +19,24 @@ var (
 
 // Config is the root of the config
 type Config struct {
-	Info sign.SignDataSignatureInfo
-	TSA  sign.TSA
+	//Info:
+	//Name:        "Jeroen Bobbeldijk",
+	//Location:    "Rotterdam",
+	//Reason:      "Test",
+	//ContactInfo: "Geen",
+	//CertType: 2,
+	//Approval: false,
+	//TSA: sign.TSA{
+	//URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+}
+
+// ValidateFields validates all the fields of the config
+func (c Config) ValidateFields() error {
+	_, err := govalidator.ValidateStruct(c)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func Read(configfile string) {
@@ -28,6 +48,10 @@ func Read(configfile string) {
 
 	var c Config
 	if _, err := toml.DecodeFile(configfile, &c); err != nil {
+	}
+
+	if err := c.ValidateFields(); err != nil {
+		log.Fatal("Config is not valid: ", err)
 	}
 
 	Settings = c

@@ -20,5 +20,18 @@ staticPath = "../static"
 	}
 
 	// Root
-	assert.Equal(t, "../static", c)
+	assert.Equal(t, "../static", c.StaticPath)
+
+}
+
+func TestValidation(t *testing.T) {
+	const configContent = ``
+
+	var c config.Config
+	if _, err := toml.Decode(configContent, &c); err != nil {
+		t.Error(err)
+	}
+
+	err := c.ValidateFields()
+	assert.NotNil(t, err)
 }

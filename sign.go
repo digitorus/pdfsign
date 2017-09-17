@@ -13,13 +13,9 @@ import (
 
 	"fmt"
 
-	"crypto"
-
-	"bitbucket.org/digitorus/pdfsign/config"
 	"bitbucket.org/digitorus/pdfsign/revocation"
 	"bitbucket.org/digitorus/pdfsign/sign"
 	"bitbucket.org/digitorus/pdfsign/verify"
-	"bitbucket.org/digitorus/pkcs11"
 )
 
 // usage is a usage function for the flags package.
@@ -74,144 +70,18 @@ func verifyPDF() {
 	}
 }
 
-func getSignDataFlags(f *flag.FlagSet) sign.SignData {
-	// Signature info
-	name := f.String("info-name", config.Settings.Info.Name, "Signature info name")
-	location := f.String("info-location", config.Settings.Info.Location, "Signature info location")
-	reason := f.String("info-reason", config.Settings.Info.Reason, "Signature info reason")
-	contact := f.String("info-contact", config.Settings.Info.ContactInfo, "Signature info contact")
-	// Signature other
-	approval := f.Bool("approval", false, "Approval")
-	certType := f.Uint("type", 0, "Certificate type")
-
-	// TSA
-	tsaUrl := f.String("tsa-url", "", "tsaUrl")
-	tsaUsername := f.String("tsa-username", "", "tsaUsername")
-	tsaPassword := f.String("tsa-password", "", "tsaPassword")
-
-	var sd sign.SignData
-	sd.Signature.Info.Name = *name
-	sd.Signature.Info.Location = *location
-	sd.Signature.Info.Reason = *reason
-	sd.Signature.Info.ContactInfo = *contact
-	sd.Signature.CertType = uint32(*certType)
-	sd.Signature.Approval = *approval
-	sd.TSA.URL = *tsaUrl
-	sd.TSA.Username = *tsaUsername
-	sd.TSA.Password = *tsaPassword
-	return sd
-}
-
 func simpleSign() {
 	signCommand := flag.NewFlagSet("sign", flag.ExitOnError)
-	configPath := signCommand.String("config", "", "Path to config file")
-	signCommand.Parse(os.Args[2:])
-	if *configPath != "" {
-		config.Read(*configPath)
-	}
-
-	inputPath := signCommand.String("in", "", "Input PDF file")
-	outputPath := signCommand.String("out", "", "Output PDF file")
-	crtPath := signCommand.String("crt", "", "Certificate")
-	keyPath := signCommand.String("key", "", "Private key")
-	crtChainPath := signCommand.String("chain", "", "Certificate chain")
-	help := signCommand.Bool("help", false, "Show this help")
-	signData := getSignDataFlags(signCommand)
-	signCommand.Parse(os.Args[2:])
-
-	usageText := `usage: pdfsign sign -in input.pdf -out output.pdf -crt certificate.crt -key private_key.key [-chain chain.crt]")
-Description
-`
-	if *help == true {
-		fmt.Println(usageText)
-		signCommand.PrintDefaults()
-		return
-	}
-
-	if signCommand.Parsed() == false || *inputPath == "" || *outputPath == "" || *crtPath == "" || *keyPath == "" {
-		fmt.Println(usageText)
-		signCommand.PrintDefaults()
-		os.Exit(2)
-	}
-
-	cert, signer, err := getCertSignerPair(*crtPath, *keyPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	certificate_chains, err := getCertificateChains(*crtChainPath, cert)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	signData.Signer = signer
-	signData.Certificate = cert
-	signData.CertificateChains = certificate_chains
-	if err := signWithConfig(*inputPath, *outputPath, signData); err != nil {
-		log.Println(err)
-	} else {
-		log.Println("Signed PDF written to " + *outputPath)
-	}
-}
-
-func getCertSignerPair(crtPath, keyPath string) (*x509.Certificate, crypto.Signer, error) {
-	var certificate *x509.Certificate
-	var signer crypto.Signer
-
-	// Set certificate
-	certificate_data, err := ioutil.ReadFile(crtPath)
-	if err != nil {
-		return certificate, signer, err
-		log.Fatal(err)
-	}
-	certificate_data_block, _ := pem.Decode(certificate_data)
-	if certificate_data_block == nil {
-		return certificate, signer, errors.New("failed to parse PEM block containing the certificate")
-	}
-	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
-	if err != nil {
-		return certificate, signer, err
-	}
-	certificate = cert
-
-	// Set key
-	key_data, err := ioutil.ReadFile(keyPath)
-	if err != nil {
-		return certificate, signer, err
-	}
-	key_data_block, _ := pem.Decode(key_data)
-	if key_data_block == nil {
-		return certificate, signer, errors.New("failed to parse PEM block containing the private key")
-	}
-	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
-	if err != nil {
-		return certificate, signer, err
-	}
-	signer = pkey
-
-	return certificate, signer, nil
-}
-
-func p11sign() {
-	signCommand := flag.NewFlagSet("sign", flag.ExitOnError)
-	configPath := signCommand.String("config", "", "Path to config file")
-	signCommand.Parse(os.Args[2:])
-	if *configPath != "" {
-		config.Read(*configPath)
-	}
-
 	input := signCommand.String("in", "", "Input PDF file")
 	output := signCommand.String("out", "", "Output PDF file")
-	libPath := signCommand.String("lib", "", "Path to PKCS11 library")
-	pass := signCommand.String("pass", "", "PKCS11 password")
+	crt := signCommand.String("crt", "", "Certificate")
+	key := signCommand.String("key", "", "Private key")
 	crtChain := signCommand.String("chain", "", "Certificate chain")
 	help := signCommand.Bool("help", false, "Show this help")
 
 	signCommand.Parse(os.Args[2:])
-	usageText := `Usage: pdfsign sign -in input.pdf -out output.pdf -pass pkcs11-password [-chain chain.crt]")
-
+	usageText := `usageText: pdfsign sign -in input.pdf -out output.pdf -crt certificate.crt -key private_key.key [-chain chain.crt]\n\n")
 Description
-
 `
 	if *help == true {
 		fmt.Println(usageText)
@@ -219,13 +89,34 @@ Description
 		return
 	}
 
-	if signCommand.Parsed() == false || *input == "" || *output == "" || *pass == "" {
+	if signCommand.Parsed() == false || *input == "" || *output == "" || *crt == "" || *key == "" {
 		fmt.Println(usageText)
 		signCommand.PrintDefaults()
-		os.Exit(2)
+		os.Exit(1)
 	}
 
-	cert, signer, err := getP11CertSignerPair(*libPath, *pass)
+	certificate_data, err := ioutil.ReadFile(*crt)
+	if err != nil {
+		log.Fatal(err)
+	}
+	certificate_data_block, _ := pem.Decode(certificate_data)
+	if certificate_data_block == nil {
+		log.Fatal(errors.New("failed to parse PEM block containing the certificate"))
+	}
+	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	key_data, err := ioutil.ReadFile(*key)
+	if err != nil {
+		log.Fatal(err)
+	}
+	key_data_block, _ := pem.Decode(key_data)
+	if key_data_block == nil {
+		log.Fatal(errors.New("failed to parse PEM block containing the private key"))
+	}
+	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -236,55 +127,82 @@ Description
 	}
 
 	var data sign.SignData
+	data.Signer = pkey
 	data.Certificate = cert
-	data.Signer = signer
 	data.CertificateChains = certificate_chains
-	if err := signWithConfig(*input, *output, data); err != nil {
-		log.Println(err)
-	} else {
-		log.Println("Signed PDF written to " + *output)
-	}
+	signWithConfig(*input, *output, data)
 }
 
-func getP11CertSignerPair(libPath, pass string) (*x509.Certificate, crypto.Signer, error) {
-	var certificate *x509.Certificate
-	var signer crypto.Signer
-
-	// pkcs11 key
-	lib, err := pkcs11.FindLib(libPath)
-	if err != nil {
-		return certificate, signer, err
-	}
-
-	// Load Library
-	ctx := pkcs11.New(lib)
-	if ctx == nil {
-		return certificate, signer, errors.New("Failed to load library")
-	}
-	err = ctx.Initialize()
-	if err != nil {
-		return certificate, signer, err
-	}
-	// login
-	session, err := pkcs11.CreateSession(ctx, 0, pass, false)
-	if err != nil {
-		return certificate, signer, err
-	}
-	// select the first certificate
-	cert, ckaId, err := pkcs11.GetCert(ctx, session, nil)
-	if err != nil {
-		return certificate, signer, err
-	}
-	certificate = cert
-
-	// private key
-	pkey, err := pkcs11.InitPrivateKey(ctx, session, ckaId)
-	if err != nil {
-		return certificate, signer, err
-	}
-	signer = pkey
-
-	return certificate, signer, nil
+func p11sign() {
+	//if len(flag.Args()) < 2 {
+	//	usage()
+	//}
+	//
+	//method := flag.Arg(0)
+	//if method != "sign" && method != "verify" {
+	//	usage()
+	//}
+	//
+	//input := flag.Arg(1)
+	//if len(input) == 0 {
+	//	usage()
+	//}
+	//
+	//if method == "verify" {
+	//	input_file, err := os.Open(input)
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	defer input_file.Close()
+	//
+	//	resp, err := verify.Verify(input_file)
+	//	log.Println(resp)
+	//	if err != nil {
+	//		log.Println(err)
+	//	}
+	//}
+	//
+	//if method == "sign" {
+	//	if len(flag.Args()) < 4 {
+	//		usage()
+	//	}
+	//
+	//	output := flag.Arg(2)
+	//	if len(output) == 0 {
+	//		usage()
+	//	}
+	//
+	//	// pkcs11 key
+	//	lib, err := pkcs11.FindLib("/lib64/libeTPkcs11.so")
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//
+	//	// Load Library
+	//	ctx := pkcs11.New(lib)
+	//	if ctx == nil {
+	//		log.Fatal("Failed to load library")
+	//	}
+	//	err = ctx.Initialize()
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	// login
+	//	session, err := pkcs11.CreateSession(ctx, 0, flag.Arg(3), false)
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	// select the first certificate
+	//	cert, ckaId, err := pkcs11.GetCert(ctx, session, nil)
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//
+	//	// private key
+	//	pkey, err := pkcs11.InitPrivateKey(ctx, session, ckaId)
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
 }
 
 func getCertificateChains(crtChain string, cert *x509.Certificate) ([][]*x509.Certificate, error) {
@@ -308,25 +226,31 @@ func getCertificateChains(crtChain string, cert *x509.Certificate) ([][]*x509.Ce
 	return certificate_chains, err
 }
 
-func signWithConfig(input, output string, d sign.SignData) error {
+func signWithConfig(input, output string, data sign.SignData) {
 	err := sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{
 			Info: sign.SignDataSignatureInfo{
-				Name:        d.Signature.Info.Name,
-				Location:    d.Signature.Info.Location,
-				Reason:      d.Signature.Info.Reason,
-				ContactInfo: d.Signature.Info.ContactInfo,
+				Name:        "Jeroen Bobbeldijk",
+				Location:    "Rotterdam",
+				Reason:      "Test",
+				ContactInfo: "Geen",
 				Date:        time.Now().Local(),
 			},
-			CertType: d.Signature.CertType,
-			Approval: d.Signature.Approval,
+			CertType: 2,
+			Approval: false,
 		},
-		Signer:             d.Signer,
-		Certificate:        d.Certificate,
-		CertificateChains:  d.CertificateChains,
-		TSA:                d.TSA,
+		Signer:            data.Signer,
+		Certificate:       data.Certificate,
+		CertificateChains: data.CertificateChains,
+		TSA: sign.TSA{
+			URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+		},
 		RevocationData:     revocation.InfoArchival{},
 		RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,
 	})
-	return err
+	if err != nil {
+		log.Println(err)
+	} else {
+		log.Println("Signed PDF written to " + output)
+	}
 }
