@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"compress/zlib"
 	"bytes"
-	"log"
+	"encoding/binary"
 )
 
 func (context *SignContext) writeXref() error {
@@ -79,50 +79,18 @@ func (context *SignContext) writeXrefTable() error {
 }
 
 func (context *SignContext) writeXrefStream() error {
-	// @todo: add self reference.
-	// @todo: fix format (columns) for stream, first column is 1 (sub) or 2 (up)
 	buffer := bytes.NewBuffer(nil)
-
-	// Create the new catalog xref line.
-	visual_signature_object_start_position := strconv.FormatInt(context.Filesize, 10)
-	visual_signature_xref_line := leftPad(visual_signature_object_start_position, "0", 10-len(visual_signature_object_start_position)) + " 00000 n \n"
-
-	// Write the new catalog xref line.
-	if _, err := buffer.Write([]byte(visual_signature_xref_line)); err != nil {
-		return err
-	}
-
-	// Create the new catalog xref line.
-	catalog_object_start_position := strconv.FormatInt(context.Filesize+context.VisualSignData.Length, 10)
-	catalog_xref_line := leftPad(catalog_object_start_position, "0", 10-len(catalog_object_start_position)) + " 00000 n \n"
-
-	// Write the new catalog xref line.
-	if _, err := buffer.Write([]byte(catalog_xref_line)); err != nil {
-		return err
-	}
-
-	// Create the new signature xref line.
-	info_object_start_position := strconv.FormatInt(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length, 10)
-	info_xref_line := leftPad(info_object_start_position, "0", 10-len(info_object_start_position)) + " 00000 n \n"
-
-	// Write the new signature xref line.
-	if _, err := buffer.Write([]byte(info_xref_line)); err != nil {
-		return err
-	}
-
-	// Create the new signature xref line.
-	signature_object_start_position := strconv.FormatInt(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length+context.InfoData.Length, 10)
-	signature_xref_line := leftPad(signature_object_start_position, "0", 10-len(signature_object_start_position)) + " 00000 n \n"
-
-	// Write the new signature xref line.
-	if _, err := buffer.Write([]byte(signature_xref_line)); err != nil {
-		return err
-	}
 
 	predictor := context.PDFReader.Trailer().Key("DecodeParms").Key("Predictor").Int64()
 
 	streamBytes := []byte{}
 	err := errors.New("")
+
+	writeXrefStreamLine(buffer, 1, int(context.Filesize), 0)
+	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length), 0)
+	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length), 0)
+	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length+context.InfoData.Length), 0)
+	writeXrefStreamLine(buffer, 1, int(context.NewXrefStart), 0)
 
 	// If original uses PNG Sub, use that.
 	if predictor == 11 {
@@ -166,6 +134,18 @@ func (context *SignContext) writeXrefStream() error {
 	}
 
 	return nil
+}
+
+func writeXrefStreamLine(b *bytes.Buffer, xreftype byte, offset int, gen byte) {
+	b.WriteByte(xreftype);
+	b.Write(encodeInt(offset));
+	b.WriteByte(gen);
+}
+
+func encodeInt(i int) []byte {
+	result := make([]byte, 4)
+	binary.BigEndian.PutUint32(result, uint32(i))
+	return result[1:4]
 }
 
 func EncodePNGSUBBytes(columns int, data []byte) ([]byte, error) {
@@ -215,15 +195,14 @@ func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
 	tmpRowData := make([]byte, columns)
 	for i := 0; i < rowCount; i++ {
 		rowData := data[columns*i : columns*(i+1)]
-		tmpRowData[0] = rowData[0]
-		for j := 1; j < columns; j++ {
+		for j := 0; j < columns; j++ {
 			tmpRowData[j] = byte(int(rowData[j]-prevRowData[j]) % 256)
 		}
 
 		// Save the previous row for prediction.
-		prevRowData = tmpRowData
+		copy(prevRowData, rowData)
 
-		buffer.WriteByte(1)
+		buffer.WriteByte(2)
 		buffer.Write(tmpRowData)
 	}
 
