@@ -1,7 +1,6 @@
 package sign
 
 import (
-	"errors"
 	"strconv"
 )
 
@@ -20,15 +19,14 @@ func (context *SignContext) createCatalog() (catalog string, err error) {
 		}
 	}
 
-	if !found_pages {
-		return "", errors.New("Didn't find pages in PDF trailer Root.")
-	}
-
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 
-	pages := root.Key("Pages").GetPtr()
-	catalog += " /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R"
+	if found_pages {
+		pages := root.Key("Pages").GetPtr()
+		catalog += " /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R"
+	}
+
 	catalog += " /AcroForm <<"
 	catalog += " /Fields [" + strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 R]"
 

@@ -123,30 +123,11 @@ func TestSignPDF(t *testing.T) {
 	for _, f := range files {
 		ext := filepath.Ext(f.Name())
 		if ext != ".pdf" {
-			fmt.Printf("Skipping file %s", f.Name())
+			fmt.Printf("Skipping file %s\n", f.Name())
 			continue
 		}
 
-		input_file, err := os.Open("../testfiles/" + f.Name())
-		if err != nil {
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
-
-		finfo, err := input_file.Stat()
-		if err != nil {
-			input_file.Close()
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
-		size := finfo.Size()
-
-		_, err = pdf.NewReader(input_file, size)
-		if err != nil {
-			input_file.Close()
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
+		fmt.Printf("Signing file %s\n", f.Name())
 
 		err = SignFile("../testfiles/"+f.Name(), "../testfiles/"+f.Name()+".tmp", SignData{
 			Signature: SignDataSignature{
@@ -174,11 +155,8 @@ func TestSignPDF(t *testing.T) {
 		defer os.Remove("../testfiles/"+f.Name()+".tmp")
 
 		if err != nil {
-			input_file.Close()
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
 		}
-
-		input_file.Close()
 	}
 }

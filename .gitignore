@@ -1,2 +1,4 @@
 .idea
 testfiles/*.pdf
+testfiles/*.pdf.broken
+testfiles/*.pdf.tmp

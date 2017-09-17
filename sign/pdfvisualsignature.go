@@ -1,7 +1,6 @@
 package sign
 
 import (
-	"errors"
 	"strconv"
 )
 
@@ -21,21 +20,20 @@ func (context *SignContext) createVisualSignature() (visual_signature string, er
 		}
 	}
 
-	if !found_pages {
-		return "", errors.New("Didn't find pages in PDF trailer Root.")
-	}
 
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 
-	first_page, err := findFirstPage(root.Key("Pages"))
-	if err != nil {
-		return "", err
+	if found_pages {
+		first_page, err := findFirstPage(root.Key("Pages"))
+		if err != nil {
+			return "", err
+		}
+
+		first_page_ptr := first_page.GetPtr()
+
+		visual_signature += " /P " + strconv.Itoa(int(first_page_ptr.GetID())) + " " + strconv.Itoa(int(first_page_ptr.GetGen())) + " R"
 	}
-
-	first_page_ptr := first_page.GetPtr()
-
-	visual_signature += " /P " + strconv.Itoa(int(first_page_ptr.GetID())) + " " + strconv.Itoa(int(first_page_ptr.GetGen())) + " R"
 
 	visual_signature += " /F 132"
 	visual_signature += " /FT /Sig"

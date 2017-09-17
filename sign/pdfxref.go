@@ -27,6 +27,7 @@ func (context *SignContext) writeXref() error {
 }
 
 func (context *SignContext) writeXrefTable() error {
+	// @todo: maybe we need a prev here too.
 	xref_size := "xref\n0 " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10)
 	new_xref_size := "xref\n0 " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+4, 10)
 

@@ -14,8 +14,15 @@ import (
 func findFirstPage(parent pdf.Value) (pdf.Value, error) {
 	value_type := parent.Key("Type").String()
 	if value_type == "/Pages" {
-		recurse_parent, recurse_err := findFirstPage(parent.Key("Kids").Index(0))
-		return recurse_parent, recurse_err
+
+		for i := 0; i < parent.Key("Kids").Len(); i++ {
+			recurse_parent, recurse_err := findFirstPage(parent.Key("Kids").Index(i))
+			if recurse_err == nil {
+				return recurse_parent, recurse_err
+			}
+		}
+
+		return parent, errors.New("Could not find first page.")
 	}
 
 	if value_type == "/Page" {
@@ -82,6 +89,10 @@ func writePartFromSourceFileToTargetFile(input_file *os.File, output_file *os.Fi
 
 	// Track read/written bytes so we know when we're done.
 	read_bytes := int64(0)
+
+	if length <= 0 {
+		return nil
+	}
 
 	// Create a buffer for the chunks.
 	buf := make([]byte, max_chunk_length)
