@@ -1,3 +1,4 @@
 .idea
 *.pdf
 *.pdf.*
+!benchmark.pdf

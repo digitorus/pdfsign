@@ -98,7 +98,7 @@ func TestSignPDF(t *testing.T) {
 
 	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
 	if certificate_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the certificate", err.Error())
+		t.Errorf("failed to parse PEM block containing the certificate")
 		return
 	}
 
@@ -158,6 +158,65 @@ func TestSignPDF(t *testing.T) {
 
 		if err != nil {
 			t.Errorf("%s: %s", f.Name(), err.Error())
+			return
+		}
+	}
+}
+
+func BenchmarkSignPDF(b *testing.B) {
+	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
+	if certificate_data_block == nil {
+		b.Errorf("failed to parse PEM block containing the certificate")
+		return
+	}
+
+	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
+	if err != nil {
+		b.Errorf("%s", err.Error())
+		return
+	}
+
+	key_data_block, _ := pem.Decode([]byte(signKeyPem))
+	if key_data_block == nil {
+		b.Errorf("failed to parse PEM block containing the private key")
+		return
+	}
+
+	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
+	if err != nil {
+		b.Errorf("%s", err.Error())
+		return
+	}
+
+	certificate_chains := make([][]*x509.Certificate, 0)
+
+	for n := 0; n < b.N; n++ {
+		err := SignFile("../testfiles/benchmark.pdf", "../testfiles/benchmark.pdf.tmp", SignData{
+			Signature: SignDataSignature{
+				Info: SignDataSignatureInfo{
+					Name:        "Jeroen Bobbeldijk",
+					Location:    "Rotterdam",
+					Reason:      "Test",
+					ContactInfo: "Geen",
+					Date:        time.Now().Local(),
+				},
+				CertType: 2,
+				Approval: false,
+			},
+			Signer:            pkey,
+			Certificate:       cert,
+			CertificateChains: certificate_chains,
+			TSA: TSA{
+				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+			},
+			RevocationData:     revocation.InfoArchival{},
+			RevocationFunction: DefaultEmbedRevocationStatusFunction,
+		})
+
+		os.Remove("../testfiles/benchmark.pdf.tmp")
+
+		if err != nil {
+			b.Errorf("%s: %s", "benchmark.pdf", err.Error())
 			return
 		}
 	}
