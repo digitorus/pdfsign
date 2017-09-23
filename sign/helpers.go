@@ -1,14 +1,14 @@
 package sign
 
 import (
-	"bitbucket.org/digitorus/pdf"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"strings"
 	"time"
+
+	"bitbucket.org/digitorus/pdf"
 )
 
 func findFirstPage(parent pdf.Value) (pdf.Value, error) {
@@ -73,10 +73,13 @@ func pdfDateTime(date time.Time) string {
 }
 
 func leftPad(s string, padStr string, pLen int) string {
+	if pLen <= 0 {
+		return s
+	}
 	return strings.Repeat(padStr, pLen) + s
 }
 
-func writePartFromSourceFileToTargetFile(input_file *os.File, output_file *os.File, offset int64, length int64) error {
+func writePartFromSourceFileToTargetFile(input_file io.ReadSeeker, output_file io.Writer, offset int64, length int64) error {
 	input_file.Seek(offset, 0)
 
 	// Create a small buffer for proper IO handling.
