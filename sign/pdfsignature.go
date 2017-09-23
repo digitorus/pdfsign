@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -121,12 +120,10 @@ func (context *SignContext) fetchRevocationData() error {
 }
 
 func (context *SignContext) createSignature() ([]byte, error) {
+	context.OutputBuffer.Seek(0, 0)
 
 	// Sadly we can't efficiently sign a file, we need to read all the bytes we want to sign.
-	context.OutputFile.Seek(0, 0)
-	sign_buf := bytes.NewBuffer(nil)
-	io.Copy(sign_buf, context.OutputFile)
-	file_content := sign_buf.Bytes()
+	file_content := context.OutputBuffer.Buff.Bytes()
 
 	// Collect the parts to sign.
 	sign_content := make([]byte, 0)
@@ -266,7 +263,17 @@ func (context *SignContext) replaceSignature() error {
 		return errors.New("Signature is too big to fit in reserved space.")
 	}
 
-	context.OutputFile.WriteAt(dst, context.ByteRangeValues[0]+context.ByteRangeValues[1]+1)
+	context.OutputBuffer.Seek(0, 0)
+	file_content := context.OutputBuffer.Buff.Bytes()
+
+	context.OutputBuffer.Write(file_content[:(context.ByteRangeValues[0] + context.ByteRangeValues[1] + 1)])
+
+	// Write new ByteRange.
+	if _, err := context.OutputBuffer.Write([]byte(dst)); err != nil {
+		return err
+	}
+
+	context.OutputBuffer.Write(file_content[(context.ByteRangeValues[0]+context.ByteRangeValues[1]+1)+int64(len(dst)):])
 
 	return nil
 }

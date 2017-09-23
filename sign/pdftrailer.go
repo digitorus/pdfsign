@@ -35,18 +35,18 @@ func (context *SignContext) writeTrailer() error {
 		trailer_string = strings.Replace(trailer_string, info_string, new_info, -1)
 
 		// Write the new trailer.
-		if _, err := context.OutputFile.Write([]byte(trailer_string)); err != nil {
+		if _, err := context.OutputBuffer.Write([]byte(trailer_string)); err != nil {
 			return err
 		}
 	}
 
 	// Write the new xref start position.
-	if _, err := context.OutputFile.Write([]byte("\nstartxref\n" + strconv.FormatInt(context.NewXrefStart, 10) + "\n")); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte("\nstartxref\n" + strconv.FormatInt(context.NewXrefStart, 10) + "\n")); err != nil {
 		return err
 	}
 
 	// Write PDF ending.
-	if _, err := context.OutputFile.Write([]byte("%%EOF")); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte("%%EOF")); err != nil {
 		return err
 	}
 

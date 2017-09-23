@@ -20,7 +20,6 @@ func (context *SignContext) createVisualSignature() (visual_signature string, er
 		}
 	}
 
-
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 

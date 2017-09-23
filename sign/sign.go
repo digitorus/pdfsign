@@ -9,6 +9,7 @@ import (
 
 	"bitbucket.org/digitorus/pdf"
 	"bitbucket.org/digitorus/pdfsign/revocation"
+	"github.com/mattetti/filebuffer"
 )
 
 type CatalogData struct {
@@ -62,8 +63,9 @@ type SignDataSignatureInfo struct {
 
 type SignContext struct {
 	Filesize                   int64
-	InputFile                  *os.File
-	OutputFile                 *os.File
+	InputFile                  io.ReadSeeker
+	OutputFile                 io.Writer
+	OutputBuffer               *filebuffer.Buffer
 	SignData                   SignData
 	CatalogData                CatalogData
 	VisualSignData             VisualSignData
@@ -100,14 +102,18 @@ func SignFile(input string, output string, sign_data SignData) error {
 		return err
 	}
 
+	return Sign(input_file, output_file, rdr, size, sign_data)
+}
+
+func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
 	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
 
 	// We do size+1 because we insert a newline.
 	context := SignContext{
 		Filesize:   size + 1,
 		PDFReader:  rdr,
-		InputFile:  input_file,
-		OutputFile: output_file,
+		InputFile:  input,
+		OutputFile: output,
 		VisualSignData: VisualSignData{
 			ObjectId: uint32(rdr.XrefInformation.ItemCount),
 		},
@@ -120,7 +126,7 @@ func SignFile(input string, output string, sign_data SignData) error {
 		SignData: sign_data,
 	}
 
-	err = context.SignPDF()
+	err := context.SignPDF()
 	if err != nil {
 		return err
 	}
@@ -129,18 +135,15 @@ func SignFile(input string, output string, sign_data SignData) error {
 }
 
 func (context *SignContext) SignPDF() error {
-	// Copy old file into new file.
-	if _, err := io.Copy(context.OutputFile, context.InputFile); err != nil {
-		return err
-	}
+	context.OutputBuffer = filebuffer.New([]byte{})
 
-	err := context.OutputFile.Sync()
-	if err != nil {
+	// Copy old file into new file.
+	if _, err := io.Copy(context.OutputBuffer, context.InputFile); err != nil {
 		return err
 	}
 
 	// File always needs an empty line after %%EOF.
-	if _, err := context.OutputFile.Write([]byte("\n")); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte("\n")); err != nil {
 		return err
 	}
 
@@ -165,7 +168,7 @@ func (context *SignContext) SignPDF() error {
 	context.VisualSignData.Length = int64(len(visual_signature))
 
 	// Write the new catalog object.
-	if _, err := context.OutputFile.Write([]byte(visual_signature)); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte(visual_signature)); err != nil {
 		return err
 	}
 
@@ -177,7 +180,7 @@ func (context *SignContext) SignPDF() error {
 	context.CatalogData.Length = int64(len(catalog))
 
 	// Write the new catalog object.
-	if _, err := context.OutputFile.Write([]byte(catalog)); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte(catalog)); err != nil {
 		return err
 	}
 
@@ -192,7 +195,7 @@ func (context *SignContext) SignPDF() error {
 	context.InfoData.Length = int64(len(info))
 
 	// Write the new catalog object.
-	if _, err := context.OutputFile.Write([]byte(info)); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte(info)); err != nil {
 		return err
 	}
 
@@ -206,7 +209,7 @@ func (context *SignContext) SignPDF() error {
 	context.SignatureContentsStartByte = signature_contents_start_byte
 
 	// Write the new signature object.
-	if _, err := context.OutputFile.Write([]byte(signature_object)); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte(signature_object)); err != nil {
 		return err
 	}
 
@@ -229,10 +232,10 @@ func (context *SignContext) SignPDF() error {
 		return err
 	}
 
-	err = context.OutputFile.Sync()
-	if err != nil {
-		return err
-	}
+	context.OutputBuffer.Seek(0, 0)
+	file_content := context.OutputBuffer.Buff.Bytes()
+
+	context.OutputFile.Write(file_content)
 
 	return nil
 }

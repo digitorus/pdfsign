@@ -130,7 +130,7 @@ func main() {
 			Certificate:       cert,
 			CertificateChains: certificate_chains,
 			TSA: sign.TSA{
-				URL:            "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
 			},
 			RevocationData:     revocation.InfoArchival{},
 			RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,

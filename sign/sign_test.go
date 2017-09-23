@@ -1,6 +1,8 @@
 package sign
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -131,7 +133,30 @@ func TestSignPDF(t *testing.T) {
 
 		fmt.Printf("Signing file %s\n", f.Name())
 
-		err = SignFile("../testfiles/"+f.Name(), "../testfiles/"+f.Name()+".tmp", SignData{
+		input_file, err := os.Open("../testfiles/" + f.Name())
+		if err != nil {
+			t.Errorf("%s: %s", f.Name(), err.Error())
+			return
+		}
+		defer input_file.Close()
+
+		var buffer bytes.Buffer
+		output_file := bufio.NewWriter(&buffer)
+
+		finfo, err := input_file.Stat()
+		if err != nil {
+			t.Errorf("%s: %s", f.Name(), err.Error())
+			return
+		}
+		size := finfo.Size()
+
+		rdr, err := pdf.NewReader(input_file, size)
+		if err != nil {
+			t.Errorf("%s: %s", f.Name(), err.Error())
+			return
+		}
+
+		err = Sign(input_file, output_file, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "Jeroen Bobbeldijk",
@@ -152,9 +177,6 @@ func TestSignPDF(t *testing.T) {
 			RevocationData:     revocation.InfoArchival{},
 			RevocationFunction: DefaultEmbedRevocationStatusFunction,
 		})
-
-		// Cleanup old files.
-		defer os.Remove("../testfiles/"+f.Name()+".tmp")
 
 		if err != nil {
 			t.Errorf("%s: %s", f.Name(), err.Error())
@@ -191,7 +213,30 @@ func BenchmarkSignPDF(b *testing.B) {
 	certificate_chains := make([][]*x509.Certificate, 0)
 
 	for n := 0; n < b.N; n++ {
-		err := SignFile("../testfiles/testfile20.pdf", "../testfiles/testfile20.pdf.tmp", SignData{
+		input_file, err := os.Open("../testfiles/testfile20.pdf")
+		if err != nil {
+			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+			return
+		}
+		defer input_file.Close()
+
+		var buffer bytes.Buffer
+		output_file := bufio.NewWriter(&buffer)
+
+		finfo, err := input_file.Stat()
+		if err != nil {
+			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+			return
+		}
+		size := finfo.Size()
+
+		rdr, err := pdf.NewReader(input_file, size)
+		if err != nil {
+			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+			return
+		}
+
+		err = Sign(input_file, output_file, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "Jeroen Bobbeldijk",
@@ -212,8 +257,6 @@ func BenchmarkSignPDF(b *testing.B) {
 			RevocationData:     revocation.InfoArchival{},
 			RevocationFunction: DefaultEmbedRevocationStatusFunction,
 		})
-
-		os.Remove("../testfiles/testfile20.pdf.tmp")
 
 		if err != nil {
 			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
