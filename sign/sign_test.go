@@ -191,7 +191,7 @@ func BenchmarkSignPDF(b *testing.B) {
 	certificate_chains := make([][]*x509.Certificate, 0)
 
 	for n := 0; n < b.N; n++ {
-		err := SignFile("../testfiles/benchmark.pdf", "../testfiles/benchmark.pdf.tmp", SignData{
+		err := SignFile("../testfiles/testfile20.pdf", "../testfiles/testfile20.pdf.tmp", SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "Jeroen Bobbeldijk",
@@ -213,10 +213,10 @@ func BenchmarkSignPDF(b *testing.B) {
 			RevocationFunction: DefaultEmbedRevocationStatusFunction,
 		})
 
-		os.Remove("../testfiles/benchmark.pdf.tmp")
+		os.Remove("../testfiles/testfile20.pdf.tmp")
 
 		if err != nil {
-			b.Errorf("%s: %s", "benchmark.pdf", err.Error())
+			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
 			return
 		}
 	}

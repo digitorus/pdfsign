@@ -118,7 +118,7 @@ func TestWritePartFromSourceFileToTargetFile(t *testing.T) {
 	var b bytes.Buffer
 	writer := bufio.NewWriter(&b)
 
-	input_file, err := os.Open("../testfiles/benchmark.pdf")
+	input_file, err := os.Open("../testfiles/testfile20.pdf")
 	if err != nil {
 		t.Errorf("Failed to load test PDF")
 		return
@@ -162,7 +162,7 @@ func TestWritePartFromSourceFileToTargetFile(t *testing.T) {
 }
 
 func loadHelpersTestPDF() (*os.File, *pdf.Reader) {
-	input_file, err := os.Open("../testfiles/benchmark.pdf")
+	input_file, err := os.Open("../testfiles/testfile20.pdf")
 	if err != nil {
 		return nil, nil
 	}
