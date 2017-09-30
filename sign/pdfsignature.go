@@ -118,10 +118,10 @@ func (context *SignContext) fetchRevocationData() error {
 
 	// Calculate space needed for signature.
 	for _, crl := range context.SignData.RevocationData.CRL {
-		context.SignatureMaxLength += uint32(len(crl.FullBytes) * 2)
+		context.SignatureMaxLength += uint32(hex.EncodedLen(len(crl.FullBytes)))
 	}
 	for _, ocsp := range context.SignData.RevocationData.OCSP {
-		context.SignatureMaxLength += uint32(len(ocsp.FullBytes) * 2)
+		context.SignatureMaxLength += uint32(hex.EncodedLen(len(ocsp.FullBytes)))
 	}
 
 	return nil

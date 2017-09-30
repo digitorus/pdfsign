@@ -3,12 +3,14 @@ package sign
 import (
 	"crypto"
 	"crypto/x509"
+	"encoding/hex"
 	"io"
 	"os"
 	"time"
 
 	"bitbucket.org/digitorus/pdf"
 	"bitbucket.org/digitorus/pdfsign/revocation"
+	"github.com/digitorus/pkcs7"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -148,12 +150,58 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Base size for signature.
-	context.SignatureMaxLength = 100000
+	context.SignatureMaxLength = uint32(hex.EncodedLen(512))
+
+	switch string(context.SignData.Certificate.SignatureAlgorithm) {
+	case "SHA1-RSA":
+	case "ECDSA-SHA1":
+	case "DSA-SHA1":
+		context.SignatureMaxLength += uint32(hex.EncodedLen(128))
+		break
+	case "SHA256-RSA":
+	case "ECDSA-SHA256":
+	case "DSA-SHA256":
+		context.SignatureMaxLength += uint32(hex.EncodedLen(256))
+		break
+	case "SHA384-RSA":
+	case "ECDSA-SHA384":
+		context.SignatureMaxLength += uint32(hex.EncodedLen(384))
+		break
+	case "SHA512-RSA":
+	case "ECDSA-SHA512":
+		context.SignatureMaxLength += uint32(hex.EncodedLen(512))
+		break
+	}
+
+	// Add size for my certificate.
+	degenerated, err := pkcs7.DegenerateCertificate(context.SignData.Certificate.Raw)
+	if err != nil {
+		return err
+	}
+
+	context.SignatureMaxLength += uint32(hex.EncodedLen(len(degenerated)))
+
+	// Add size for certificate chain.
+	var certificate_chain []*x509.Certificate
+	if len(context.SignData.CertificateChains) > 0 && len(context.SignData.CertificateChains[0]) > 1 {
+		certificate_chain = context.SignData.CertificateChains[0][1:]
+	}
+
+	if len(certificate_chain) > 0 {
+		for _, cert := range certificate_chain {
+			degenerated, err := pkcs7.DegenerateCertificate(cert.Raw)
+			if err != nil {
+				return err
+			}
+
+			context.SignatureMaxLength += uint32(hex.EncodedLen(len(degenerated)))
+		}
+	}
 
 	// Add estimated size for TSA.
 	// We can't kow actual size of TSA until after signing.
 	if context.SignData.TSA.URL != "" {
-		context.SignatureMaxLength += 10000
+		context.SignatureMaxLength += uint32(hex.EncodedLen(5000))
 	}
 
 	// Fetch revocation data before adding signature placeholder.

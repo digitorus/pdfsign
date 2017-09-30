@@ -265,27 +265,29 @@ func BenchmarkSignPDF(b *testing.B) {
 
 	certificate_chains := make([][]*x509.Certificate, 0)
 
+	input_file, err := os.Open("../testfiles/testfile20.pdf")
+	if err != nil {
+		b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+		return
+	}
+
+	finfo, err := input_file.Stat()
+	if err != nil {
+		input_file.Close()
+		b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+		return
+	}
+	size := finfo.Size()
+
+	rdr, err := pdf.NewReader(input_file, size)
+	if err != nil {
+		input_file.Close()
+		b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+		return
+	}
+
 	for n := 0; n < b.N; n++ {
-		input_file, err := os.Open("../testfiles/testfile20.pdf")
-		if err != nil {
-			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-			return
-		}
 
-		finfo, err := input_file.Stat()
-		if err != nil {
-			input_file.Close()
-			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-			return
-		}
-		size := finfo.Size()
-
-		rdr, err := pdf.NewReader(input_file, size)
-		if err != nil {
-			input_file.Close()
-			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-			return
-		}
 
 		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
@@ -305,11 +307,11 @@ func BenchmarkSignPDF(b *testing.B) {
 			RevocationData:    revocation.InfoArchival{},
 		})
 
-		input_file.Close()
-
 		if err != nil {
 			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
 			return
 		}
 	}
+
+	input_file.Close()
 }
