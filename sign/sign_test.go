@@ -287,7 +287,7 @@ func BenchmarkSignPDF(b *testing.B) {
 	}
 
 	for n := 0; n < b.N; n++ {
-
+		input_file.Seek(0, 0)
 
 		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{

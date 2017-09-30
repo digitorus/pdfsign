@@ -201,7 +201,7 @@ func (context *SignContext) SignPDF() error {
 	// Add estimated size for TSA.
 	// We can't kow actual size of TSA until after signing.
 	if context.SignData.TSA.URL != "" {
-		context.SignatureMaxLength += uint32(hex.EncodedLen(5000))
+		context.SignatureMaxLength += uint32(hex.EncodedLen(4000))
 	}
 
 	// Fetch revocation data before adding signature placeholder.
