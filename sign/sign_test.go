@@ -139,9 +139,6 @@ func TestSignPDF(t *testing.T) {
 			return
 		}
 
-		var buffer bytes.Buffer
-		output_file := bufio.NewWriter(&buffer)
-
 		finfo, err := input_file.Stat()
 		if err != nil {
 			input_file.Close()
@@ -157,7 +154,7 @@ func TestSignPDF(t *testing.T) {
 			return
 		}
 
-		err = Sign(input_file, output_file, rdr, size, SignData{
+		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "Jeroen Bobbeldijk",
@@ -275,9 +272,6 @@ func BenchmarkSignPDF(b *testing.B) {
 			return
 		}
 
-		var buffer bytes.Buffer
-		output_file := bufio.NewWriter(&buffer)
-
 		finfo, err := input_file.Stat()
 		if err != nil {
 			input_file.Close()
@@ -293,7 +287,7 @@ func BenchmarkSignPDF(b *testing.B) {
 			return
 		}
 
-		err = Sign(input_file, output_file, rdr, size, SignData{
+		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "Jeroen Bobbeldijk",
