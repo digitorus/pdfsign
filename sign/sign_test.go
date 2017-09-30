@@ -188,6 +188,59 @@ func TestSignPDF(t *testing.T) {
 	}
 }
 
+func TestSignPDFFile(t *testing.T) {
+	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
+	if certificate_data_block == nil {
+		t.Errorf("failed to parse PEM block containing the certificate")
+		return
+	}
+
+	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
+
+	key_data_block, _ := pem.Decode([]byte(signKeyPem))
+	if key_data_block == nil {
+		t.Errorf("failed to parse PEM block containing the private key")
+		return
+	}
+
+	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
+
+	certificate_chains := make([][]*x509.Certificate, 0)
+
+	err = SignFile("../testfiles/testfile20.pdf", "../testfiles/testfile20.pdf.tmp", SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "Jeroen Bobbeldijk",
+				Location:    "Rotterdam",
+				Reason:      "Test",
+				ContactInfo: "Geen",
+				Date:        time.Now().Local(),
+			},
+			CertType: 2,
+			Approval: false,
+		},
+		Signer:            pkey,
+		Certificate:       cert,
+		CertificateChains: certificate_chains,
+		RevocationData:    revocation.InfoArchival{},
+	})
+
+	defer os.Remove("../testfiles/testfile20.pdf.tmp")
+
+	if err != nil {
+		t.Errorf("%s: %s", "testfile20.pdf", err.Error())
+		return
+	}
+}
+
 func BenchmarkSignPDF(b *testing.B) {
 	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
 	if certificate_data_block == nil {
