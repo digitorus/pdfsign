@@ -1,8 +1,6 @@
 package sign
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -212,7 +210,9 @@ func TestSignPDFFile(t *testing.T) {
 
 	certificate_chains := make([][]*x509.Certificate, 0)
 
-	err = SignFile("../testfiles/testfile20.pdf", "../testfiles/testfile20.pdf.tmp", SignData{
+	tmpfile, err := ioutil.TempFile("", "pdfsign_test")
+
+	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "Jeroen Bobbeldijk",
@@ -230,7 +230,7 @@ func TestSignPDFFile(t *testing.T) {
 		RevocationData:    revocation.InfoArchival{},
 	})
 
-	defer os.Remove("../testfiles/testfile20.pdf.tmp")
+	os.Remove(tmpfile.Name())
 
 	if err != nil {
 		t.Errorf("%s: %s", "testfile20.pdf", err.Error())
