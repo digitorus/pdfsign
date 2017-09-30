@@ -62,7 +62,7 @@ func TestReaderCanReadPDF(t *testing.T) {
 	for _, f := range files {
 		ext := filepath.Ext(f.Name())
 		if ext != ".pdf" {
-			fmt.Printf("Skipping file %s", f.Name())
+			fmt.Printf("Skipping file %s\n", f.Name())
 			continue
 		}
 
@@ -138,13 +138,13 @@ func TestSignPDF(t *testing.T) {
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
 		}
-		defer input_file.Close()
 
 		var buffer bytes.Buffer
 		output_file := bufio.NewWriter(&buffer)
 
 		finfo, err := input_file.Stat()
 		if err != nil {
+			input_file.Close()
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
 		}
@@ -152,6 +152,7 @@ func TestSignPDF(t *testing.T) {
 
 		rdr, err := pdf.NewReader(input_file, size)
 		if err != nil {
+			input_file.Close()
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
 		}
@@ -177,6 +178,8 @@ func TestSignPDF(t *testing.T) {
 			RevocationData:     revocation.InfoArchival{},
 			RevocationFunction: DefaultEmbedRevocationStatusFunction,
 		})
+
+		input_file.Close()
 
 		if err != nil {
 			t.Errorf("%s: %s", f.Name(), err.Error())
@@ -218,13 +221,13 @@ func BenchmarkSignPDF(b *testing.B) {
 			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
 			return
 		}
-		defer input_file.Close()
 
 		var buffer bytes.Buffer
 		output_file := bufio.NewWriter(&buffer)
 
 		finfo, err := input_file.Stat()
 		if err != nil {
+			input_file.Close()
 			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
 			return
 		}
@@ -232,6 +235,7 @@ func BenchmarkSignPDF(b *testing.B) {
 
 		rdr, err := pdf.NewReader(input_file, size)
 		if err != nil {
+			input_file.Close()
 			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
 			return
 		}
@@ -251,12 +255,10 @@ func BenchmarkSignPDF(b *testing.B) {
 			Signer:            pkey,
 			Certificate:       cert,
 			CertificateChains: certificate_chains,
-			TSA: TSA{
-				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
-			},
-			RevocationData:     revocation.InfoArchival{},
-			RevocationFunction: DefaultEmbedRevocationStatusFunction,
+			RevocationData:    revocation.InfoArchival{},
 		})
+
+		input_file.Close()
 
 		if err != nil {
 			b.Errorf("%s: %s", "testfile20.pdf", err.Error())

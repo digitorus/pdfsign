@@ -2,6 +2,7 @@ package sign
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
 	"errors"
@@ -9,9 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"strings"
 
-	"crypto/x509"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
 )
@@ -30,60 +29,69 @@ type TSAResponse struct {
 
 var signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
-func (context *SignContext) createSignaturePlaceholder() (signature string, byte_range_start_byte int64, signature_contents_start_byte int64) {
-	signature = strconv.Itoa(int(context.SignData.ObjectId)) + " 0 obj\n"
-	signature += "<< /Type /Sig"
-	signature += " /Filter /Adobe.PPKLite"
-	signature += " /SubFilter /adbe.pkcs7.detached"
+func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_range_start_byte int64, signature_contents_start_byte int64) {
+	// Using a buffer because it's way faster than concatenating.
+	var signature_buffer bytes.Buffer
+	signature_buffer.WriteString(strconv.Itoa(int(context.SignData.ObjectId)) + " 0 obj\n")
+	signature_buffer.WriteString("<< /Type /Sig")
+	signature_buffer.WriteString(" /Filter /Adobe.PPKLite")
+	signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached")
 
-	byte_range_start_byte = int64(len(signature)) + 1
+	byte_range_start_byte = int64(signature_buffer.Len()) + 1
 
 	// Create a placeholder for the byte range string, we will replace it later.
-	signature += " " + signatureByteRangePlaceholder
+	signature_buffer.WriteString(" " + signatureByteRangePlaceholder)
 
-	signature_contents_start_byte = int64(len(signature)) + 11
+	signature_contents_start_byte = int64(signature_buffer.Len()) + 11
 
 	// Create a placeholder for the actual signature content, we wil replace it later.
-	signature += " /Contents<" + strings.Repeat("0", int(context.SignatureMaxLength)) + ">"
+	signature_buffer.WriteString(" /Contents<")
+	signature_buffer.Write(bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)))
+	signature_buffer.WriteString(">")
 
 	if !context.SignData.Signature.Approval {
-		signature += " /Reference [" // array of signature reference dictionaries
-		signature += " << /Type /SigRef"
+		signature_buffer.WriteString(" /Reference [") // array of signature reference dictionaries
+		signature_buffer.WriteString(" << /Type /SigRef")
 		if context.SignData.Signature.CertType > 0 {
-			signature += " /TransformMethod /DocMDP"
-			signature += " /TransformParams <<"
-			signature += " /Type /TransformParams"
-			signature += " /P " + strconv.Itoa(int(context.SignData.Signature.CertType))
-			signature += " /V /1.2"
+			signature_buffer.WriteString(" /TransformMethod /DocMDP")
+			signature_buffer.WriteString(" /TransformParams <<")
+			signature_buffer.WriteString(" /Type /TransformParams")
+			signature_buffer.WriteString(" /P " + strconv.Itoa(int(context.SignData.Signature.CertType)))
+			signature_buffer.WriteString(" /V /1.2")
 		} else {
-			signature += " /TransformMethod /UR3"
-			signature += " /TransformParams <<"
-			signature += " /Type /TransformParams"
-			signature += " /V /2.2"
+			signature_buffer.WriteString(" /TransformMethod /UR3")
+			signature_buffer.WriteString(" /TransformParams <<")
+			signature_buffer.WriteString(" /Type /TransformParams")
+			signature_buffer.WriteString(" /V /2.2")
 		}
 
-		signature += " >>" // close TransformParams
-		signature += " >>"
-		signature += " ]" // end of reference
+		signature_buffer.WriteString(" >>") // close TransformParams
+		signature_buffer.WriteString(" >>")
+		signature_buffer.WriteString(" ]") // end of reference
 	}
 
 	if context.SignData.Signature.Info.Name != "" {
-		signature += " /Name " + pdfString(context.SignData.Signature.Info.Name)
+		signature_buffer.WriteString(" /Name ")
+		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.Name))
 	}
 	if context.SignData.Signature.Info.Location != "" {
-		signature += " /Location " + pdfString(context.SignData.Signature.Info.Location)
+		signature_buffer.WriteString(" /Location ")
+		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.Location))
 	}
 	if context.SignData.Signature.Info.Reason != "" {
-		signature += " /Reason " + pdfString(context.SignData.Signature.Info.Reason)
+		signature_buffer.WriteString(" /Reason ")
+		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.Reason))
 	}
 	if context.SignData.Signature.Info.ContactInfo != "" {
-		signature += " /ContactInfo " + pdfString(context.SignData.Signature.Info.ContactInfo)
+		signature_buffer.WriteString(" /ContactInfo ")
+		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.ContactInfo))
 	}
-	signature += " /M " + pdfDateTime(context.SignData.Signature.Info.Date)
-	signature += " >>"
-	signature += "\nendobj\n"
+	signature_buffer.WriteString(" /M ")
+	signature_buffer.WriteString(pdfDateTime(context.SignData.Signature.Info.Date))
+	signature_buffer.WriteString(" >>")
+	signature_buffer.WriteString("\nendobj\n")
 
-	return signature, byte_range_start_byte, signature_contents_start_byte
+	return signature_buffer.String(), byte_range_start_byte, signature_contents_start_byte
 }
 
 func (context *SignContext) fetchRevocationData() error {
