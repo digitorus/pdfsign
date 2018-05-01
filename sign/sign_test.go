@@ -68,7 +68,7 @@ func TestReaderCanReadPDF(t *testing.T) {
 			continue
 		}
 
-		t.Run("", func(st *testing.T) {
+		t.Run(f.Name(), func(st *testing.T) {
 			st.Parallel()
 
 			input_file, err := os.Open("../testfiles/" + f.Name())
