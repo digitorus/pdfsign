@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -65,32 +64,37 @@ func TestReaderCanReadPDF(t *testing.T) {
 	for _, f := range files {
 		ext := filepath.Ext(f.Name())
 		if ext != ".pdf" {
-			fmt.Printf("Skipping file %s\n", f.Name())
+			t.Log("Skipping file", f.Name())
 			continue
 		}
 
-		input_file, err := os.Open("../testfiles/" + f.Name())
-		if err != nil {
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
+		t.Run("", func(st *testing.T) {
+			st.Parallel()
 
-		finfo, err := input_file.Stat()
-		if err != nil {
+			input_file, err := os.Open("../testfiles/" + f.Name())
+			if err != nil {
+				st.Errorf("%s: %s", f.Name(), err.Error())
+				return
+			}
+
+			finfo, err := input_file.Stat()
+			if err != nil {
+				input_file.Close()
+				st.Errorf("%s: %s", f.Name(), err.Error())
+				return
+			}
+			size := finfo.Size()
+
+			_, err = pdf.NewReader(input_file, size)
+			if err != nil {
+				input_file.Close()
+				st.Errorf("%s: %s", f.Name(), err.Error())
+				return
+			}
+
 			input_file.Close()
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
-		size := finfo.Size()
+		})
 
-		_, err = pdf.NewReader(input_file, size)
-		if err != nil {
-			input_file.Close()
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
-
-		input_file.Close()
 	}
 }
 
@@ -128,71 +132,78 @@ func TestSignPDF(t *testing.T) {
 	certificate_chains := make([][]*x509.Certificate, 0)
 
 	for _, f := range files {
+		f := f
+
 		ext := filepath.Ext(f.Name())
 		if ext != ".pdf" {
-			fmt.Printf("Skipping file %s\n", f.Name())
+			t.Log("Skipping file", f.Name())
 			continue
 		}
 
-		fmt.Printf("Signing file %s\n", f.Name())
+		t.Run(f.Name(), func(st *testing.T) {
+			st.Parallel()
 
-		input_file, err := os.Open("../testfiles/" + f.Name())
-		if err != nil {
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
+			//t.Log("Signing file", f.Name())
 
-		finfo, err := input_file.Stat()
-		if err != nil {
-			input_file.Close()
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
-		size := finfo.Size()
+			input_file, err := os.Open("../testfiles/" + f.Name())
+			if err != nil {
+				st.Errorf("%s: %s", f.Name(), err.Error())
+				return
+			}
 
-		rdr, err := pdf.NewReader(input_file, size)
-		if err != nil {
-			input_file.Close()
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
+			finfo, err := input_file.Stat()
+			if err != nil {
+				input_file.Close()
+				st.Error("%s: %s", f.Name(), err.Error())
+				return
+			}
+			size := finfo.Size()
 
-		outputFile, err := ioutil.TempFile("", "pdfsign_test")
+			rdr, err := pdf.NewReader(input_file, size)
+			if err != nil {
+				input_file.Close()
+				st.Errorf("%s: %s", f.Name(), err.Error())
+				return
+			}
 
-		err = Sign(input_file, outputFile, rdr, size, SignData{
-			Signature: SignDataSignature{
-				Info: SignDataSignatureInfo{
-					Name:        "Jeroen Bobbeldijk",
-					Location:    "Rotterdam",
-					Reason:      "Test",
-					ContactInfo: "Geen",
-					Date:        time.Now().Local(),
+			outputFile, err := ioutil.TempFile("", "pdfsign_test")
+
+			err = Sign(input_file, outputFile, rdr, size, SignData{
+				Signature: SignDataSignature{
+					Info: SignDataSignatureInfo{
+						Name:        "Jeroen Bobbeldijk",
+						Location:    "Rotterdam",
+						Reason:      "Test",
+						ContactInfo: "Geen",
+						Date:        time.Now().Local(),
+					},
+					CertType: 2,
+					Approval: false,
 				},
-				CertType: 2,
-				Approval: false,
-			},
-			Signer:            pkey,
-			Certificate:       cert,
-			CertificateChains: certificate_chains,
-			TSA: TSA{
-				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
-			},
-			RevocationData:     revocation.InfoArchival{},
-			RevocationFunction: DefaultEmbedRevocationStatusFunction,
-		})
+				Signer:            pkey,
+				Certificate:       cert,
+				CertificateChains: certificate_chains,
+				TSA: TSA{
+					URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+				},
+				RevocationData:     revocation.InfoArchival{},
+				RevocationFunction: DefaultEmbedRevocationStatusFunction,
+			})
 
-		if err != nil {
+			if err != nil {
+				input_file.Close()
+				os.Remove(outputFile.Name())
+				st.Errorf("%s: %s", f.Name(), err.Error())
+				return
+			}
+
+			_, err = verify.Verify(outputFile)
 			input_file.Close()
 			os.Remove(outputFile.Name())
-			t.Errorf("%s: %s", f.Name(), err.Error())
-			return
-		}
-
-		_, err = verify.Verify(outputFile)
-		input_file.Close()
-		if err != nil {
-			t.Errorf("%s: %s", f.Name(), err.Error())
-		}
+			if err != nil {
+				st.Errorf("%s: %s", f.Name(), err.Error())
+			}
+		})
 	}
 }
 
