@@ -184,6 +184,7 @@ func TestSignPDF(t *testing.T) {
 
 		if err != nil {
 			input_file.Close()
+			os.Remove(outputFile.Name())
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
 		}
