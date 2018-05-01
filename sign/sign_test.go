@@ -6,7 +6,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -189,8 +188,7 @@ func TestSignPDF(t *testing.T) {
 			return
 		}
 
-		resp, err := verify.Verify(outputFile)
-		log.Println(resp)
+		_, err = verify.Verify(outputFile)
 		input_file.Close()
 		if err != nil {
 			t.Errorf("%s: %s", f.Name(), err.Error())
@@ -251,9 +249,7 @@ func TestSignPDFFile(t *testing.T) {
 		return
 	}
 
-	resp, err := verify.Verify(tmpfile)
-	log.Println(resp)
-
+	_, err = verify.Verify(tmpfile)
 	os.Remove(tmpfile.Name())
 
 	if err != nil {
