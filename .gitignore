@@ -2,3 +2,5 @@
 *.pdf
 *.pdf.*
 !testfile*.pdf
+pdfsign
+certs/*
