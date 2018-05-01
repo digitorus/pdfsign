@@ -41,7 +41,7 @@ func (context *SignContext) writeTrailer() error {
 	}
 
 	// Write the new xref start position.
-	if _, err := context.OutputBuffer.Write([]byte("\nstartxref\n" + strconv.FormatInt(context.NewXrefStart, 10) + "\n")); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte(strconv.FormatInt(context.NewXrefStart, 10) + "\n")); err != nil {
 		return err
 	}
 
