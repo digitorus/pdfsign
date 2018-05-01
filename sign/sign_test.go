@@ -99,6 +99,9 @@ func TestReaderCanReadPDF(t *testing.T) {
 }
 
 func TestSignPDF(t *testing.T) {
+	os.RemoveAll("../testfiles/failed/")
+	os.MkdirAll("../testfiles/failed/", 0777)
+
 	files, err := ioutil.ReadDir("../testfiles")
 	if err != nil {
 		t.Errorf("%s", err.Error())
@@ -199,9 +202,14 @@ func TestSignPDF(t *testing.T) {
 
 			_, err = verify.Verify(outputFile)
 			input_file.Close()
-			os.Remove(outputFile.Name())
 			if err != nil {
+				err2 := os.Rename(outputFile.Name(), "../testfiles/failed/"+filepath.Base(input_file.Name()))
+				if err2 != nil {
+					st.Error(err2)
+				}
 				st.Errorf("%s: %s", f.Name(), err.Error())
+			} else {
+				os.Remove(outputFile.Name())
 			}
 		})
 	}
