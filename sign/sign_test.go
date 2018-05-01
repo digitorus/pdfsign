@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"bitbucket.org/digitorus/pdf"
 	"bitbucket.org/digitorus/pdfsign/revocation"
+	"bitbucket.org/digitorus/pdfsign/verify"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -178,11 +180,17 @@ func TestSignPDF(t *testing.T) {
 			RevocationFunction: DefaultEmbedRevocationStatusFunction,
 		})
 
-		input_file.Close()
-
 		if err != nil {
+			input_file.Close()
 			t.Errorf("%s: %s", f.Name(), err.Error())
 			return
+		}
+
+		resp, err := verify.Verify(input_file)
+		log.Println(resp)
+		input_file.Close()
+		if err != nil {
+			t.Errorf("%s: %s", f.Name(), err.Error())
 		}
 	}
 }
@@ -234,12 +242,21 @@ func TestSignPDFFile(t *testing.T) {
 		RevocationData:    revocation.InfoArchival{},
 	})
 
-	os.Remove(tmpfile.Name())
-
 	if err != nil {
+		os.Remove(tmpfile.Name())
 		t.Errorf("%s: %s", "testfile20.pdf", err.Error())
 		return
 	}
+
+	resp, err := verify.Verify(tmpfile)
+	log.Println(resp)
+
+	os.Remove(tmpfile.Name())
+
+	if err != nil {
+		t.Errorf("%s: %s", tmpfile.Name(), err.Error())
+	}
+
 }
 
 func BenchmarkSignPDF(b *testing.B) {
