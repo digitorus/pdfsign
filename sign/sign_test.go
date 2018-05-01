@@ -158,7 +158,9 @@ func TestSignPDF(t *testing.T) {
 			return
 		}
 
-		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
+		outputFile, err := ioutil.TempFile("", "pdfsign_test")
+
+		err = Sign(input_file, outputFile, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "Jeroen Bobbeldijk",
@@ -186,7 +188,7 @@ func TestSignPDF(t *testing.T) {
 			return
 		}
 
-		resp, err := verify.Verify(input_file)
+		resp, err := verify.Verify(outputFile)
 		log.Println(resp)
 		input_file.Close()
 		if err != nil {
