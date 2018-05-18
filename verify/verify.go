@@ -2,12 +2,15 @@ package verify
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"crypto"
@@ -47,19 +50,22 @@ type Certificate struct {
 	CRLEmbedded  bool
 }
 
-func Verify(file *os.File) (apiResp *Response, err error) {
+func File(file *os.File) (apiResp *Response, err error) {
+	finfo, _ := file.Stat()
+	file.Seek(0, 0)
+
+	return Reader(file, finfo.Size())
+}
+
+func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	defer func() {
+		log.Printf("%s\n", debug.Stack())
 		if r := recover(); r != nil {
 			apiResp = nil
 			err = fmt.Errorf("Failed to verify file (%v)", r)
 		}
 	}()
 	apiResp = &Response{}
-
-	finfo, _ := file.Stat()
-	size := finfo.Size()
-
-	file.Seek(0, 0)
 
 	rdr, err := pdf.NewReader(file, size)
 	if err != nil {
@@ -146,25 +152,25 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 					signer.TimeStamp, err = timestamp.Parse(attr.Value.Bytes)
 					if err != nil {
 						apiResp.Error = fmt.Sprintln("Failed to parse timestamp", err)
-					}
+					} else {
+						r := bytes.NewReader(s.EncryptedDigest)
+						h := crypto.SHA256.New()
+						b := make([]byte, 32)
+						for {
+							n, err := r.Read(b)
+							if err == io.EOF {
+								break
+							}
 
-					r := bytes.NewReader(s.EncryptedDigest)
-					h := crypto.SHA256.New()
-					b := make([]byte, 32)
-					for {
-						n, err := r.Read(b)
-						if err == io.EOF {
-							break
+							h.Write(b[:n])
 						}
 
-						h.Write(b[:n])
-					}
+						if !bytes.Equal(h.Sum(nil), signer.TimeStamp.HashedMessage) {
+							apiResp.Error = fmt.Sprintln("Hash in timestamp is different from pkcs7")
+						}
 
-					if !bytes.Equal(h.Sum(nil), signer.TimeStamp.HashedMessage) {
-						apiResp.Error = fmt.Sprintln("Hash in timestamp is different from pkcs7")
+						break
 					}
-
-					break
 				}
 			}
 		}
