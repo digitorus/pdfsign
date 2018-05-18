@@ -44,7 +44,7 @@ func main() {
 		}
 		defer input_file.Close()
 
-		resp, err := verify.Verify(input_file)
+		resp, err := verify.File(input_file)
 		log.Println(resp)
 		if err != nil {
 			log.Println(err)

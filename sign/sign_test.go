@@ -157,7 +157,7 @@ func TestSignPDF(t *testing.T) {
 			finfo, err := input_file.Stat()
 			if err != nil {
 				input_file.Close()
-				st.Error("%s: %s", f.Name(), err.Error())
+				st.Errorf("%s: %s", f.Name(), err.Error())
 				return
 			}
 			size := finfo.Size()
@@ -200,7 +200,7 @@ func TestSignPDF(t *testing.T) {
 				return
 			}
 
-			_, err = verify.Verify(outputFile)
+			_, err = verify.File(outputFile)
 			input_file.Close()
 			if err != nil {
 				err2 := os.Rename(outputFile.Name(), "../testfiles/failed/"+filepath.Base(input_file.Name()))
@@ -268,7 +268,7 @@ func TestSignPDFFile(t *testing.T) {
 		return
 	}
 
-	_, err = verify.Verify(tmpfile)
+	_, err = verify.File(tmpfile)
 	os.Remove(tmpfile.Name())
 
 	if err != nil {

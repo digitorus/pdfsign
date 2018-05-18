@@ -8,17 +8,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
-	"runtime/debug"
 	"time"
-
-	"crypto"
 
 	"bitbucket.org/digitorus/pdf"
 	"bitbucket.org/digitorus/pdfsign/revocation"
+
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
+
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -59,7 +57,6 @@ func File(file *os.File) (apiResp *Response, err error) {
 
 func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	defer func() {
-		log.Printf("%s\n", debug.Stack())
 		if r := recover(); r != nil {
 			apiResp = nil
 			err = fmt.Errorf("Failed to verify file (%v)", r)
@@ -192,11 +189,10 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			if err == nil {
 				signer.ValidSignature = true
 				signer.TrustedIssuer = false
+			} else {
+				apiResp.Error = fmt.Sprintln("Failed to verify signature:", err)
 			}
-			//log.Println("Invalid sig")
-			apiResp.Error = fmt.Sprintln("Failed to verify signature:", err)
 		} else {
-			//log.Println("Valid sig")
 			signer.ValidSignature = true
 			signer.TrustedIssuer = true
 		}
