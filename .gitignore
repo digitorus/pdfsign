@@ -1,0 +1,8 @@
+.idea
+*.pdf
+*.pdf.*
+!testfile*.pdf
+testfiles/*_signed.pdf
+testfiles/failed/*
+pdfsign
+certs/*

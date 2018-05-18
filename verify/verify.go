@@ -10,13 +10,13 @@ import (
 	"os"
 	"time"
 
+	"crypto"
+
 	"bitbucket.org/digitorus/pdf"
 	"bitbucket.org/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-	"log"
 	"golang.org/x/crypto/ocsp"
-	"crypto"
 )
 
 type Response struct {
@@ -187,10 +187,10 @@ func Verify(file *os.File) (apiResp *Response, err error) {
 				signer.ValidSignature = true
 				signer.TrustedIssuer = false
 			}
-			log.Println("Invalid sig")
+			//log.Println("Invalid sig")
 			apiResp.Error = fmt.Sprintln("Failed to verify signature:", err)
 		} else {
-			log.Println("Valid sig")
+			//log.Println("Valid sig")
 			signer.ValidSignature = true
 			signer.TrustedIssuer = true
 		}
