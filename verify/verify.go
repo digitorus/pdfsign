@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"time"
 
 	"bitbucket.org/digitorus/pdf"
@@ -23,7 +24,7 @@ import (
 type Response struct {
 	Error string
 
-	DocumentInfo string
+	DocumentInfo DocumentInfo
 	Signers      []Signer
 }
 
@@ -56,6 +57,8 @@ func File(file *os.File) (apiResp *Response, err error) {
 }
 
 func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
+	var documentInfo DocumentInfo
+
 	defer func() {
 		if r := recover(); r != nil {
 			apiResp = nil
@@ -79,6 +82,9 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	for _, x := range rdr.Xref() {
 		// Get the xref object Value
 		v := rdr.Resolve(x.Ptr(), x.Ptr())
+
+		// get document info
+		getDocumentInfo(v, &documentInfo)
 
 		// We must have a Filter Adobe.PPKLite
 		if v.Key("Filter").Name() != "Adobe.PPKLite" {
@@ -301,7 +307,39 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		err = fmt.Errorf("Document looks to have a signature but got no results")
 	}
 
+	apiResp.DocumentInfo = documentInfo
+
 	return
+}
+
+type DocumentInfo struct {
+	Author,
+	CreationDate,
+	Creator,
+	Hash,
+	Keywords,
+	ModDate,
+	Name,
+	Pages,
+	Permission,
+	Producer,
+	Subject,
+	Title string
+}
+
+func getDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
+	keys := []string{"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
+		"Name", "Pages", "Permission", "Producer", "Subject", "Title"}
+
+	for _, key := range keys {
+		value := v.Key(key)
+		if !value.IsNull() {
+			valueStr := value.Text()
+			t := reflect.ValueOf(documentInfo).Elem()
+			val := t.FieldByName(key)
+			val.Set(reflect.ValueOf(valueStr))
+		}
+	}
 }
 
 func walk(t pdf.Value, pad int) {
