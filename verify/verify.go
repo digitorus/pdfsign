@@ -32,24 +32,41 @@ type Response struct {
 }
 
 type Signer struct {
-	Name               string
-	Reason             string
-	Location           string
-	ContactInfo        string
-	ValidSignature     bool
-	TrustedIssuer      bool
-	RevokedCertificate bool
-	Certificates       []Certificate
-	TimeStamp          *timestamp.Timestamp
+	Name               string               `json:"name"`
+	Reason             string               `json:"reason"`
+	Location           string               `json:"location"`
+	ContactInfo        string               `json:"contact_info"`
+	ValidSignature     bool                 `json:"valid_signature"`
+	TrustedIssuer      bool                 `json:"trusted_issuer"`
+	RevokedCertificate bool                 `json:"revoked_certificate"`
+	Certificates       []Certificate        `json:"certificates"`
+	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
 }
 
 type Certificate struct {
-	Certificate  *x509.Certificate
-	VerifyError  string
-	OCSPResponse *ocsp.Response
-	OCSPEmbedded bool
-	CRLRevoked   time.Time
-	CRLEmbedded  bool
+	Certificate  *x509.Certificate `json:"certificate"`
+	VerifyError  string            `json:"verify_error"`
+	OCSPResponse *ocsp.Response    `json:"ocsp_response"`
+	OCSPEmbedded bool              `json:"ocsp_embedded"`
+	CRLRevoked   time.Time         `json:"crl_revoked"`
+	CRLEmbedded  bool              `json:"crl_embedded"`
+}
+
+// DocumentInfo contains document information
+type DocumentInfo struct {
+	Author     string `json:"author"`
+	Creator    string `json:"creator"`
+	Hash       string `json:"hash"`
+	Name       string `json:"name"`
+	Permission string `json:"permission"`
+	Producer   string `json:"producer"`
+	Subject    string `json:"subject"`
+	Title      string `json:"title"`
+
+	Pages        int       `json:"pages"`
+	Keywords     []string  `json:"keywords"`
+	ModDate      time.Time `json:"mod_date"`
+	CreationDate time.Time `json:"creation_date"`
 }
 
 func File(file *os.File) (apiResp *Response, err error) {
@@ -87,7 +104,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		v := rdr.Resolve(x.Ptr(), x.Ptr())
 
 		// get document info
-		getDocumentInfo(v, &documentInfo)
+		parseDocumentInfo(v, &documentInfo)
 
 		// We must have a Filter Adobe.PPKLite
 		if v.Key("Filter").Name() != "Adobe.PPKLite" {
@@ -315,25 +332,8 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	return
 }
 
-// DocumentInfo contains document information
-type DocumentInfo struct {
-	Author,
-	Creator,
-	Hash,
-	Name,
-	Permission,
-	Producer,
-	Subject,
-	Title string
-
-	Pages    int
-	Keywords []string
-	ModDate,
-	CreationDate time.Time
-}
-
-// getDocumentInfo parses document information
-func getDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
+// parseDocumentInfo parses document information
+func parseDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
 	keys := []string{"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
 		"Name", "Pages", "Permission", "Producer", "Subject", "Title"}
 
