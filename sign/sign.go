@@ -51,7 +51,7 @@ type InfoData struct {
 
 type SignDataSignature struct {
 	Approval bool
-	CertType uint32
+	CertType uint
 	Info     SignDataSignatureInfo
 }
 
