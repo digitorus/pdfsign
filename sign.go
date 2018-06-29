@@ -124,7 +124,7 @@ func main() {
 					Date:        time.Now().Local(),
 				},
 				CertType:   sign.CertificationSignature,
-				DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignatures,
+				DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
 			},
 			Signer:            pkey,
 			Certificate:       cert,

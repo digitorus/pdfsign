@@ -63,8 +63,8 @@ const (
 
 const (
 	DoNotAllowAnyChangesPerms = iota + 1
-	AllowFillingExistingFormFieldsAndSignatures
-	AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotations
+	AllowFillingExistingFormFieldsAndSignaturesPerms
+	AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotationsPerms
 )
 
 type SignDataSignatureInfo struct {

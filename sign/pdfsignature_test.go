@@ -41,7 +41,7 @@ func TestCreateSignature(t *testing.T) {
 				Date:        now,
 			},
 			CertType:   CertificationSignature,
-			DocMDPPerm: AllowFillingExistingFormFieldsAndSignatures,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
 		},
 	}
 

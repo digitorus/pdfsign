@@ -39,7 +39,7 @@ func TestCreateInfoEmpty(t *testing.T) {
 				Date:        time.Now().Local(),
 			},
 			CertType:   CertificationSignature,
-			DocMDPPerm: AllowFillingExistingFormFieldsAndSignatures,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
 		},
 	}
 
@@ -103,7 +103,7 @@ func TestCreateInfo(t *testing.T) {
 				Date:        time.Now().Local(),
 			},
 			CertType:   CertificationSignature,
-			DocMDPPerm: AllowFillingExistingFormFieldsAndSignatures,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
 		},
 	}
 
