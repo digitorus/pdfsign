@@ -50,10 +50,22 @@ type InfoData struct {
 }
 
 type SignDataSignature struct {
-	Approval bool
-	CertType uint
-	Info     SignDataSignatureInfo
+	CertType   uint
+	DocMDPPerm uint
+	Info       SignDataSignatureInfo
 }
+
+const (
+	ApprovalSignature = iota
+	CertificationSignature
+	UsageRightsSignature
+)
+
+const (
+	DoNotAllowAnyChangesPerms = iota + 1
+	AllowFillingExistingFormFieldsAndSignatures
+	AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotations
+)
 
 type SignDataSignatureInfo struct {
 	Name        string
@@ -137,6 +149,11 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 }
 
 func (context *SignContext) SignPDF() error {
+	// set defaults
+	if context.SignData.Signature.DocMDPPerm == 0 {
+		context.SignData.Signature.DocMDPPerm = 1
+	}
+
 	context.OutputBuffer = filebuffer.New([]byte{})
 
 	// Copy old file into new file.

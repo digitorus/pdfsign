@@ -40,8 +40,8 @@ func TestVisualSignature(t *testing.T) {
 				ContactInfo: "Geen",
 				Date:        now,
 			},
-			CertType: 2,
-			Approval: false,
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignatures,
 		},
 	}
 

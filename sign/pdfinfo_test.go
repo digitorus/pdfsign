@@ -4,8 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"bitbucket.org/digitorus/pdf"
 	"time"
+
+	"bitbucket.org/digitorus/pdf"
 )
 
 func TestCreateInfoEmpty(t *testing.T) {
@@ -37,8 +38,8 @@ func TestCreateInfoEmpty(t *testing.T) {
 				ContactInfo: "Geen",
 				Date:        time.Now().Local(),
 			},
-			CertType: 2,
-			Approval: false,
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignatures,
 		},
 	}
 
@@ -101,8 +102,8 @@ func TestCreateInfo(t *testing.T) {
 				ContactInfo: "Geen",
 				Date:        time.Now().Local(),
 			},
-			CertType: 2,
-			Approval: false,
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignatures,
 		},
 	}
 

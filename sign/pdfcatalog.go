@@ -30,24 +30,25 @@ func (context *SignContext) createCatalog() (catalog string, err error) {
 	catalog += " /AcroForm <<"
 	catalog += " /Fields [" + strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 R]"
 
-	if !context.SignData.Signature.Approval {
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature, UsageRightsSignature:
 		catalog += " /NeedAppearances false"
 	}
 
-	if context.SignData.Signature.CertType > 0 {
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature:
 		catalog += " /SigFlags 3"
-	} else {
+	case UsageRightsSignature:
 		catalog += " /SigFlags 1"
 	}
 
 	catalog += " >>"
 
-	if !context.SignData.Signature.Approval {
-		if context.SignData.Signature.CertType > 0 {
-			catalog += " /Perms << /DocMDP " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>"
-		} else {
-			catalog += " /Perms << /UR3 " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>"
-		}
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature:
+		catalog += " /Perms << /DocMDP " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>"
+	case UsageRightsSignature:
+		catalog += " /Perms << /UR3 " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R >>"
 	}
 
 	catalog += " >>"

@@ -49,22 +49,28 @@ func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_rang
 	signature_buffer.Write(bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)))
 	signature_buffer.WriteString(">")
 
-	if !context.SignData.Signature.Approval {
-		signature_buffer.WriteString(" /Reference [") // array of signature reference dictionaries
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature, UsageRightsSignature:
+		signature_buffer.WriteString(" /Reference [") // start array of signature reference dictionaries
 		signature_buffer.WriteString(" << /Type /SigRef")
-		if context.SignData.Signature.CertType > 0 {
-			signature_buffer.WriteString(" /TransformMethod /DocMDP")
-			signature_buffer.WriteString(" /TransformParams <<")
-			signature_buffer.WriteString(" /Type /TransformParams")
-			signature_buffer.WriteString(" /P " + strconv.Itoa(int(context.SignData.Signature.CertType)))
-			signature_buffer.WriteString(" /V /1.2")
-		} else {
-			signature_buffer.WriteString(" /TransformMethod /UR3")
-			signature_buffer.WriteString(" /TransformParams <<")
-			signature_buffer.WriteString(" /Type /TransformParams")
-			signature_buffer.WriteString(" /V /2.2")
-		}
+	}
 
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature:
+		signature_buffer.WriteString(" /TransformMethod /DocMDP")
+		signature_buffer.WriteString(" /TransformParams <<")
+		signature_buffer.WriteString(" /Type /TransformParams")
+		signature_buffer.WriteString(" /P " + strconv.Itoa(int(context.SignData.Signature.DocMDPPerm)))
+		signature_buffer.WriteString(" /V /1.2")
+	case UsageRightsSignature:
+		signature_buffer.WriteString(" /TransformMethod /UR3")
+		signature_buffer.WriteString(" /TransformParams <<")
+		signature_buffer.WriteString(" /Type /TransformParams")
+		signature_buffer.WriteString(" /V /2.2")
+	}
+
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature, UsageRightsSignature:
 		signature_buffer.WriteString(" >>") // close TransformParams
 		signature_buffer.WriteString(" >>")
 		signature_buffer.WriteString(" ]") // end of reference
