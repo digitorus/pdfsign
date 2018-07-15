@@ -56,7 +56,7 @@ type SignDataSignature struct {
 }
 
 const (
-	ApprovalSignature = iota
+	ApprovalSignature = iota + 1
 	CertificationSignature
 	UsageRightsSignature
 )
