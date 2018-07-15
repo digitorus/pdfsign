@@ -150,6 +150,9 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 
 func (context *SignContext) SignPDF() error {
 	// set defaults
+	if context.SignData.Signature.CertType == 0 {
+		context.SignData.Signature.CertType = 1
+	}
 	if context.SignData.Signature.DocMDPPerm == 0 {
 		context.SignData.Signature.DocMDPPerm = 1
 	}
