@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
-	"bitbucket.org/digitorus/pdfsign/revocation"
-	"bitbucket.org/digitorus/pdfsign/verify"
+	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/revocation"
+	"github.com/digitorus/pdfsign/verify"
+
 	"github.com/mattetti/filebuffer"
 )
 
@@ -146,7 +147,7 @@ func TestSignPDF(t *testing.T) {
 		t.Run(f.Name(), func(st *testing.T) {
 			st.Parallel()
 
-			//t.Log("Signing file", f.Name())
+			t.Log("Signing file", f.Name())
 
 			input_file, err := os.Open("../testfiles/" + f.Name())
 			if err != nil {
@@ -174,10 +175,10 @@ func TestSignPDF(t *testing.T) {
 			err = Sign(input_file, outputFile, rdr, size, SignData{
 				Signature: SignDataSignature{
 					Info: SignDataSignatureInfo{
-						Name:        "Jeroen Bobbeldijk",
-						Location:    "Rotterdam",
+						Name:        "John Doe",
+						Location:    "Somewhere",
 						Reason:      "Test",
-						ContactInfo: "Geen",
+						ContactInfo: "None",
 						Date:        time.Now().Local(),
 					},
 					CertType:   CertificationSignature,
@@ -187,7 +188,7 @@ func TestSignPDF(t *testing.T) {
 				Certificate:       cert,
 				CertificateChains: certificate_chains,
 				TSA: TSA{
-					URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+					URL: "https://freetsa.org/tsr",
 				},
 				RevocationData:     revocation.InfoArchival{},
 				RevocationFunction: DefaultEmbedRevocationStatusFunction,
@@ -247,10 +248,10 @@ func TestSignPDFFile(t *testing.T) {
 	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
-				Name:        "Jeroen Bobbeldijk",
-				Location:    "Rotterdam",
+				Name:        "John Doe",
+				Location:    "Somewhere",
 				Reason:      "Test",
-				ContactInfo: "Geen",
+				ContactInfo: "None",
 				Date:        time.Now().Local(),
 			},
 			CertType:   CertificationSignature,
@@ -326,10 +327,10 @@ func BenchmarkSignPDF(b *testing.B) {
 		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
-					Name:        "Jeroen Bobbeldijk",
-					Location:    "Rotterdam",
+					Name:        "John Doe",
+					Location:    "Somewhere",
 					Reason:      "Test",
-					ContactInfo: "Geen",
+					ContactInfo: "None",
 					Date:        time.Now().Local(),
 				},
 				CertType:   CertificationSignature,

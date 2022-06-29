@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
+	"github.com/digitorus/pdf"
 )
 
 func TestVisualSignature(t *testing.T) {
@@ -34,10 +34,10 @@ func TestVisualSignature(t *testing.T) {
 	sign_data := SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
-				Name:        "Jeroen Bobbeldijk",
-				Location:    "Rotterdam",
+				Name:        "John Doe",
+				Location:    "Somewhere",
 				Reason:      "Test",
-				ContactInfo: "Geen",
+				ContactInfo: "None",
 				Date:        now,
 			},
 			CertType:   CertificationSignature,

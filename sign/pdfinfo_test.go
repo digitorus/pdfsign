@@ -3,10 +3,9 @@ package sign
 import (
 	"os"
 	"testing"
-
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
+	"github.com/digitorus/pdf"
 )
 
 func TestCreateInfoEmpty(t *testing.T) {
@@ -32,10 +31,10 @@ func TestCreateInfoEmpty(t *testing.T) {
 	sign_data := SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
-				Name:        "Jeroen Bobbeldijk",
-				Location:    "Rotterdam",
+				Name:        "John Doe",
+				Location:    "Somewhere",
 				Reason:      "Test",
-				ContactInfo: "Geen",
+				ContactInfo: "None",
 				Date:        time.Now().Local(),
 			},
 			CertType:   CertificationSignature,
@@ -96,10 +95,10 @@ func TestCreateInfo(t *testing.T) {
 	sign_data := SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
-				Name:        "Jeroen Bobbeldijk",
-				Location:    "Rotterdam",
+				Name:        "John Doe",
+				Location:    "Somewhere",
 				Reason:      "Test",
-				ContactInfo: "Geen",
+				ContactInfo: "None",
 				Date:        time.Now().Local(),
 			},
 			CertType:   CertificationSignature,

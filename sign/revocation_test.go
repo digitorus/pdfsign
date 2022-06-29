@@ -1,3 +1,6 @@
+// +build certificateExpired
+
+// TODO: Rework tests, these currently fail because of expired certificate
 package sign
 
 import (
@@ -5,7 +8,7 @@ import (
 	"encoding/pem"
 	"testing"
 
-	"bitbucket.org/digitorus/pdfsign/revocation"
+	"github.com/digitorus/pdfsign/revocation"
 )
 
 const certPem = `-----BEGIN CERTIFICATE-----

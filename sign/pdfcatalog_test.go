@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"bitbucket.org/digitorus/pdf"
+	"github.com/digitorus/pdf"
 )
 
 func TestCreateCatalog(t *testing.T) {
@@ -39,6 +39,12 @@ func TestCreateCatalog(t *testing.T) {
 		},
 		InfoData: InfoData{
 			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
+		},
+		SignData: SignData{
+			Signature: SignDataSignature{
+				CertType:   UsageRightsSignature,
+				DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+			},
 		},
 	}
 

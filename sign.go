@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -11,16 +12,29 @@ import (
 	"errors"
 	"io/ioutil"
 
-	"bitbucket.org/digitorus/pdfsign/revocation"
-	"bitbucket.org/digitorus/pdfsign/sign"
-	"bitbucket.org/digitorus/pdfsign/verify"
+	"github.com/digitorus/pdfsign/sign"
+	"github.com/digitorus/pdfsign/verify"
+)
+
+var (
+	infoName, infoLocation, infoReason, infoContact string
 )
 
 func usage() {
-	log.Fatal("Usage: sign input.pdf output.pdf certificate.crt private_key.key [chain.crt] OR verify input.pdf")
+	flag.PrintDefaults()
+	fmt.Println()
+	fmt.Println("Example usage:")
+	fmt.Printf("\t%s -name \"Jon Doe\" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
+	fmt.Printf("\t%sverify input.pdf\n", os.Args[0])
+	os.Exit(1)
 }
 
 func main() {
+	flag.StringVar(&infoName, "name", "", "Name of the signatory")
+	flag.StringVar(&infoLocation, "location", "", "Location of the signatory")
+	flag.StringVar(&infoReason, "reason", "", "Reason for signig")
+	flag.StringVar(&infoContact, "contact", "", "Contact information for signatory")
+
 	flag.Parse()
 
 	if len(flag.Args()) < 2 {
@@ -117,10 +131,10 @@ func main() {
 		err = sign.SignFile(input, output, sign.SignData{
 			Signature: sign.SignDataSignature{
 				Info: sign.SignDataSignatureInfo{
-					Name:        "Jeroen Bobbeldijk",
-					Location:    "Rotterdam",
-					Reason:      "Test",
-					ContactInfo: "Geen",
+					Name:        infoName,
+					Location:    infoLocation,
+					Reason:      infoReason,
+					ContactInfo: infoContact,
 					Date:        time.Now().Local(),
 				},
 				CertType:   sign.CertificationSignature,
@@ -130,10 +144,8 @@ func main() {
 			Certificate:       cert,
 			CertificateChains: certificate_chains,
 			TSA: sign.TSA{
-				URL: "http://aatl-timestamp.globalsign.com/tsa/aohfewat2389535fnasgnlg5m23",
+				URL: "https://freetsa.org/tsr",
 			},
-			RevocationData:     revocation.InfoArchival{},
-			RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,
 		})
 		if err != nil {
 			log.Println(err)

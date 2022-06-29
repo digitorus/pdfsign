@@ -12,8 +12,8 @@ import (
 	"reflect"
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
-	"bitbucket.org/digitorus/pdfsign/revocation"
+	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/revocation"
 
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
@@ -367,30 +367,30 @@ func parseDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
 
 // parseDate parses pdf formatted dates
 func parseDate(v string) (time.Time, error) {
-	//PDF Date Format
-	//(D:YYYYMMDDHHmmSSOHH'mm')
+	// PDF Date Format
+	// (D:YYYYMMDDHHmmSSOHH'mm')
 	//
-	//where
+	// where
 	//
-	//YYYY is the year
-	//MM is the month
-	//DD is the day (01-31)
-	//HH is the hour (00-23)
-	//mm is the minute (00-59)
-	//SS is the second (00-59)
-	//O is the relationship of local time to Universal Time (UT), denoted by one of the characters +, -, or Z (see below)
-	//HH followed by ' is the absolute value of the offset from UT in hours (00-23)
-	//mm followed by ' is the absolute value of the offset from UT in minutes (00-59)
+	// YYYY is the year
+	// MM is the month
+	// DD is the day (01-31)
+	// HH is the hour (00-23)
+	// mm is the minute (00-59)
+	// SS is the second (00-59)
+	// O is the relationship of local time to Universal Time (UT), denoted by one of the characters +, -, or Z (see below)
+	// HH followed by ' is the absolute value of the offset from UT in hours (00-23)
+	// mm followed by ' is the absolute value of the offset from UT in minutes (00-59)
 
-	//2006-01-02T15:04:05Z07:00
-	//(D:YYYYMMDDHHmmSSOHH'mm')
+	// 2006-01-02T15:04:05Z07:00
+	// (D:YYYYMMDDHHmmSSOHH'mm')
 	return time.Parse("D:20060102150405Z07'00'", v)
 }
 
 // parseKeywords parses keywords pdf meta data
 func parseKeywords(value string) []string {
-	//keywords must be separated by commas or semicolons or could be just separated with spaces, after the semicolon could be a space
-	//https://stackoverflow.com/questions/44608608/the-separator-between-keywords-in-pdf-meta-data
+	// keywords must be separated by commas or semicolons or could be just separated with spaces, after the semicolon could be a space
+	// https://stackoverflow.com/questions/44608608/the-separator-between-keywords-in-pdf-meta-data
 	separators := []string{", ", ": ", ",", ":", " "}
 	for _, s := range separators {
 		if strings.Contains(value, s) {

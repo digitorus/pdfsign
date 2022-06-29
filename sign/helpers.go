@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
+	"github.com/digitorus/pdf"
 )
 
 func findFirstPage(parent pdf.Value) (pdf.Value, error) {

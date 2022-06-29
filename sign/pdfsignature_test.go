@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
+	"github.com/digitorus/pdf"
 )
 
 func TestCreateSignature(t *testing.T) {
@@ -34,10 +34,10 @@ func TestCreateSignature(t *testing.T) {
 	sign_data := SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
-				Name:        "Jeroen Bobbeldijk",
-				Location:    "Rotterdam",
+				Name:        "John Doe",
+				Location:    "Somewhere",
 				Reason:      "Test",
-				ContactInfo: "Geen",
+				ContactInfo: "None",
 				Date:        now,
 			},
 			CertType:   CertificationSignature,
@@ -63,7 +63,7 @@ func TestCreateSignature(t *testing.T) {
 		SignData: sign_data,
 	}
 
-	expected_signature := "13 0 obj\n<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange[0 ********** ********** **********] /Contents<> /Reference [ << /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >> ] /Name (Jeroen Bobbeldijk) /Location (Rotterdam) /Reason (Test) /ContactInfo (Geen) /M (D:20170923143900+03'00') >>\nendobj\n"
+	expected_signature := "13 0 obj\n<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange[0 ********** ********** **********] /Contents<> /Reference [ << /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >> ] /Name (John Doe) /Location (Somewhere) /Reason (Test) /ContactInfo (None) /M (D:20170923143900+03'00') >>\nendobj\n"
 
 	signature, byte_range_start_byte, signature_contents_start_byte := context.createSignaturePlaceholder()
 
