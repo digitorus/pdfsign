@@ -8,9 +8,10 @@ import (
 	"os"
 	"time"
 
-	"bitbucket.org/digitorus/pdf"
-	"bitbucket.org/digitorus/pdfsign/revocation"
+	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
+
 	"github.com/mattetti/filebuffer"
 )
 
@@ -90,6 +91,7 @@ type SignContext struct {
 	SignatureContentsStartByte int64
 	ByteRangeValues            []int64
 	SignatureMaxLength         uint32
+	SignatureMaxLengthBase     uint32
 }
 
 func SignFile(input string, output string, sign_data SignData) error {
@@ -123,6 +125,7 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
 
 	// We do size+1 because we insert a newline.
+
 	context := SignContext{
 		Filesize:   size + 1,
 		PDFReader:  rdr,
@@ -137,7 +140,8 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 		InfoData: InfoData{
 			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
 		},
-		SignData: sign_data,
+		SignData:               sign_data,
+		SignatureMaxLengthBase: uint32(hex.EncodedLen(512)),
 	}
 
 	err := context.SignPDF()
@@ -160,6 +164,7 @@ func (context *SignContext) SignPDF() error {
 	context.OutputBuffer = filebuffer.New([]byte{})
 
 	// Copy old file into new file.
+	context.InputFile.Seek(0, 0)
 	if _, err := io.Copy(context.OutputBuffer, context.InputFile); err != nil {
 		return err
 	}
@@ -170,9 +175,9 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Base size for signature.
-	context.SignatureMaxLength = uint32(hex.EncodedLen(512))
+	context.SignatureMaxLength = context.SignatureMaxLengthBase
 
-	switch string(context.SignData.Certificate.SignatureAlgorithm) {
+	switch context.SignData.Certificate.SignatureAlgorithm.String() {
 	case "SHA1-RSA":
 	case "ECDSA-SHA1":
 	case "DSA-SHA1":
@@ -221,7 +226,7 @@ func (context *SignContext) SignPDF() error {
 	// Add estimated size for TSA.
 	// We can't kow actual size of TSA until after signing.
 	if context.SignData.TSA.URL != "" {
-		context.SignatureMaxLength += uint32(hex.EncodedLen(4000))
+		context.SignatureMaxLength += uint32(hex.EncodedLen(6000))
 	}
 
 	// Fetch revocation data before adding signature placeholder.

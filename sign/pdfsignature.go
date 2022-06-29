@@ -225,7 +225,7 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 	ts_request_reader := bytes.NewReader(ts_request)
 	req, err := http.NewRequest("POST", context.SignData.TSA.URL, ts_request_reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error requesting timestamp (%s): %w", context.SignData.TSA.URL, err)
 	}
 
 	req.Header.Add("Content-Type", "application/timestamp-query")
@@ -247,9 +247,9 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 		if err == nil {
 			defer resp.Body.Close()
 			body, _ := ioutil.ReadAll(resp.Body)
-			err = errors.New("Non success response (" + strconv.Itoa(code) + "): " + string(body))
+			err = errors.New("non success response (" + strconv.Itoa(code) + "): " + string(body))
 		} else {
-			err = errors.New("Non success response (" + strconv.Itoa(code) + ")")
+			err = errors.New("non success response (" + strconv.Itoa(code) + ")")
 		}
 
 		return nil, err
@@ -274,7 +274,10 @@ func (context *SignContext) replaceSignature() error {
 	hex.Encode(dst, signature)
 
 	if uint32(len(dst)) > context.SignatureMaxLength {
-		return errors.New("Signature is too big to fit in reserved space.")
+		// TODO: Should we log this retry?
+		// set new base and try signing again
+		context.SignatureMaxLengthBase += (uint32(len(dst)) - context.SignatureMaxLength) + 1
+		return context.SignPDF()
 	}
 
 	context.OutputBuffer.Seek(0, 0)
