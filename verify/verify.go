@@ -275,43 +275,44 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 						}
 					}
 				}
-			} else {
-				// Check OCSP status for certificate out of band
 			}
+			//  else {
+			// 	// Check OCSP status for certificate out of band
+			// }
 
 			// Add certificate to result
 			signer.Certificates = append(signer.Certificates, c)
 		}
 
 		// Certificate revocation lists when included in this document
-		for _, crl := range p7.CRLs {
-			//var crlissuer *pkix.Name
-			//crlissuerdr.FillFromRDNSequence(&crl.TBSCertList.Issuer)
-			if len(crl.TBSCertList.RevokedCertificates) > 0 {
+		// for _, crl := range p7.CRLs {
+		// 	//var crlissuer *pkix.Name
+		// 	//crlissuerdr.FillFromRDNSequence(&crl.TBSCertList.Issuer)
+		// 	if len(crl.TBSCertList.RevokedCertificates) > 0 {
 
-			}
-			//apiResp.Error = fmt.Sprintf("CRL %v , with %d entries\n", crl.TBSCertList.Issuer, len(crl.TBSCertList.RevokedCertificates))
-			// TODO(vanbroup): Check revocation via CRL
-			// signer.RevokedCertificate = true
-		}
+		// 	}
+		// 	//apiResp.Error = fmt.Sprintf("CRL %v , with %d entries\n", crl.TBSCertList.Issuer, len(crl.TBSCertList.RevokedCertificates))
+		// 	// TODO(vanbroup): Check revocation via CRL
+		// 	// signer.RevokedCertificate = true
+		// }
 
 		// Parse CRL file
-		for _, c := range revInfo.CRL {
-			crl, err := x509.ParseCRL(c.FullBytes)
-			if err != nil {
-				apiResp.Error = fmt.Sprintln("Failed to parse or verify embedded CRL")
-			}
+		// for _, c := range revInfo.CRL {
+		// 	crl, err := x509.ParseCRL(c.FullBytes)
+		// 	if err != nil {
+		// 		apiResp.Error = fmt.Sprintln("Failed to parse or verify embedded CRL")
+		// 	}
 
-			if len(crl.TBSCertList.RevokedCertificates) > 0 {
+		// 	if len(crl.TBSCertList.RevokedCertificates) > 0 {
 
-			}
+		// 	}
 
-			//var crlissuer *pkix.Name
-			//crlissuerdr.FillFromRDNSequence(&crl.TBSCertList.Issuer)
-			//apiResp.Error = fmt.Sprintf("CRL %v , with %d entries\n", crl.TBSCertList.Issuer, len(crl.TBSCertList.RevokedCertificates))
-			// TODO(vanbroup): Check revocation via CRL
-			// signer.RevokedCertificate = true
-		}
+		// 	//var crlissuer *pkix.Name
+		// 	//crlissuerdr.FillFromRDNSequence(&crl.TBSCertList.Issuer)
+		// 	//apiResp.Error = fmt.Sprintf("CRL %v , with %d entries\n", crl.TBSCertList.Issuer, len(crl.TBSCertList.RevokedCertificates))
+		// 	// TODO(vanbroup): Check revocation via CRL
+		// 	// signer.RevokedCertificate = true
+		// }
 
 		// If SubFilter is adbe.pkcs7.detached or adbe.pkcs7.sha1, this entry
 		// shall not be used, and the certificate chain shall be put in the PKCS#7
