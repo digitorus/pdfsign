@@ -84,8 +84,8 @@ func (context *SignContext) writeXrefStream() error {
 
 	predictor := context.PDFReader.Trailer().Key("DecodeParms").Key("Predictor").Int64()
 
-	streamBytes := []byte{}
-	err := errors.New("")
+	var streamBytes []byte
+	var err error
 
 	writeXrefStreamLine(buffer, 1, int(context.Filesize), 0)
 	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length), 0)
@@ -171,7 +171,9 @@ func EncodePNGSUBBytes(columns int, data []byte) ([]byte, error) {
 
 	var b bytes.Buffer
 	w := zlib.NewWriter(&b)
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		return nil, err
+	}
 	w.Close()
 
 	return b.Bytes(), nil
@@ -209,7 +211,9 @@ func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
 
 	var b bytes.Buffer
 	w := zlib.NewWriter(&b)
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		return nil, err
+	}
 	w.Close()
 
 	return b.Bytes(), nil

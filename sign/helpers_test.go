@@ -124,35 +124,35 @@ func TestWritePartFromSourceFileToTargetFile(t *testing.T) {
 		return
 	}
 
-	writePartFromSourceFileToTargetFile(input_file, writer, 0, 0)
+	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, 0)
 	writer.Flush()
 
 	if writer.Buffered() != 0 {
 		t.Errorf("Content was copied while length was 0")
 	}
 
-	writePartFromSourceFileToTargetFile(input_file, writer, 0, -20)
+	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, -20)
 	writer.Flush()
 
 	if writer.Buffered() != 0 {
 		t.Errorf("Content was copied while length was smaller than 0")
 	}
 
-	writePartFromSourceFileToTargetFile(input_file, writer, 0, 8)
+	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, 8)
 	writer.Flush()
 
-	if string(b.Bytes()) != "%PDF-2.0" {
-		t.Errorf("Wrong content was copied, got %s but expected %s", string(b.Bytes()), "%PDF-2.0")
+	if b.String() != "%PDF-2.0" {
+		t.Errorf("Wrong content was copied, got %s but expected %s", b.String(), "%PDF-2.0")
 	}
 
-	writePartFromSourceFileToTargetFile(input_file, writer, 33, 8)
+	_ = writePartFromSourceFileToTargetFile(input_file, writer, 33, 8)
 	writer.Flush()
 
-	if string(b.Bytes()) != "%PDF-2.0/Catalog" {
-		t.Errorf("Wrong content was copied, got %s but expected %s", string(b.Bytes()), "%PDF-2.0/Catalog")
+	if b.String() != "%PDF-2.0/Catalog" {
+		t.Errorf("Wrong content was copied, got %s but expected %s", b.String(), "%PDF-2.0/Catalog")
 	}
 
-	writePartFromSourceFileToTargetFile(input_file, writer, 0, 1200)
+	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, 1200)
 
 	if writer.Buffered() != 1200 {
 		t.Errorf("Requested 1200 bytes but only got %d", writer.Buffered())

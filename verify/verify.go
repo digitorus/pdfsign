@@ -71,7 +71,9 @@ type DocumentInfo struct {
 
 func File(file *os.File) (apiResp *Response, err error) {
 	finfo, _ := file.Stat()
-	file.Seek(0, 0)
+	if _, err := file.Seek(0, 0); err != nil {
+		return nil, err
+	}
 
 	return Reader(file, finfo.Size())
 }
@@ -155,9 +157,9 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// Signer certificate
 		// http://www.alvestrand.no/objectid/1.2.840.113549.1.9.html
 		// http://www.alvestrand.no/objectid/1.2.840.113583.1.1.8.html
-		var isn []byte
+		//var isn []byte
 		for _, s := range p7.Signers {
-			isn = s.IssuerAndSerialNumber.IssuerName.FullBytes
+			//isn = s.IssuerAndSerialNumber.IssuerName.FullBytes
 			//for _, a := range s.AuthenticatedAttributes {
 			//fmt.Printf("A: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, a.Type)
 			//}
@@ -199,13 +201,9 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		}
 
 		// Directory of certificates, including OCSP
-		//var ica *x509.Certificate
 		certPool := x509.NewCertPool()
 		for _, cert := range p7.Certificates {
 			certPool.AddCert(cert)
-			if bytes.Equal(isn, cert.RawSubject) {
-				//ica = cert
-			}
 		}
 
 		// Verify the digital signature of the pdf file.
@@ -225,7 +223,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 
 		// PDF signature certificate revocation information attribute (1.2.840.113583.1.1.8)
 		var revInfo revocation.InfoArchival
-		p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
+		_ = p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
 		// Parse OCSP response
 		var ocspStatus = make(map[string]*ocsp.Response)

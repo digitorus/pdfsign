@@ -65,7 +65,6 @@ func TestReaderCanReadPDF(t *testing.T) {
 	for _, f := range files {
 		ext := filepath.Ext(f.Name())
 		if ext != ".pdf" {
-			t.Log("Skipping file", f.Name())
 			continue
 		}
 
@@ -100,8 +99,8 @@ func TestReaderCanReadPDF(t *testing.T) {
 }
 
 func TestSignPDF(t *testing.T) {
-	os.RemoveAll("../testfiles/failed/")
-	os.MkdirAll("../testfiles/failed/", 0777)
+	_ = os.RemoveAll("../testfiles/failed/")
+	_ = os.MkdirAll("../testfiles/failed/", 0777)
 
 	files, err := ioutil.ReadDir("../testfiles")
 	if err != nil {
@@ -140,7 +139,6 @@ func TestSignPDF(t *testing.T) {
 
 		ext := filepath.Ext(f.Name())
 		if ext != ".pdf" {
-			t.Log("Skipping file", f.Name())
 			continue
 		}
 
@@ -171,6 +169,10 @@ func TestSignPDF(t *testing.T) {
 			}
 
 			outputFile, err := ioutil.TempFile("", "pdfsign_test")
+			if err != nil {
+				t.Errorf("%s", err.Error())
+				return
+			}
 
 			err = Sign(input_file, outputFile, rdr, size, SignData{
 				Signature: SignDataSignature{
@@ -196,7 +198,7 @@ func TestSignPDF(t *testing.T) {
 
 			if err != nil {
 				input_file.Close()
-				os.Remove(outputFile.Name())
+				_ = os.Remove(outputFile.Name())
 				st.Errorf("%s: %s", f.Name(), err.Error())
 				return
 			}
@@ -244,6 +246,10 @@ func TestSignPDFFile(t *testing.T) {
 	certificate_chains := make([][]*x509.Certificate, 0)
 
 	tmpfile, err := ioutil.TempFile("", "pdfsign_test")
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
 
 	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
@@ -322,7 +328,10 @@ func BenchmarkSignPDF(b *testing.B) {
 	}
 
 	for n := 0; n < b.N; n++ {
-		input_file.Seek(0, 0)
+		if _, err := input_file.Seek(0, 0); err != nil {
+			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
+			return
+		}
 
 		err = Sign(input_file, ioutil.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{

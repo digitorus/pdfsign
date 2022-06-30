@@ -11,7 +11,9 @@ func (context *SignContext) writeTrailer() error {
 		trailer_length := context.PDFReader.XrefInformation.IncludingTrailerEndPos - context.PDFReader.XrefInformation.EndPos
 
 		// Read the trailer so we can replace the size.
-		context.InputFile.Seek(context.PDFReader.XrefInformation.EndPos+1, 0)
+		if _, err := context.InputFile.Seek(context.PDFReader.XrefInformation.EndPos+1, 0); err != nil {
+			return err
+		}
 		trailer_buf := make([]byte, trailer_length)
 		if _, err := context.InputFile.Read(trailer_buf); err != nil {
 			return err

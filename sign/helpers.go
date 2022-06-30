@@ -80,7 +80,10 @@ func leftPad(s string, padStr string, pLen int) string {
 }
 
 func writePartFromSourceFileToTargetFile(input_file io.ReadSeeker, output_file io.Writer, offset int64, length int64) error {
-	input_file.Seek(offset, 0)
+	_, err := input_file.Seek(offset, 0)
+	if err != nil {
+		return err
+	}
 
 	// Create a small buffer for proper IO handling.
 	max_chunk_length := int64(1024)
