@@ -399,12 +399,12 @@ func parseKeywords(value string) []string {
 	return []string{value}
 }
 
-func walk(t pdf.Value, pad int) {
-	for _, k := range t.Keys() {
-		v := t.Key(k)
-		if v.Kind() == pdf.Array || v.Kind() == pdf.Dict {
-			pad++
-			walk(v, pad)
-		}
-	}
-}
+// func walk(t pdf.Value, pad int) {
+// 	for _, k := range t.Keys() {
+// 		v := t.Key(k)
+// 		if v.Kind() == pdf.Array || v.Kind() == pdf.Dict {
+// 			pad++
+// 			walk(v, pad)
+// 		}
+// 	}
+// }
