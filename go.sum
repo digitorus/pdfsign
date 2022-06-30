@@ -8,6 +8,10 @@ github.com/digitorus/pkcs7 v0.0.0-20200320092839-808436b6f6d1 h1:V1cgDSp4Kq4eMCf
 github.com/digitorus/pkcs7 v0.0.0-20200320092839-808436b6f6d1/go.mod h1:p2IZ9yq2kEKGFr3rfpYxaaOzB0VdLbF8VkZReEIpJmU=
 github.com/digitorus/timestamp v0.0.0-20210102082646-54ddd7720e27 h1:X8tvQGATvS7vQBAPPn0f7nQPcTamu4ecCbRafPrBgik=
 github.com/digitorus/timestamp v0.0.0-20210102082646-54ddd7720e27/go.mod h1:IKw2TcDeMaZrNjpdq7gPc7I+a21+Sn34bUqWrTc70Hs=
+github.com/digitorus/timestamp v0.0.0-20220630080933-558840f252f5 h1:zYpNMBe+1x3h0FMTJThci7KimEldiiOrn0ENMP6+I/8=
+github.com/digitorus/timestamp v0.0.0-20220630080933-558840f252f5/go.mod h1:IKw2TcDeMaZrNjpdq7gPc7I+a21+Sn34bUqWrTc70Hs=
+github.com/digitorus/timestamp v0.0.0-20220630150916-a1b00e34b289 h1:WIoYZV4zZKwIymytM65i+WgqyTN/ElCf7KddV01C+0s=
+github.com/digitorus/timestamp v0.0.0-20220630150916-a1b00e34b289/go.mod h1:IKw2TcDeMaZrNjpdq7gPc7I+a21+Sn34bUqWrTc70Hs=
 github.com/mattetti/filebuffer v1.0.1 h1:gG7pyfnSIZCxdoKq+cPa8T0hhYtD9NxCdI4D7PTjRLM=
 github.com/mattetti/filebuffer v1.0.1/go.mod h1:YdMURNDOttIiruleeVr6f56OrMc+MydEnTcXwtkxNVs=
 golang.org/x/crypto v0.0.0-20220307211146-efcb8507fb70 h1:syTAU9FwmvzEoIYMqcPHOcVm4H3U5u90WsvuYgwpETU=
