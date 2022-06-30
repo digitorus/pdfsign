@@ -48,7 +48,7 @@ func pdfDateTime(date time.Time) string {
 	_, original_offset := date.Zone()
 	offset := original_offset
 	if offset < 0 {
-		offset = (offset - offset) - offset
+		offset = -offset
 	}
 
 	offset_duration := time.Duration(offset) * time.Second
