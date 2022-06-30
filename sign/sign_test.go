@@ -190,7 +190,7 @@ func TestSignPDF(t *testing.T) {
 				Certificate:       cert,
 				CertificateChains: certificate_chains,
 				TSA: TSA{
-					URL: "https://freetsa.org/tsr",
+					URL: "http://timestamp.digicert.com",
 				},
 				RevocationData:     revocation.InfoArchival{},
 				RevocationFunction: DefaultEmbedRevocationStatusFunction,
