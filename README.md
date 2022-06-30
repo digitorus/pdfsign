@@ -11,7 +11,7 @@ This PDF signing library is written in [Go](https://go.dev). The library is in d
 
 ## From the command line
 
-```sh
+```
 Usage of ./pdfsign:
   -contact string
         Contact information for signatory
@@ -21,6 +21,8 @@ Usage of ./pdfsign:
         Name of the signatory
   -reason string
         Reason for signig
+  -tsa string
+        URL for Time-Stamp Authority (default "https://freetsa.org/tsr")
 
 Example usage:
         ./pdfsign -name "Jon Doe" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]
