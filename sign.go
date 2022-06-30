@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	infoName, infoLocation, infoReason, infoContact string
+	infoName, infoLocation, infoReason, infoContact, tsa string
 )
 
 func usage() {
@@ -34,6 +34,7 @@ func main() {
 	flag.StringVar(&infoLocation, "location", "", "Location of the signatory")
 	flag.StringVar(&infoReason, "reason", "", "Reason for signig")
 	flag.StringVar(&infoContact, "contact", "", "Contact information for signatory")
+	flag.StringVar(&tsa, "tsa", "https://freetsa.org/tsr", "URL for Time-Stamp Authority")
 
 	flag.Parse()
 
@@ -144,7 +145,7 @@ func main() {
 			Certificate:       cert,
 			CertificateChains: certificate_chains,
 			TSA: sign.TSA{
-				URL: "https://freetsa.org/tsr",
+				URL: tsa,
 			},
 		})
 		if err != nil {
