@@ -1,3 +1,4 @@
+//go:build certificateExpired
 // +build certificateExpired
 
 // TODO: Rework tests, these currently fail because of expired certificate
