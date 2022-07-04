@@ -143,9 +143,7 @@ func TestSignPDF(t *testing.T) {
 		}
 
 		t.Run(f.Name(), func(st *testing.T) {
-			st.Parallel()
-
-			t.Log("Signing file", f.Name())
+			st.Log("Signing file", f.Name())
 
 			input_file, err := os.Open("../testfiles/" + f.Name())
 			if err != nil {
