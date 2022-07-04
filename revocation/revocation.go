@@ -33,7 +33,7 @@ func (r *InfoArchival) AddOCSP(b []byte) error {
 // IsRevoked checks if there is a status inclded for the certificate and returns
 // true if the certificate is marked as revoked.
 //
-// TODO: We should report if there is no CRL or OCSP response embeded for this certificate
+// TODO: We should report if there is no CRL or OCSP response embedded for this certificate
 // TODO: Information about the revocation (time, reason, etc) must be extractable
 func (r *InfoArchival) IsRevoked(c *x509.Certificate) bool {
 	// check the crl and ocsp to see if this certificate is revoked

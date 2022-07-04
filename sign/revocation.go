@@ -65,9 +65,9 @@ func DefaultEmbedRevocationStatusFunction(cert, issuer *x509.Certificate, i *rev
 	// hirachies) can be smaller.
 	//
 	// There have been some reports that the usage of a CRL would result in a better
-	// compatibilty.
+	// compatibility.
 	//
-	// TODO: Find and embed link about compatibilty
+	// TODO: Find and embed link about compatibility
 	// TODO: Implement revocation status caching (required for higher volume signing)
 
 	// using an OCSP server
