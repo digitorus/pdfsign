@@ -15,7 +15,7 @@ import (
 	"github.com/digitorus/timestamp"
 )
 
-var signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
+const signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
 func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_range_start_byte int64, signature_contents_start_byte int64) {
 	// Using a buffer because it's way faster than concatenating.
