@@ -9,6 +9,8 @@
 
 This PDF signing library is written in [Go](https://go.dev). The library is in development, might not work for all PDF files and the API might change, bug reports, contributions and suggestions are welcome.
 
+**See also our [PDFSigner](https://github.com/digitorus/pdfsigner/), a more advanced digital signature server that is using this project.**
+
 ## From the command line
 
 ```
