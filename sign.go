@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io/ioutil"
@@ -61,10 +62,17 @@ func main() {
 		defer input_file.Close()
 
 		resp, err := verify.File(input_file)
-		log.Println(resp)
 		if err != nil {
-			log.Println(err)
+			fmt.Println(err)
+			os.Exit(1)
 		}
+		jsonData, err := json.Marshal(resp)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Println(string(jsonData))
+		return
 	}
 
 	if method == "sign" {
