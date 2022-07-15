@@ -1,6 +1,7 @@
 package sign
 
 import (
+	"crypto"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -166,7 +167,7 @@ func TestSignPDF(t *testing.T) {
 				return
 			}
 
-			outputFile, err := ioutil.TempFile("", "pdfsign_test")
+			outputFile, err := ioutil.TempFile("", "pdfsign_test_"+f.Name())
 			if err != nil {
 				t.Errorf("%s", err.Error())
 				return
@@ -241,8 +242,6 @@ func TestSignPDFFile(t *testing.T) {
 		return
 	}
 
-	certificate_chains := make([][]*x509.Certificate, 0)
-
 	tmpfile, err := ioutil.TempFile("", "pdfsign_test")
 	if err != nil {
 		t.Errorf("%s", err.Error())
@@ -261,10 +260,9 @@ func TestSignPDFFile(t *testing.T) {
 			CertType:   CertificationSignature,
 			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
 		},
-		Signer:            pkey,
-		Certificate:       cert,
-		CertificateChains: certificate_chains,
-		RevocationData:    revocation.InfoArchival{},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
 	})
 
 	if err != nil {
@@ -274,12 +272,16 @@ func TestSignPDFFile(t *testing.T) {
 	}
 
 	_, err = verify.File(tmpfile)
-	os.Remove(tmpfile.Name())
-
 	if err != nil {
 		t.Errorf("%s: %s", tmpfile.Name(), err.Error())
-	}
 
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/testfile20.pdf")
+		if err2 != nil {
+			t.Error(err2)
+		}
+	} else {
+		os.Remove(tmpfile.Name())
+	}
 }
 
 func BenchmarkSignPDF(b *testing.B) {
