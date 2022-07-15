@@ -1,6 +1,8 @@
 package sign
 
 import (
+	"crypto"
+	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
@@ -138,5 +140,30 @@ func writePartFromSourceFileToTargetFile(input_file io.ReadSeeker, output_file i
 		}
 	}
 
+	return nil
+}
+
+var hashOIDs = map[crypto.Hash]asn1.ObjectIdentifier{
+	crypto.SHA1:   asn1.ObjectIdentifier([]int{1, 3, 14, 3, 2, 26}),
+	crypto.SHA256: asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 1}),
+	crypto.SHA384: asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 2}),
+	crypto.SHA512: asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 3}),
+}
+
+func getHashAlgorithmFromOID(target asn1.ObjectIdentifier) crypto.Hash {
+	for hash, oid := range hashOIDs {
+		if oid.Equal(target) {
+			return hash
+		}
+	}
+	return crypto.Hash(0)
+}
+
+func getOIDFromHashAlgorithm(target crypto.Hash) asn1.ObjectIdentifier {
+	for hash, oid := range hashOIDs {
+		if hash == target {
+			return oid
+		}
+	}
 	return nil
 }

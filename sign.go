@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto"
 	"flag"
 	"fmt"
 	"log"
@@ -142,6 +143,7 @@ func main() {
 				DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
 			},
 			Signer:            pkey,
+			DigestAlgorithm:   crypto.SHA256,
 			Certificate:       cert,
 			CertificateChains: certificate_chains,
 			TSA: sign.TSA{

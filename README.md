@@ -71,8 +71,9 @@ err = sign.Sign(input_file, output_file, rdr, size, sign.SignData{
         CertType:   sign.CertificationSignature,
         DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
     },
-    Signer:            privateKey, // crypto.Signer
-    Certificate:       certificate, // x509.Certificate
+    Signer:            privateKey,         // crypto.Signer
+    DigestAlgorithm:   crypto.SHA256,      // hash algorithm for the digest creation
+    Certificate:       certificate,        // x509.Certificate
     CertificateChains: certificate_chains, // x509.Certificate.Verify()
     TSA: sign.TSA{
         URL: "https://freetsa.org/tsr",

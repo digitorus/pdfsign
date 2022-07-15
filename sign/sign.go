@@ -34,6 +34,7 @@ type SignData struct {
 	ObjectId           uint32
 	Signature          SignDataSignature
 	Signer             crypto.Signer
+	DigestAlgorithm    crypto.Hash
 	Certificate        *x509.Certificate
 	CertificateChains  [][]*x509.Certificate
 	TSA                TSA

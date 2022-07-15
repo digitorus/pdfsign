@@ -2,6 +2,7 @@ package sign
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
+	"golang.org/x/crypto/cryptobyte"
+	cryptobyte_asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
 const signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
@@ -121,6 +124,39 @@ func (context *SignContext) fetchRevocationData() error {
 	return nil
 }
 
+func (context *SignContext) createSigningCertificateAttribute() (*pkcs7.Attribute, error) {
+	hash := context.SignData.DigestAlgorithm.New()
+	hash.Write(context.SignData.Certificate.Raw)
+
+	var b cryptobyte.Builder
+	b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // SigningCertificate
+		b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // []ESSCertID, []ESSCertIDv2
+			b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // ESSCertID, ESSCertIDv2
+				if context.SignData.DigestAlgorithm.HashFunc() != crypto.SHA1 &&
+					context.SignData.DigestAlgorithm.HashFunc() != crypto.SHA256 { // default SHA-256
+					b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // AlgorithmIdentifier
+						b.AddASN1ObjectIdentifier(getOIDFromHashAlgorithm(context.SignData.DigestAlgorithm))
+					})
+				}
+				b.AddASN1OctetString(hash.Sum(nil)) // certHash
+			})
+		})
+	})
+
+	sse, err := b.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	signingCertificate := pkcs7.Attribute{
+		Type:  asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 47}, // SigningCertificateV2
+		Value: asn1.RawValue{FullBytes: sse},
+	}
+	if context.SignData.DigestAlgorithm.HashFunc() == crypto.SHA1 {
+		signingCertificate.Type = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 12} // SigningCertificate
+	}
+	return &signingCertificate, nil
+}
+
 func (context *SignContext) createSignature() ([]byte, error) {
 	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
 		return nil, err
@@ -140,12 +176,19 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		return nil, fmt.Errorf("new signed data: %w", err)
 	}
 
+	signed_data.SetDigestAlgorithm(getOIDFromHashAlgorithm(context.SignData.DigestAlgorithm))
+	signingCertificate, err := context.createSigningCertificateAttribute()
+	if err != nil {
+		return nil, fmt.Errorf("new signed data: %w", err)
+	}
+
 	signer_config := pkcs7.SignerInfoConfig{
 		ExtraSignedAttributes: []pkcs7.Attribute{
 			{
 				Type:  asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8},
 				Value: context.SignData.RevocationData,
 			},
+			*signingCertificate,
 		},
 	}
 
