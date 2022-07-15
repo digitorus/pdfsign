@@ -150,14 +150,14 @@ var hashOIDs = map[crypto.Hash]asn1.ObjectIdentifier{
 	crypto.SHA512: asn1.ObjectIdentifier([]int{2, 16, 840, 1, 101, 3, 4, 2, 3}),
 }
 
-func getHashAlgorithmFromOID(target asn1.ObjectIdentifier) crypto.Hash {
-	for hash, oid := range hashOIDs {
-		if oid.Equal(target) {
-			return hash
-		}
-	}
-	return crypto.Hash(0)
-}
+// func getHashAlgorithmFromOID(target asn1.ObjectIdentifier) crypto.Hash {
+// 	for hash, oid := range hashOIDs {
+// 		if oid.Equal(target) {
+// 			return hash
+// 		}
+// 	}
+// 	return crypto.Hash(0)
+// }
 
 func getOIDFromHashAlgorithm(target crypto.Hash) asn1.ObjectIdentifier {
 	for hash, oid := range hashOIDs {
