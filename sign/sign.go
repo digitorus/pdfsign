@@ -162,6 +162,9 @@ func (context *SignContext) SignPDF() error {
 	if context.SignData.Signature.DocMDPPerm == 0 {
 		context.SignData.Signature.DocMDPPerm = 1
 	}
+	if !context.SignData.DigestAlgorithm.Available() {
+		context.SignData.DigestAlgorithm = crypto.SHA256
+	}
 
 	context.OutputBuffer = filebuffer.New([]byte{})
 
@@ -198,6 +201,9 @@ func (context *SignContext) SignPDF() error {
 	case "ECDSA-SHA512":
 		context.SignatureMaxLength += uint32(hex.EncodedLen(512))
 	}
+
+	// Add size of digest algorithm twice (for file digist and signing certificate attribute)
+	context.SignatureMaxLength += uint32(hex.EncodedLen(context.SignData.DigestAlgorithm.Size() * 2))
 
 	// Add size for my certificate.
 	degenerated, err := pkcs7.DegenerateCertificate(context.SignData.Certificate.Raw)
