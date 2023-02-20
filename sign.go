@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"io/ioutil"
 
 	"github.com/digitorus/pdfsign/sign"
 	"github.com/digitorus/pdfsign/verify"
@@ -85,7 +84,7 @@ func main() {
 			usage()
 		}
 
-		certificate_data, err := ioutil.ReadFile(flag.Arg(3))
+		certificate_data, err := os.ReadFile(flag.Arg(3))
 		if err != nil {
 			log.Fatal(err)
 
@@ -100,7 +99,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		key_data, err := ioutil.ReadFile(flag.Arg(4))
+		key_data, err := os.ReadFile(flag.Arg(4))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -122,7 +121,7 @@ func main() {
 				log.Fatal(err)
 			}
 
-			chain_data, err := ioutil.ReadFile(flag.Arg(5))
+			chain_data, err := os.ReadFile(flag.Arg(5))
 			if err != nil {
 				log.Fatal(err)
 			}
