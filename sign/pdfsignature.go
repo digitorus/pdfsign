@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -269,7 +269,7 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 	if err != nil || (code < 200 || code > 299) {
 		if err == nil {
 			defer resp.Body.Close()
-			body, _ := ioutil.ReadAll(resp.Body)
+			body, _ := io.ReadAll(resp.Body)
 			return nil, errors.New("non success response (" + strconv.Itoa(code) + "): " + string(body))
 		}
 
@@ -277,7 +277,7 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 	}
 
 	defer resp.Body.Close()
-	timestamp_response_body, err := ioutil.ReadAll(resp.Body)
+	timestamp_response_body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

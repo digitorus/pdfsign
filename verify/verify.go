@@ -7,7 +7,6 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"time"
@@ -146,7 +145,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			// This content will be hashed with the corresponding algorithm to
 			// verify the signature.
 
-			content, err := ioutil.ReadAll(io.NewSectionReader(file, v.Key("ByteRange").Index(i-1).Int64(), v.Key("ByteRange").Index(i).Int64()))
+			content, err := io.ReadAll(io.NewSectionReader(file, v.Key("ByteRange").Index(i-1).Int64(), v.Key("ByteRange").Index(i).Int64()))
 			if err != nil {
 				apiResp.Error = fmt.Sprintln("Failed to get ByteRange:", i, err)
 			}
