@@ -68,7 +68,7 @@ func TestReaderCanReadPDF(t *testing.T) {
 		if ext != ".pdf" {
 			continue
 		}
-		
+
 		fileName := f.Name()
 		t.Run(fileName, func(st *testing.T) {
 			st.Parallel()
@@ -281,6 +281,82 @@ func TestSignPDFFile(t *testing.T) {
 			t.Error(err2)
 		}
 	} else {
+		os.Remove(tmpfile.Name())
+	}
+}
+
+func TestSignPDFFileUTF8(t *testing.T) {
+	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
+	if certificate_data_block == nil {
+		t.Errorf("failed to parse PEM block containing the certificate")
+		return
+	}
+
+	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
+
+	key_data_block, _ := pem.Decode([]byte(signKeyPem))
+	if key_data_block == nil {
+		t.Errorf("failed to parse PEM block containing the private key")
+		return
+	}
+
+	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
+
+	tmpfile, err := os.CreateTemp("", "pdfsign_test")
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
+
+	signerName := "姓名"
+	signerLocation := "位置"
+	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        signerName,
+				Location:    signerLocation,
+				Reason:      "Test with UTF-8",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+
+	if err != nil {
+		os.Remove(tmpfile.Name())
+		t.Errorf("%s: %s", "testfile20.pdf", err.Error())
+		return
+	}
+
+	info, err := verify.File(tmpfile)
+	if err != nil {
+		t.Errorf("%s: %s", tmpfile.Name(), err.Error())
+
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/testfile20.pdf")
+		if err2 != nil {
+			t.Error(err2)
+		}
+	} else {
+		if info.Signers[0].Name != signerName {
+			t.Errorf("expected %q, got %q", signerName, info.Signers[0].Name)
+		}
+		if info.Signers[0].Location != signerLocation {
+			t.Errorf("expected %q, got %q", signerLocation, info.Signers[0].Location)
+		}
+
 		os.Remove(tmpfile.Name())
 	}
 }

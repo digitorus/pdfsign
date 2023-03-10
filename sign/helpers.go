@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
+
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 func findFirstPage(parent pdf.Value) (pdf.Value, error) {
@@ -35,11 +38,28 @@ func findFirstPage(parent pdf.Value) (pdf.Value, error) {
 }
 
 func pdfString(text string) string {
+	if !isASCII(text) {
+		// UTF-16BE
+		enc := unicode.UTF16(unicode.BigEndian, unicode.UseBOM).NewEncoder()
+		res, _, err := transform.String(enc, text)
+		if err != nil {
+			panic(err)
+		}
+		return "(" + res + ")"
+	}
+
+	// UTF-8
+	// (\357\273\277Layer 1)               % UTF-8 Layer 1 Name
+	// <EF BB BF DA AF DA 86 D9 BE DA 98>  % UTF-8 Layer 2 Name
+	// text = "\357\273\277" + text
+	// text = hex.EncodeToString([]byte(text))
+	// text = "<" + text + ">"
+
+	// PDFDocEncoded
 	text = strings.Replace(text, "\\", "\\\\", -1)
 	text = strings.Replace(text, ")", "\\)", -1)
 	text = strings.Replace(text, "(", "\\(", -1)
 	text = strings.Replace(text, "\r", "\\r", -1)
-
 	text = "(" + text + ")"
 
 	return text
@@ -166,4 +186,13 @@ func getOIDFromHashAlgorithm(target crypto.Hash) asn1.ObjectIdentifier {
 		}
 	}
 	return nil
+}
+
+func isASCII(s string) bool {
+	for _, r := range s {
+		if r > '\u007F' {
+			return false
+		}
+	}
+	return true
 }
