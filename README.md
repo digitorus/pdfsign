@@ -34,7 +34,7 @@ Example usage:
 ## As library
 
 ```go
-import "bitbucket.org/digitorus/pdf"
+import "github.com/digitorus/pdf"
 
 input_file, err := os.Open(input)
 if err != nil {
