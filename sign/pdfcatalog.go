@@ -12,15 +12,27 @@ func (context *SignContext) createCatalog() (catalog string, err error) {
 	root := context.PDFReader.Trailer().Key("Root")
 	root_keys := root.Keys()
 	found_pages := false
+	found_names := false
 	for _, key := range root_keys {
 		if key == "Pages" {
 			found_pages = true
 			break
 		}
 	}
+	for _, key := range root_keys {
+		if key == "Names" {
+			found_names = true
+			break
+		}
+	}
 
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
+
+	if found_names {
+		names := root.Key("Names").GetPtr()
+		catalog += " /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R"
+	}
 
 	if found_pages {
 		pages := root.Key("Pages").GetPtr()
