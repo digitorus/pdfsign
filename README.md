@@ -2,9 +2,8 @@
 
 [![Build & Test](https://github.com/digitorus/pdfsign/workflows/Build%20&%20Test/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Abuild-and-test)
 [![golangci-lint](https://github.com/digitorus/pdfsign/workflows/golangci-lint/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Agolangci-lint)
-[![CodeQL](https://github.com/digitorus/pdfsign/workflows/CodeQL/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Acodeql)
 [![Go Report Card](https://goreportcard.com/badge/github.com/digitorus/pdfsign)](https://goreportcard.com/report/github.com/digitorus/pdfsign)
-[![Coverage Status](https://codecov.io/gh/digitorus/pdfsign/branch/main/graph/badge.svg)](https://codecov.io/gh/digitorus/pdfsign)
+[![Coverage Status](https://codecov.io/gh/digitorus/pdfsign/branch/main/graph/badge.svg)](https://codecov.io/gh/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/digitorus/pdfsign.svg)](https://pkg.go.dev/github.com/digitorus/pdfsign)
 
 This PDF signing library is written in [Go](https://go.dev). The library is in development, might not work for all PDF files and the API might change, bug reports, contributions and suggestions are welcome.
