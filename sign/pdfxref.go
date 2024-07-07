@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 )
 
 func (context *SignContext) writeXref() error {
@@ -27,53 +29,64 @@ func (context *SignContext) writeXref() error {
 }
 
 func (context *SignContext) writeXrefTable() error {
-	// @todo: maybe we need a prev here too.
-	xref_size := "xref\n0 " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10) + "\n"
-	new_xref_size := "xref\n0 " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+4, 10) + "\n"
-
-	if _, err := context.OutputBuffer.Write([]byte(new_xref_size)); err != nil {
-		return err
+	// Read the existing xref table
+	context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, 0)
+	xrefContent := make([]byte, context.PDFReader.XrefInformation.Length)
+	_, err := context.InputFile.Read(xrefContent)
+	if err != nil {
+		return fmt.Errorf("failed to read xref table: %w", err)
 	}
 
-	// Write the old xref table to the output pdf.
-	if err := writePartFromSourceFileToTargetFile(context.InputFile, context.OutputBuffer, context.PDFReader.XrefInformation.StartPos+int64(len(xref_size)), context.PDFReader.XrefInformation.Length-int64(len(xref_size))); err != nil {
-		return err
+	// Parse the xref header
+	xrefLines := strings.Split(string(xrefContent), "\n")
+	xrefHeader := strings.Fields(xrefLines[1])
+	if len(xrefHeader) != 2 {
+		return fmt.Errorf("invalid xref header format")
 	}
 
-	// Create the new catalog xref line.
-	visual_signature_object_start_position := strconv.FormatInt(context.Filesize, 10)
-	visual_signature_xref_line := leftPad(visual_signature_object_start_position, "0", 10-len(visual_signature_object_start_position)) + " 00000 n \n"
-
-	// Write the new catalog xref line.
-	if _, err := context.OutputBuffer.Write([]byte(visual_signature_xref_line)); err != nil {
-		return err
+	firstObjectID, err := strconv.Atoi(xrefHeader[0])
+	if err != nil {
+		return fmt.Errorf("invalid first object ID: %w", err)
 	}
 
-	// Create the new catalog xref line.
-	catalog_object_start_position := strconv.FormatInt(context.Filesize+context.VisualSignData.Length, 10)
-	catalog_xref_line := leftPad(catalog_object_start_position, "0", 10-len(catalog_object_start_position)) + " 00000 n \n"
-
-	// Write the new catalog xref line.
-	if _, err := context.OutputBuffer.Write([]byte(catalog_xref_line)); err != nil {
-		return err
+	itemCount, err := strconv.Atoi(xrefHeader[1])
+	if err != nil {
+		return fmt.Errorf("invalid item count: %w", err)
 	}
 
-	// Create the new signature xref line.
-	info_object_start_position := strconv.FormatInt(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length, 10)
-	info_xref_line := leftPad(info_object_start_position, "0", 10-len(info_object_start_position)) + " 00000 n \n"
-
-	// Write the new signature xref line.
-	if _, err := context.OutputBuffer.Write([]byte(info_xref_line)); err != nil {
-		return err
+	// Calculate new entries
+	newEntries := []struct {
+		startPosition int64
+		name          string
+	}{
+		{context.Filesize, "visual signature"},
+		{context.Filesize + context.VisualSignData.Length, "catalog"},
+		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length, "info"},
+		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length + context.InfoData.Length, "signature"},
 	}
 
-	// Create the new signature xref line.
-	signature_object_start_position := strconv.FormatInt(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length+context.InfoData.Length, 10)
-	signature_xref_line := leftPad(signature_object_start_position, "0", 10-len(signature_object_start_position)) + " 00000 n \n"
+	// Write new xref table
+	newXrefHeader := fmt.Sprintf("xref\n%d %d\n", firstObjectID, itemCount+len(newEntries))
+	if _, err := context.OutputBuffer.Write([]byte(newXrefHeader)); err != nil {
+		return fmt.Errorf("failed to write new xref header: %w", err)
+	}
 
-	// Write the new signature xref line.
-	if _, err := context.OutputBuffer.Write([]byte(signature_xref_line)); err != nil {
-		return err
+	// Write existing entries
+	for i, line := range xrefLines[2:] {
+		if i >= itemCount {
+			break
+		}
+		if _, err := context.OutputBuffer.Write([]byte(line + "\n")); err != nil {
+			return fmt.Errorf("failed to write existing xref entry: %w", err)
+		}
+	}
+
+	// Write new entries
+	for _, entry := range newEntries {
+		xrefLine := fmt.Sprintf("%010d 00000 n \n", entry.startPosition)
+		if _, err := context.OutputBuffer.Write([]byte(xrefLine)); err != nil {
+			return fmt.Errorf("failed to write new xref entry for %s: %w", entry.name, err)
+		}
 	}
 
 	return nil
