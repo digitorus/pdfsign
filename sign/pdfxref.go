@@ -29,10 +29,15 @@ func (context *SignContext) writeXref() error {
 }
 
 func (context *SignContext) writeXrefTable() error {
+	// Seek to the start of the xref table
+	_, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, 0)
+	if err != nil {
+		return fmt.Errorf("failed to seek to xref table: %w", err)
+	}
+
 	// Read the existing xref table
-	context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, 0)
 	xrefContent := make([]byte, context.PDFReader.XrefInformation.Length)
-	_, err := context.InputFile.Read(xrefContent)
+	_, err = context.InputFile.Read(xrefContent)
 	if err != nil {
 		return fmt.Errorf("failed to read xref table: %w", err)
 	}
