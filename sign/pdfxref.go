@@ -7,27 +7,30 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
 
+const (
+	xrefStreamColumns   = 5
+	xrefStreamPredictor = 12
+	pngSubPredictor     = 11
+	pngUpPredictor      = 12
+)
+
 func (context *SignContext) writeXref() error {
-
-	if context.PDFReader.XrefInformation.Type == "table" {
-		if err := context.writeXrefTable(); err != nil {
-			return err
-		}
-	} else if context.PDFReader.XrefInformation.Type == "stream" {
-		if err := context.writeXrefStream(); err != nil {
-			return err
-		}
-	} else {
-		return errors.New("Unkwn xref type: " + context.PDFReader.XrefInformation.Type)
+	switch context.PDFReader.XrefInformation.Type {
+	case "table":
+		return context.writeXrefTable()
+	case "stream":
+		return context.writeXrefStream()
+	default:
+		return fmt.Errorf("unknown xref type: %s", context.PDFReader.XrefInformation.Type)
 	}
-
-	return nil
 }
 
+// writeXrefTable writes the cross-reference table to the output buffer.
 func (context *SignContext) writeXrefTable() error {
 	// Seek to the start of the xref table
 	_, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, 0)
@@ -97,49 +100,102 @@ func (context *SignContext) writeXrefTable() error {
 	return nil
 }
 
+// writeXrefStream writes the cross-reference stream to the output buffer.
 func (context *SignContext) writeXrefStream() error {
-	buffer := bytes.NewBuffer(nil)
+	buffer := new(bytes.Buffer)
 
 	predictor := context.PDFReader.Trailer().Key("DecodeParms").Key("Predictor").Int64()
 
+	if err := writeXrefStreamEntries(buffer, context); err != nil {
+		return fmt.Errorf("failed to write xref stream entries: %w", err)
+	}
+
+	streamBytes, err := encodeXrefStream(buffer.Bytes(), predictor)
+	if err != nil {
+		return fmt.Errorf("failed to encode xref stream: %w", err)
+	}
+
+	if err := writeXrefStreamHeader(context, len(streamBytes)); err != nil {
+		return fmt.Errorf("failed to write xref stream header: %w", err)
+	}
+
+	if err := writeXrefStreamContent(context, streamBytes); err != nil {
+		return fmt.Errorf("failed to write xref stream content: %w", err)
+	}
+
+	return nil
+}
+
+// writeXrefStreamEntries writes the individual entries for the xref stream.
+func writeXrefStreamEntries(buffer *bytes.Buffer, context *SignContext) error {
+	entries := []struct {
+		offset int64
+	}{
+		{context.Filesize},
+		{context.Filesize + context.VisualSignData.Length},
+		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length},
+		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length + context.InfoData.Length},
+		{context.NewXrefStart},
+	}
+
+	for _, entry := range entries {
+		writeXrefStreamLine(buffer, 1, int(entry.offset), 0)
+	}
+
+	return nil
+}
+
+// encodeXrefStream applies the appropriate encoding to the xref stream.
+func encodeXrefStream(data []byte, predictor int64) ([]byte, error) {
 	var streamBytes []byte
 	var err error
 
-	writeXrefStreamLine(buffer, 1, int(context.Filesize), 0)
-	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length), 0)
-	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length), 0)
-	writeXrefStreamLine(buffer, 1, int(context.Filesize+context.VisualSignData.Length+context.CatalogData.Length+context.InfoData.Length), 0)
-	writeXrefStreamLine(buffer, 1, int(context.NewXrefStart), 0)
-
-	// If original uses PNG Sub, use that.
-	if predictor == 11 {
-		streamBytes, err = EncodePNGSUBBytes(5, buffer.Bytes())
-		if err != nil {
-			return err
-		}
-	} else {
-		// Do PNG - Up by default.
-		streamBytes, err = EncodePNGUPBytes(5, buffer.Bytes())
-		if err != nil {
-			return err
-		}
+	switch predictor {
+	case pngSubPredictor:
+		streamBytes, err = EncodePNGSUBBytes(xrefStreamColumns, data)
+	case pngUpPredictor:
+		streamBytes, err = EncodePNGUPBytes(xrefStreamColumns, data)
+	default:
+		return nil, fmt.Errorf("unsupported predictor: %d", predictor)
 	}
 
-	new_info := "Info " + strconv.FormatInt(int64(context.InfoData.ObjectId), 10) + " 0 R"
-	new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode xref stream: %w", err)
+	}
+
+	return streamBytes, nil
+}
+
+// writeXrefStreamHeader writes the header for the xref stream.
+func writeXrefStreamHeader(context *SignContext, streamLength int) error {
+	newInfo := fmt.Sprintf("Info %d 0 R", context.InfoData.ObjectId)
+	newRoot := fmt.Sprintf("Root %d 0 R", context.CatalogData.ObjectId)
 
 	id := context.PDFReader.Trailer().Key("ID")
-
 	id0 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 	id1 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 
-	new_xref := strconv.Itoa(int(context.SignData.ObjectId+1)) + " 0 obj\n"
-	new_xref += "<< /Type /XRef /Length " + strconv.Itoa(len(streamBytes)) + " /Filter /FlateDecode /DecodeParms << /Columns 5 /Predictor 12 >> /W [ 1 3 1 ] /Prev " + strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10) + " /Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+5, 10) + " /Index [ " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10) + " 5 ] /" + new_info + " /" + new_root + " /ID [<" + id0 + "><" + id1 + ">] >>\n"
-	if _, err := context.OutputBuffer.Write([]byte(new_xref)); err != nil {
-		return err
-	}
+	newXref := fmt.Sprintf("%d 0 obj\n<< /Type /XRef /Length %d /Filter /FlateDecode /DecodeParms << /Columns %d /Predictor %d >> /W [ 1 3 1 ] /Prev %d /Size %d /Index [ %d 5 ] /%s /%s /ID [<%s><%s>] >>\n",
+		context.SignData.ObjectId+1,
+		streamLength,
+		xrefStreamColumns,
+		xrefStreamPredictor,
+		context.PDFReader.XrefInformation.StartPos,
+		context.PDFReader.XrefInformation.ItemCount+5,
+		context.PDFReader.XrefInformation.ItemCount,
+		newInfo,
+		newRoot,
+		id0,
+		id1,
+	)
 
-	if _, err := context.OutputBuffer.Write([]byte("stream\n")); err != nil {
+	_, err := io.WriteString(context.OutputBuffer, newXref)
+	return err
+}
+
+// writeXrefStreamContent writes the content of the xref stream.
+func writeXrefStreamContent(context *SignContext, streamBytes []byte) error {
+	if _, err := io.WriteString(context.OutputBuffer, "stream\n"); err != nil {
 		return err
 	}
 
@@ -147,7 +203,7 @@ func (context *SignContext) writeXrefStream() error {
 		return err
 	}
 
-	if _, err := context.OutputBuffer.Write([]byte("\nendstream\n")); err != nil {
+	if _, err := io.WriteString(context.OutputBuffer, "\nendstream\n"); err != nil {
 		return err
 	}
 
