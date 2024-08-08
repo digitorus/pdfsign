@@ -213,6 +213,9 @@ func (context *SignContext) SignPDF() error {
 
 	context.SignatureMaxLength += uint32(hex.EncodedLen(len(degenerated)))
 
+	// Add size of the raw issuer which is added by AddSignerChain
+	context.SignatureMaxLength += uint32(hex.EncodedLen(len(context.SignData.Certificate.RawIssuer)))
+
 	// Add size for certificate chain.
 	var certificate_chain []*x509.Certificate
 	if len(context.SignData.CertificateChains) > 0 && len(context.SignData.CertificateChains[0]) > 1 {
