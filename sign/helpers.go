@@ -19,7 +19,8 @@ func findFirstPage(parent pdf.Value) (pdf.Value, error) {
 	value_type := parent.Key("Type").String()
 	if value_type == "/Pages" {
 		for i := 0; i < parent.Key("Kids").Len(); i++ {
-			recurse_parent, recurse_err := findFirstPage(parent.Key("Kids").Index(i))
+			kid := parent.Key("Kids").Index(i)
+			recurse_parent, recurse_err := findFirstPage(kid)
 			if recurse_err == nil {
 				return recurse_parent, recurse_err
 			}
