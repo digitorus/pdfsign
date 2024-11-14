@@ -9,17 +9,14 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
-
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
-
-	"strconv"
-	"strings"
-
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -51,7 +48,7 @@ type Certificate struct {
 	CRLEmbedded  bool              `json:"crl_embedded"`
 }
 
-// DocumentInfo contains document information
+// DocumentInfo contains document information.
 type DocumentInfo struct {
 	Author     string `json:"author"`
 	Creator    string `json:"creator"`
@@ -128,7 +125,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// digest is computed. (See 7.3.4, â€œString Objectsâ€œ)
 		p7, err := pkcs7.Parse([]byte(v.Key("Contents").RawString()))
 		if err != nil {
-			//fmt.Println(err)
+			// fmt.Println(err)
 			continue
 		}
 
@@ -156,11 +153,11 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// Signer certificate
 		// http://www.alvestrand.no/objectid/1.2.840.113549.1.9.html
 		// http://www.alvestrand.no/objectid/1.2.840.113583.1.1.8.html
-		//var isn []byte
+		// var isn []byte
 		for _, s := range p7.Signers {
-			//isn = s.IssuerAndSerialNumber.IssuerName.FullBytes
-			//for _, a := range s.AuthenticatedAttributes {
-			//fmt.Printf("A: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, a.Type)
+			// isn = s.IssuerAndSerialNumber.IssuerName.FullBytes
+			// for _, a := range s.AuthenticatedAttributes {
+			// fmt.Printf("A: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, a.Type)
 			//}
 
 			// Timestamp
@@ -168,10 +165,10 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			// Timestamp
 			// 1.2.840.113549.1.9.16.2.14 - RFC 3161 id-aa-timeStampToken
 			for _, attr := range s.UnauthenticatedAttributes {
-				//fmt.Printf("U: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, attr.Type)
+				// fmt.Printf("U: %v, %#v\n", s.IssuerAndSerialNumber.SerialNumber, attr.Type)
 
 				if attr.Type.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14}) {
-					//fmt.Println("Found timestamp")
+					// fmt.Println("Found timestamp")
 
 					signer.TimeStamp, err = timestamp.Parse(attr.Value.Bytes)
 					if err != nil {
@@ -225,7 +222,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		_ = p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
 		// Parse OCSP response
-		var ocspStatus = make(map[string]*ocsp.Response)
+		ocspStatus := make(map[string]*ocsp.Response)
 		for _, o := range revInfo.OCSP {
 			resp, err := ocsp.ParseResponse(o.FullBytes, nil)
 			if err != nil {
@@ -246,7 +243,6 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 				CurrentTime:   cert.NotBefore,
 				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 			})
-
 			if err != nil {
 				c.VerifyError = err.Error()
 			}
@@ -316,7 +312,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// If SubFilter is adbe.pkcs7.detached or adbe.pkcs7.sha1, this entry
 		// shall not be used, and the certificate chain shall be put in the PKCS#7
 		// envelope in Contents.
-		//v.Key("Cert").Text()
+		// v.Key("Cert").Text()
 
 		apiResp.Signers = append(apiResp.Signers, signer)
 	}
@@ -330,10 +326,12 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	return
 }
 
-// parseDocumentInfo parses document information
+// parseDocumentInfo parses document information.
 func parseDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
-	keys := []string{"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
-		"Name", "Pages", "Permission", "Producer", "Subject", "Title"}
+	keys := []string{
+		"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
+		"Name", "Pages", "Permission", "Producer", "Subject", "Title",
+	}
 
 	for _, key := range keys {
 		value := v.Key(key)
@@ -363,7 +361,7 @@ func parseDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
 	}
 }
 
-// parseDate parses pdf formatted dates
+// parseDate parses pdf formatted dates.
 func parseDate(v string) (time.Time, error) {
 	// PDF Date Format
 	// (D:YYYYMMDDHHmmSSOHH'mm')
@@ -385,7 +383,7 @@ func parseDate(v string) (time.Time, error) {
 	return time.Parse("D:20060102150405Z07'00'", v)
 }
 
-// parseKeywords parses keywords pdf meta data
+// parseKeywords parses keywords pdf meta data.
 func parseKeywords(value string) []string {
 	// keywords must be separated by commas or semicolons or could be just separated with spaces, after the semicolon could be a space
 	// https://stackoverflow.com/questions/44608608/the-separator-between-keywords-in-pdf-meta-data

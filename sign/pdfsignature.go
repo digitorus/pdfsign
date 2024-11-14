@@ -43,7 +43,6 @@ func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_rang
 	signature_buffer.Write(bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)))
 	signature_buffer.WriteString(">\n")
 
-	//if context.SignData.Signature.CertType != ApprovalSignature {
 	switch context.SignData.Signature.CertType {
 	case CertificationSignature, UsageRightsSignature:
 		signature_buffer.WriteString(" /Reference [\n") // start array of signature reference dictionaries
@@ -51,7 +50,6 @@ func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_rang
 	}
 
 	switch context.SignData.Signature.CertType {
-
 	// Certification signature (also known as an author signature)
 	case CertificationSignature:
 		signature_buffer.WriteString(" /TransformMethod /DocMDP\n")

@@ -7,7 +7,7 @@ import (
 	"github.com/digitorus/pdf"
 )
 
-// Define annotation flag constants
+// Define annotation flag constants.
 const (
 	AnnotationFlagInvisible      = 1 << 0
 	AnnotationFlagHidden         = 1 << 1
@@ -78,7 +78,7 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber int, 
 	}
 
 	// Define the annotation flags for the signature field (132)
-	//annotationFlags := AnnotationFlagPrint | AnnotationFlagNoZoom | AnnotationFlagNoRotate | AnnotationFlagReadOnly | AnnotationFlagLockedContents
+	// annotationFlags := AnnotationFlagPrint | AnnotationFlagNoZoom | AnnotationFlagNoRotate | AnnotationFlagReadOnly | AnnotationFlagLockedContents
 	visual_signature += fmt.Sprintf(" /F %d", 132)
 	// Define the field type as a signature.
 	visual_signature += " /FT /Sig"
@@ -104,7 +104,7 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber int, 
 	return visual_signature, nil
 }
 
-// Helper function to find a page by its number
+// Helper function to find a page by its number.
 func findPageByNumber(pages pdf.Value, pageNumber int) (pdf.Value, error) {
 	if pages.Key("Type").Name() == "Pages" {
 		kids := pages.Key("Kids")

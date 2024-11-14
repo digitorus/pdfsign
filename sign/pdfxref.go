@@ -32,6 +32,8 @@ func (context *SignContext) writeXref() error {
 }
 
 // writeXrefTable writes the cross-reference table to the output buffer.
+//
+//nolint:unused
 func (context *SignContext) writeXrefTable() error {
 	// Seek to the start of the xref table
 	if _, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, io.SeekStart); err != nil {

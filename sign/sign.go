@@ -12,7 +12,6 @@ import (
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
-
 	"github.com/mattetti/filebuffer"
 )
 
@@ -202,7 +201,6 @@ func (context *SignContext) SignPDF() error {
 
 	// If not a timestamp signature
 	if context.SignData.Signature.CertType != TimeStampSignature {
-
 		switch context.SignData.Certificate.SignatureAlgorithm.String() {
 		case "SHA1-RSA":
 		case "ECDSA-SHA1":
@@ -268,7 +266,7 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Create visual signature (visible or invisible based on CertType)
-	//visible := context.SignData.Signature.CertType == CertificationSignature
+	// visible := context.SignData.Signature.CertType == CertificationSignature
 	// Example usage: passing page number and default rect values
 	visual_signature, err := context.createVisualSignature(false, 1, [4]float64{0, 0, 0, 0})
 	if err != nil {

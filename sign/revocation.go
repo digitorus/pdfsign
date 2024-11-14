@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/digitorus/pdfsign/revocation"
-
 	"golang.org/x/crypto/ocsp"
 )
 

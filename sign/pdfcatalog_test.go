@@ -25,7 +25,8 @@ var testFiles = []struct {
 		expectedCatalogs: map[CertType]string{
 			CertificationSignature: "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n",
 			UsageRightsSignature:   "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 1 >> >>\nendobj\n",
-			ApprovalSignature:      "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n"},
+			ApprovalSignature:      "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n",
+		},
 	},
 }
 

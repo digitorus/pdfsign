@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
-
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
@@ -19,7 +18,6 @@ import (
 func findFirstPage(parent pdf.Value) (pdf.Value, error) {
 	value_type := parent.Key("Type").String()
 	if value_type == "/Pages" {
-
 		for i := 0; i < parent.Key("Kids").Len(); i++ {
 			recurse_parent, recurse_err := findFirstPage(parent.Key("Kids").Index(i))
 			if recurse_err == nil {

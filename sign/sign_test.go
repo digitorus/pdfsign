@@ -15,7 +15,6 @@ import (
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pdfsign/verify"
-
 	"github.com/mattetti/filebuffer"
 )
 
@@ -124,7 +123,7 @@ func TestReaderCanReadPDF(t *testing.T) {
 
 func TestSignPDF(t *testing.T) {
 	_ = os.RemoveAll("../testfiles/failed/")
-	_ = os.MkdirAll("../testfiles/failed/", 0777)
+	_ = os.MkdirAll("../testfiles/failed/", 0o777)
 
 	files, err := os.ReadDir("../testfiles/")
 	if err != nil {
@@ -169,7 +168,6 @@ func TestSignPDF(t *testing.T) {
 				RevocationData:     revocation.InfoArchival{},
 				RevocationFunction: DefaultEmbedRevocationStatusFunction,
 			})
-
 			if err != nil {
 				st.Fatalf("%s: %s", f.Name(), err.Error())
 			}
@@ -209,7 +207,6 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		Signer:          pkey,
 		Certificate:     cert,
 	})
-
 	if err != nil {
 		t.Fatalf("%s: %s", originalFileName, err.Error())
 	}
@@ -269,7 +266,6 @@ func BenchmarkSignPDF(b *testing.B) {
 			CertificateChains: certificateChains,
 			RevocationData:    revocation.InfoArchival{},
 		})
-
 		if err != nil {
 			b.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
@@ -305,7 +301,6 @@ func TestSignPDFWithTwoApproval(t *testing.T) {
 			Signer:          pkey,
 			Certificate:     cert,
 		})
-
 		if err != nil {
 			t.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
@@ -343,7 +338,6 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		Signer:          pkey,
 		Certificate:     cert,
 	})
-
 	if err != nil {
 		t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
 	}
@@ -376,7 +370,6 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 			Signer:          pkey,
 			Certificate:     cert,
 		})
-
 		if err != nil {
 			t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
 		}
@@ -426,7 +419,6 @@ func TestTimestampPDFFile(t *testing.T) {
 			URL: "http://timestamp.entrust.net/TSS/RFC3161sha2TS",
 		},
 	})
-
 	if err != nil {
 		t.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 	}

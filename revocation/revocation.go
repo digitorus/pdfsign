@@ -34,7 +34,7 @@ func (r *InfoArchival) AddOCSP(b []byte) error {
 // true if the certificate is marked as revoked.
 //
 // TODO: We should report if there is no CRL or OCSP response embedded for this certificate
-// TODO: Information about the revocation (time, reason, etc) must be extractable
+// TODO: Information about the revocation (time, reason, etc) must be extractable.
 func (r *InfoArchival) IsRevoked(c *x509.Certificate) bool {
 	// check the crl and ocsp to see if this certificate is revoked
 	return true
@@ -45,10 +45,10 @@ func (r *InfoArchival) IsRevoked(c *x509.Certificate) bool {
 type CRL []asn1.RawValue
 
 // OCSP contains the raw bytes of an OCSP response and can be parsed with
-// x/crypto/ocsp.ParseResponse
+// x/crypto/ocsp.ParseResponse.
 type OCSP []asn1.RawValue
 
-// ANS.1 Object OtherRevInfo
+// ANS.1 Object OtherRevInfo.
 type Other struct {
 	Type  asn1.ObjectIdentifier
 	Value []byte
