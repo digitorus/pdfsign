@@ -14,6 +14,8 @@ This PDF signing library is written in [Go](https://go.dev). The library is in d
 
 ```
 Usage of ./pdfsign:
+  -certType string
+        Type of the certificate (CertificationSignature, ApprovalSignature, UsageRightsSignature, TimeStampSignature) (default "CertificationSignature")
   -contact string
         Contact information for signatory
   -location string
@@ -21,13 +23,15 @@ Usage of ./pdfsign:
   -name string
         Name of the signatory
   -reason string
-        Reason for signig
+        Reason for signing
   -tsa string
         URL for Time-Stamp Authority (default "https://freetsa.org/tsr")
 
 Example usage:
         ./pdfsign -name "Jon Doe" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]
-        ./pdfsignverify input.pdf
+        ./pdfsign -certType "CertificationSignature" -name "Jon Doe" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]
+        ./pdfsign -certType "TimeStampSignature" input.pdf output.pdf
+        ./pdfsign verify input.pdf
 ```
 
 ## As library

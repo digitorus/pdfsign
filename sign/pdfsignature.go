@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -24,9 +25,11 @@ func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_rang
 	// Using a buffer because it's way faster than concatenating.
 	var signature_buffer bytes.Buffer
 	signature_buffer.WriteString(strconv.Itoa(int(context.SignData.ObjectId)) + " 0 obj\n")
-	signature_buffer.WriteString("<< /Type /Sig")
-	signature_buffer.WriteString(" /Filter /Adobe.PPKLite")
-	signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached")
+	signature_buffer.WriteString("<< /Type /Sig\n")
+	signature_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
+	signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
+
+	signature_buffer.WriteString(context.createPropBuild())
 
 	byte_range_start_byte = int64(signature_buffer.Len()) + 1
 
@@ -35,60 +38,172 @@ func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_rang
 
 	signature_contents_start_byte = int64(signature_buffer.Len()) + 11
 
-	// Create a placeholder for the actual signature content, we wil replace it later.
+	// Create a placeholder for the actual signature content, we will replace it later.
 	signature_buffer.WriteString(" /Contents<")
 	signature_buffer.Write(bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)))
-	signature_buffer.WriteString(">")
+	signature_buffer.WriteString(">\n")
 
+	//if context.SignData.Signature.CertType != ApprovalSignature {
 	switch context.SignData.Signature.CertType {
 	case CertificationSignature, UsageRightsSignature:
-		signature_buffer.WriteString(" /Reference [") // start array of signature reference dictionaries
-		signature_buffer.WriteString(" << /Type /SigRef")
+		signature_buffer.WriteString(" /Reference [\n") // start array of signature reference dictionaries
+		signature_buffer.WriteString(" << /Type /SigRef\n")
 	}
 
 	switch context.SignData.Signature.CertType {
+
+	// Certification signature (also known as an author signature)
 	case CertificationSignature:
-		signature_buffer.WriteString(" /TransformMethod /DocMDP")
-		signature_buffer.WriteString(" /TransformParams <<")
-		signature_buffer.WriteString(" /Type /TransformParams")
-		signature_buffer.WriteString(" /P " + strconv.Itoa(int(context.SignData.Signature.DocMDPPerm)))
-		signature_buffer.WriteString(" /V /1.2")
+		signature_buffer.WriteString(" /TransformMethod /DocMDP\n")
+
+		// Entries in the DocMDP transform parameters dictionary (Table 257)
+		signature_buffer.WriteString(" /TransformParams <<\n")
+
+		// Type [name]: (Optional) The type of PDF object that this dictionary describes;
+		//   if present, shall be TransformParams for a transform parameters dictionary.
+		signature_buffer.WriteString("   /Type /TransformParams\n")
+
+		// (Optional) The access permissions granted for this document. Changes to
+		//   a PDF that are incremental updates which include only the data necessary
+		//   to add DSS’s 12.8.4.3, "Document Security Store (DSS)" and/or document
+		//   timestamps 12.8.5, "Document timestamp (DTS) dictionary" to the
+		//   document shall not be considered as changes to the document as defined
+		//   in the choices below.
+		//
+		//   Valid values shall be:
+		//     1 No changes to the document shall be permitted; any change to the document
+		//       shall invalidate the signature.
+		//     2 Permitted changes shall be filling in forms, instantiating page templates,
+		//       and signing; other changes shall invalidate the signature.
+		//     3 Permitted changes shall be the same as for 2, as well as annotation creation,
+		//       deletion, and modification; other changes shall invalidate the signature.
+		//
+		//   (Default value: 2.)
+		signature_buffer.WriteString("   /P " + strconv.Itoa(int(context.SignData.Signature.DocMDPPerm)))
+
+		// V [name]: (Optional) The DocMDP transform parameters dictionary version. The only valid value shall be 1.2.
+		//   Default value: 1.2. (This value is a name object, not a number.)
+		signature_buffer.WriteString("   /V /1.2\n")
+
+	// Usage rights signature (deprecated in PDF 2.0)
 	case UsageRightsSignature:
-		signature_buffer.WriteString(" /TransformMethod /UR3")
-		signature_buffer.WriteString(" /TransformParams <<")
-		signature_buffer.WriteString(" /Type /TransformParams")
-		signature_buffer.WriteString(" /V /2.2")
+		signature_buffer.WriteString("   /TransformMethod /UR3\n")
+
+		// Entries in the UR transform parameters dictionary (Table 258)
+		signature_buffer.WriteString("   /TransformParams <<\n")
+		signature_buffer.WriteString("     /Type /TransformParams\n")
+		signature_buffer.WriteString("     /V /2.2\n")
+
+	// Approval signatures (also known as recipient signatures)
+	case ApprovalSignature:
+		// Used to detect modifications to a list of form fields specified in TransformParams; see
+		// 12.8.2.4, "FieldMDP"
+		signature_buffer.WriteString("   /TransformMethod /FieldMDP\n")
+
+		// Entries in the FieldMDP transform parameters dictionary (Table 259)
+		signature_buffer.WriteString("   /TransformParams <<\n")
+
+		// Type [name]: (Optional) The type of PDF object that this dictionary describes;
+		//   if present, shall be TransformParams for a transform parameters dictionary.
+		signature_buffer.WriteString("     /Type /TransformParams\n")
+
+		// Action [name]: (Required) A name that, along with the Fields array, describes
+		//   which form fields do not permit changes after the signature is applied.
+		//   Valid values shall be:
+		//     All - All form fields
+		//     Include - Only those form fields specified in Fields.
+		//     Exclude - Only those form fields not specified in Fields.
+		signature_buffer.WriteString("     /Action /All\n")
+
+		// V [name]: (Optional; required for PDF 1.5 and later) The transform parameters
+		//   dictionary version. The value for PDF 1.5 and later shall be 1.2.
+		//   Default value: 1.2. (This value is a name object, not a number.)
+		signature_buffer.WriteString("     /V /1.2\n")
+	}
+
+	// (Required) A name identifying the algorithm that shall be used when computing the digest if not specified in the
+	// certificate. Valid values are MD5, SHA1 SHA256, SHA384, SHA512 and RIPEMD160
+	switch context.SignData.DigestAlgorithm {
+	case crypto.MD5:
+		signature_buffer.WriteString("   /DigestMethod /MD5\n")
+	case crypto.SHA1:
+		signature_buffer.WriteString("   /DigestMethod /SHA1\n")
+	case crypto.SHA256:
+		signature_buffer.WriteString("   /DigestMethod /SHA256\n")
+	case crypto.SHA384:
+		signature_buffer.WriteString("   /DigestMethod /SHA384\n")
+	case crypto.SHA512:
+		signature_buffer.WriteString("   /DigestMethod /SHA512\n")
+	case crypto.RIPEMD160:
+		signature_buffer.WriteString("   /DigestMethod /RIPEMD160\n")
 	}
 
 	switch context.SignData.Signature.CertType {
 	case CertificationSignature, UsageRightsSignature:
-		signature_buffer.WriteString(" >>") // close TransformParams
-		signature_buffer.WriteString(" >>")
-		signature_buffer.WriteString(" ]") // end of reference
+		signature_buffer.WriteString("   >>\n") // close TransformParams
+		signature_buffer.WriteString(" >>")     // close SigRef
+		signature_buffer.WriteString(" ]")      // end of reference
+	}
+
+	switch context.SignData.Signature.CertType {
+	case ApprovalSignature:
+		signature_buffer.WriteString(" >>\n")
 	}
 
 	if context.SignData.Signature.Info.Name != "" {
 		signature_buffer.WriteString(" /Name ")
 		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.Name))
+		signature_buffer.WriteString("\n")
 	}
 	if context.SignData.Signature.Info.Location != "" {
 		signature_buffer.WriteString(" /Location ")
 		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.Location))
+		signature_buffer.WriteString("\n")
 	}
 	if context.SignData.Signature.Info.Reason != "" {
 		signature_buffer.WriteString(" /Reason ")
 		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.Reason))
+		signature_buffer.WriteString("\n")
 	}
 	if context.SignData.Signature.Info.ContactInfo != "" {
 		signature_buffer.WriteString(" /ContactInfo ")
 		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.ContactInfo))
+		signature_buffer.WriteString("\n")
 	}
 	signature_buffer.WriteString(" /M ")
 	signature_buffer.WriteString(pdfDateTime(context.SignData.Signature.Info.Date))
-	signature_buffer.WriteString(" >>")
-	signature_buffer.WriteString("\nendobj\n")
+	signature_buffer.WriteString("\n")
+
+	signature_buffer.WriteString(" >>\n")
+	signature_buffer.WriteString("endobj\n")
 
 	return signature_buffer.String(), byte_range_start_byte, signature_contents_start_byte
+}
+
+func (context *SignContext) createTimestampPlaceholder() (dssd string, byte_range_start_byte int64, signature_contents_start_byte int64) {
+	var timestamp_buffer bytes.Buffer
+
+	timestamp_buffer.WriteString(strconv.Itoa(int(context.SignData.ObjectId)) + " 0 obj\n")
+	timestamp_buffer.WriteString("<< /Type /DocTimeStamp\n")
+	timestamp_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
+	timestamp_buffer.WriteString(" /SubFilter /ETSI.RFC3161\n")
+
+	timestamp_buffer.WriteString(context.createPropBuild())
+
+	byte_range_start_byte = int64(timestamp_buffer.Len()) + 1
+
+	// Create a placeholder for the byte range string, we will replace it later.
+	timestamp_buffer.WriteString(" " + signatureByteRangePlaceholder)
+
+	signature_contents_start_byte = int64(timestamp_buffer.Len()) + 11
+
+	timestamp_buffer.WriteString(" /Contents<")
+	timestamp_buffer.Write(bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)))
+	timestamp_buffer.WriteString(">\n")
+	timestamp_buffer.WriteString(">>\n")
+	timestamp_buffer.WriteString("endobj\n")
+
+	return timestamp_buffer.String(), byte_range_start_byte, signature_contents_start_byte
 }
 
 func (context *SignContext) fetchRevocationData() error {
@@ -170,6 +285,32 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[0]:(context.ByteRangeValues[0]+context.ByteRangeValues[1])]...)
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[2]:(context.ByteRangeValues[2]+context.ByteRangeValues[3])]...)
 
+	// Return the timestamp if we are signing a timestamp.
+	if context.SignData.Signature.CertType == TimeStampSignature {
+		// ETSI EN 319 142-1 V1.2.1
+		//
+		// Contents [Byte string ]: (Required) When the value of SubFilter is ETSI.RFC3161,
+		// the value of Contents shall be the hexadecimal string (as defined in clause
+		// 7.3.4.3 in ISO 32000-1 [1]) representing the value of TimeStampToken as
+		// specified in IETF RFC 3161 [6] updated by IETF RFC 5816 [8]. The value of the
+		// messageImprint field within the TimeStampToken shall be a hash of the bytes
+		// of the document indicated by the ByteRange. The ByteRange shall cover the
+		// entire document, including the Document Time-stamp dictionary but excluding
+		// the TimeStampToken itself (the entry with key Contents).
+
+		timestamp_response, err := context.GetTSA(sign_content)
+		if err != nil {
+			return nil, fmt.Errorf("get timestamp: %w", err)
+		}
+
+		ts, err := timestamp.ParseResponse(timestamp_response)
+		if err != nil {
+			return nil, fmt.Errorf("parse timestamp: %w", err)
+		}
+
+		return ts.RawToken, nil
+	}
+
 	// Initialize pkcs7 signer.
 	signed_data, err := pkcs7.NewSignedData(sign_content)
 	if err != nil {
@@ -239,6 +380,7 @@ func (context *SignContext) createSignature() ([]byte, error) {
 func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {
 	sign_reader := bytes.NewReader(sign_content)
 	ts_request, err := timestamp.CreateRequest(sign_reader, &timestamp.RequestOptions{
+		Hash:         context.SignData.DigestAlgorithm,
 		Certificates: true,
 	})
 	if err != nil {
@@ -295,7 +437,7 @@ func (context *SignContext) replaceSignature() error {
 	hex.Encode(dst, signature)
 
 	if uint32(len(dst)) > context.SignatureMaxLength {
-		// TODO: Should we log this retry?
+		log.Println("Signature too long, retrying with increased buffer size.")
 		// set new base and try signing again
 		context.SignatureMaxLengthBase += (uint32(len(dst)) - context.SignatureMaxLength) + 1
 		return context.SignPDF()
@@ -320,4 +462,47 @@ func (context *SignContext) replaceSignature() error {
 	}
 
 	return nil
+}
+
+func (context *SignContext) fetchExistingSignatures() ([]SignData, error) {
+	var signatures []SignData
+
+	acroForm := context.PDFReader.Trailer().Key("Root").Key("AcroForm")
+	if acroForm.IsNull() {
+		return signatures, nil
+	}
+
+	fields := acroForm.Key("Fields")
+	if fields.IsNull() {
+		return signatures, nil
+	}
+
+	for i := 0; i < fields.Len(); i++ {
+		field := fields.Index(i)
+		if field.Key("FT").Name() == "Sig" {
+			ptr := field.GetPtr()
+			sig := SignData{
+				ObjectId: uint32(ptr.GetID()),
+			}
+			signatures = append(signatures, sig)
+		}
+	}
+
+	return signatures, nil
+}
+
+func (context *SignContext) createPropBuild() string {
+	var buffer bytes.Buffer
+
+	// Prop_Build [dictionary]: (Optional; PDF 1.5) A dictionary that may be used by a signature handler to
+	// record information that captures the state of the computer environment used
+	// for signing, such as the name of the handler used to create the signature,
+	// software build date, version, and operating system.
+	// The use of this dictionary is defined by Adobe PDF Signature Build Dictionary
+	// Specification, which provides implementation guidelines.
+	buffer.WriteString(" /Prop_Build <<\n")
+	buffer.WriteString("   /App << /Name /Digitorus#20PDFSign >>\n")
+	buffer.WriteString(" >>\n")
+
+	return buffer.String()
 }

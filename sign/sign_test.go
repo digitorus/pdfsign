@@ -2,9 +2,10 @@ package sign
 
 import (
 	"crypto"
+	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,23 +20,20 @@ import (
 )
 
 const signCertPem = `-----BEGIN CERTIFICATE-----
-MIIDBzCCAnCgAwIBAgIJAIJ/XyRx/DG0MA0GCSqGSIb3DQEBCwUAMIGZMQswCQYD
-VQQGEwJOTDEVMBMGA1UECAwMWnVpZC1Ib2xsYW5kMRIwEAYDVQQHDAlSb3R0ZXJk
-YW0xEjAQBgNVBAoMCVVuaWNvZGVyczELMAkGA1UECwwCSVQxGjAYBgNVBAMMEUpl
-cm9lbiBCb2JiZWxkaWprMSIwIAYJKoZIhvcNAQkBFhNqZXJvZW5AdW5pY29kZXJz
-Lm5sMCAXDTE3MDkxNzExMjkzNloYDzMwMTcwMTE4MTEyOTM2WjCBmTELMAkGA1UE
-BhMCTkwxFTATBgNVBAgMDFp1aWQtSG9sbGFuZDESMBAGA1UEBwwJUm90dGVyZGFt
-MRIwEAYDVQQKDAlVbmljb2RlcnMxCzAJBgNVBAsMAklUMRowGAYDVQQDDBFKZXJv
-ZW4gQm9iYmVsZGlqazEiMCAGCSqGSIb3DQEJARYTamVyb2VuQHVuaWNvZGVycy5u
-bDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAmrvrZiUZZ/nSmFKMsQXg5slY
-TQjj7nuenczt7KGPVuGA8nNOqiGktf+yep5h2r87jPvVjVXjJVjOTKx9HMhaFECH
-KHKV72iQhlw4fXa8iB1EDeGuwP+pTpRWlzurQ/YMxvemNJVcGMfTE42X5Bgqh6Dv
-kddRTAeeqQDBD6+5VPsCAwEAAaNTMFEwHQYDVR0OBBYEFETizi2bTLRMIknQXWDR
-nQ59xI99MB8GA1UdIwQYMBaAFETizi2bTLRMIknQXWDRnQ59xI99MA8GA1UdEwEB
-/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADgYEAkOHdI9f4I1rd7DjOXnT6IJl/4mIQ
-kkaeZkjcsgdZAeW154vjDEr8sIdq+W15huWJKZkqwhn1sJLqSOlEhaYbJJNHVKc9
-ZH5r6ujfc336AtjrjCL3OYHQQj05isKm9ii5IL/i+rlZ5xro/dJ91jnjqNVQPvso
-oA4h5BVsLZPIYto=
+MIICjDCCAfWgAwIBAgIUEeqOicMEtCutCNuBNq9GAQNYD10wDQYJKoZIhvcNAQEL
+BQAwVzELMAkGA1UEBhMCTkwxEzARBgNVBAgMClNvbWUtU3RhdGUxEjAQBgNVBAoM
+CURpZ2l0b3J1czEfMB0GA1UEAwwWUGF1bCB2YW4gQnJvdXdlcnNoYXZlbjAgFw0y
+NDExMTMwOTUxMTFaGA8yMTI0MTAyMDA5NTExMVowVzELMAkGA1UEBhMCTkwxEzAR
+BgNVBAgMClNvbWUtU3RhdGUxEjAQBgNVBAoMCURpZ2l0b3J1czEfMB0GA1UEAwwW
+UGF1bCB2YW4gQnJvdXdlcnNoYXZlbjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkC
+gYEAmrvrZiUZZ/nSmFKMsQXg5slYTQjj7nuenczt7KGPVuGA8nNOqiGktf+yep5h
+2r87jPvVjVXjJVjOTKx9HMhaFECHKHKV72iQhlw4fXa8iB1EDeGuwP+pTpRWlzur
+Q/YMxvemNJVcGMfTE42X5Bgqh6DvkddRTAeeqQDBD6+5VPsCAwEAAaNTMFEwHQYD
+VR0OBBYEFETizi2bTLRMIknQXWDRnQ59xI99MB8GA1UdIwQYMBaAFETizi2bTLRM
+IknQXWDRnQ59xI99MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADgYEA
+OBng+EzD2xA6eF/W5Wh+PthE1MpJ1QvejZBDyCOiplWFUImJAX39ZfTo/Ydfz2xR
+4Jw4hOF0kSLxDK4WGtCs7mRB0d24YDJwpJj0KN5+uh3iWk5orY75FSensfLZN7YI
+VuUN7Q+2v87FjWsl0w3CPcpjB6EgI5QHsNm13bkQLbQ=
 -----END CERTIFICATE-----`
 
 const signKeyPem = `-----BEGIN RSA PRIVATE KEY-----
@@ -54,49 +52,73 @@ MqopIx8Y3pL+f9s4kQJADWxxuF+Rb7FliXL761oa2rZHo4eciey2rPhJIU/9jpCc
 xLqE5nXC5oIUTbuSK+b/poFFrtjKUFgxf0a/W2Ktsw==
 -----END RSA PRIVATE KEY-----`
 
-const staticPDFFile = `JVBERi0yLjANCg0KMSAwIG9iag0KPDwNCiAgL1R5cGUgL0NhdGFsb2cNCiAgL01ldGFkYXRhIDIgMCBSDQogIC9QYWdlcyAzIDAgUg0KPj4NCmVuZG9iag0KDQoyIDAgb2JqDQo8PA0KICAvTGVuZ3RoIDIzNTENCiAgL1R5cGUgL01ldGFkYXRhDQogIC9TdWJ0eXBlIC9YTUwNCj4+DQpzdHJlYW0NCjx4OnhtcG1ldGEgeG1sbnM6eD0nYWRvYmU6bnM6bWV0YS8nIHg6eG1wdGs9J0luc2VydCBYTVAgdG9vbCBuYW1lIGhlcmUuJz4NCiAgPHJkZjpSREYgeG1sbnM6cmRmPSdodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjJz4NCiAgICA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczpwZGY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vcGRmLzEuMy8iPg0KICAgICAgPHBkZjpQcm9kdWNlcj5EYXRhbG9naWNzIC0gZXhhbXBsZSBwcm9kdWNlciBwcm9ncmFtIG5hbWUgaGVyZTwvcGRmOlByb2R1Y2VyPg0KICAgICAgPHBkZjpDb3B5cmlnaHQ+Q29weXJpZ2h0IDIwMTcgUERGIEFzc29jaWF0aW9uPC9wZGY6Q29weXJpZ2h0Pg0KICAgICAgPHBkZjpLZXl3b3Jkcz5QREYgMi4wIHNhbXBsZSBleGFtcGxlPC9wZGY6S2V5d29yZHM+DQogICAgPC9yZGY6RGVzY3JpcHRpb24+DQogICAgPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eGFwPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIj4NCiAgICAgIDx4YXA6Q3JlYXRlRGF0ZT4yMDE3LTA1LTI0VDEwOjMwOjExWjwveGFwOkNyZWF0ZURhdGU+DQogICAgICA8eGFwOk1ldGFkYXRhRGF0ZT4yMDE3LTA3LTExVDA3OjU1OjExWjwveGFwOk1ldGFkYXRhRGF0ZT4NCiAgICAgIDx4YXA6TW9kaWZ5RGF0ZT4yMDE3LTA3LTExVDA3OjU1OjExWjwveGFwOk1vZGlmeURhdGU+DQogICAgICA8eGFwOkNyZWF0b3JUb29sPkRhdGFsb2dpY3MgLSBleGFtcGxlIGNyZWF0b3IgdG9vbCBuYW1lIGhlcmU8L3hhcDpDcmVhdG9yVG9vbD4NCiAgICA8L3JkZjpEZXNjcmlwdGlvbj4NCiAgICA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iPg0KICAgICAgPGRjOmZvcm1hdD5hcHBsaWNhdGlvbi9wZGY8L2RjOmZvcm1hdD4NCiAgICAgIDxkYzp0aXRsZT4NCiAgICAgICAgPHJkZjpBbHQ+DQogICAgICAgICAgPHJkZjpsaSB4bWw6bGFuZz0ieC1kZWZhdWx0Ij5BIHNpbXBsZSBQREYgMi4wIGV4YW1wbGUgZmlsZTwvcmRmOmxpPg0KICAgICAgICA8L3JkZjpBbHQ+DQogICAgICA8L2RjOnRpdGxlPg0KICAgICAgPGRjOmNyZWF0b3I+DQogICAgICAgIDxyZGY6U2VxPg0KICAgICAgICAgIDxyZGY6bGk+RGF0YWxvZ2ljcyBJbmNvcnBvcmF0ZWQ8L3JkZjpsaT4NCiAgICAgICAgPC9yZGY6U2VxPg0KICAgICAgPC9kYzpjcmVhdG9yPg0KICAgICAgPGRjOmRlc2NyaXB0aW9uPg0KICAgICAgICA8cmRmOkFsdD4NCiAgICAgICAgICA8cmRmOmxpIHhtbDpsYW5nPSJ4LWRlZmF1bHQiPkRlbW9uc3RyYXRpb24gb2YgYSBzaW1wbGUgUERGIDIuMCBmaWxlLjwvcmRmOmxpPg0KICAgICAgICA8L3JkZjpBbHQ+DQogICAgICA8L2RjOmRlc2NyaXB0aW9uPg0KICAgICAgPGRjOnJpZ2h0cz4NCiAgICAgICAgPHJkZjpBbHQ+DQogICAgICAgICAgPHJkZjpsaSB4bWw6bGFuZz0ieC1kZWZhdWx0Ij5Db3B5cmlnaHQgMjAxNyBQREYgQXNzb2NpYXRpb24uIExpY2Vuc2VkIHRvIHRoZSBwdWJsaWMgdW5kZXIgQ3JlYXRpdmUgQ29tbW9ucyBBdHRyaWJ1dGlvbi1TaGFyZUFsaWtlIDQuMCBJbnRlcm5hdGlvbmFsIGxpY2Vuc2UuPC9yZGY6bGk+DQogICAgICAgIDwvcmRmOkFsdD4NCiAgICAgIDwvZGM6cmlnaHRzPg0KICAgIDwvcmRmOkRlc2NyaXB0aW9uPg0KICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiIHhtbG5zOnhhcFJpZ2h0cz0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3JpZ2h0cy8iPg0KICAgICAgPHhhcFJpZ2h0czpNYXJrZWQ+VHJ1ZTwveGFwUmlnaHRzOk1hcmtlZD4NCiAgICA8L3JkZjpEZXNjcmlwdGlvbj4NCiAgICA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIj4NCiAgICAgIDxjYzpsaWNlbnNlIHJkZjpyZXNvdXJjZT0iaHR0cHM6Ly9jcmVhdGl2ZWNvbW1vbnMub3JnL2xpY2Vuc2VzL3NhLzQuMC8iIC8+DQogICAgPC9yZGY6RGVzY3JpcHRpb24+DQogICAgPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eGFwTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iPg0KICAgICAgPHhhcE1NOkRvY3VtZW50SUQ+dXVpZDozZWVmMjE2Ni04MzMyLWFiYjQtM2QzMS03NzMzNDU3ODg3M2Y8L3hhcE1NOkRvY3VtZW50SUQ+DQogICAgICA8eGFwTU06SW5zdGFuY2VJRD51dWlkOjk5MWJjY2U3LWVlNzAtMTFhMy05MWFhLTc3YmJlMjE4MWZkODwveGFwTU06SW5zdGFuY2VJRD4NCiAgICA8L3JkZjpEZXNjcmlwdGlvbj4NCiAgPC9yZGY6UkRGPg0KPC94OnhtcG1ldGE+DQplbmRzdHJlYW0NCmVuZG9iag0KDQozIDAgb2JqDQo8PA0KICAvVHlwZSAvUGFnZXMNCiAgL0tpZHMgWzQgMCBSXQ0KICAvQ291bnQgMQ0KPj4NCmVuZG9iag0KDQo0IDAgb2JqDQo8PA0KICAvVHlwZSAvUGFnZQ0KICAvUGFyZW50IDMgMCBSDQogIC9NZWRpYUJveCBbMCAwIDYxMiAzOTZdDQogIC9Db250ZW50cyBbNSAwIFIgNiAwIFJdDQogIC9SZXNvdXJjZXMgPDwNCiAgICAvRm9udCA8PCAvRjEgNyAwIFIgPj4NCiAgPj4NCj4+DQplbmRvYmoNCg0KNSAwIG9iag0KPDwgL0xlbmd0aCA3NDQgPj4NCnN0cmVhbQ0KJSBTYXZlIHRoZSBjdXJyZW50IGdyYXBoaWMgc3RhdGUNCnEgDQoNCiUgRHJhdyBhIGJsYWNrIGxpbmUgc2VnbWVudCwgdXNpbmcgdGhlIGRlZmF1bHQgbGluZSB3aWR0aC4NCjE1MCAyNTAgbQ0KMTUwIDM1MCBsDQpTDQoNCiUgRHJhdyBhIHRoaWNrZXIsIGRhc2hlZCBsaW5lIHNlZ21lbnQuDQo0IHcgJSBTZXQgbGluZSB3aWR0aCB0byA0IHBvaW50cw0KWzQgNl0gMCBkICUgU2V0IGRhc2ggcGF0dGVybiB0byA0IHVuaXRzIG9uLCA2IHVuaXRzIG9mZg0KMTUwIDI1MCBtDQo0MDAgMjUwIGwNClMNCltdIDAgZCAlIFJlc2V0IGRhc2ggcGF0dGVybiB0byBhIHNvbGlkIGxpbmUNCjEgdyAlIFJlc2V0IGxpbmUgd2lkdGggdG8gMSB1bml0DQoNCiUgRHJhdyBhIHJlY3RhbmdsZSB3aXRoIGEgMS11bml0IHJlZCBib3JkZXIsIGZpbGxlZCB3aXRoIGxpZ2h0IGJsdWUuDQoxLjAgMC4wIDAuMCBSRyAlIFJlZCBmb3Igc3Ryb2tlIGNvbG9yDQowLjUgMC43NSAxLjAgcmcgJSBMaWdodCBibHVlIGZvciBmaWxsIGNvbG9yDQoyMDAgMzAwIDUwIDc1IHJlDQpCDQoNCiUgRHJhdyBhIGN1cnZlIGZpbGxlZCB3aXRoIGdyYXkgYW5kIHdpdGggYSBjb2xvcmVkIGJvcmRlci4NCjAuNSAwLjEgMC4yIFJHDQowLjcgZw0KMzAwIDMwMCBtDQozMDAgNDAwIDQwMCA0MDAgNDAwIDMwMCBjDQpiDQoNCiUgUmVzdG9yZSB0aGUgZ3JhcGhpYyBzdGF0ZSB0byB3aGF0IGl0IHdhcyBhdCB0aGUgYmVnaW5uaW5nIG9mIHRoaXMgc3RyZWFtDQpRDQoNCmVuZHN0cmVhbQ0KZW5kb2JqDQoNCjYgMCBvYmoNCjw8IC9MZW5ndGggMTY2ID4+DQpzdHJlYW0NCiUgQSB0ZXh0IGJsb2NrIHRoYXQgc2hvd3MgIkhlbGxvIFdvcmxkIg0KJSBObyBjb2xvciBpcyBzZXQsIHNvIHRoaXMgZGVmYXVsdHMgdG8gYmxhY2sgaW4gRGV2aWNlR3JheSBjb2xvcnNwYWNlDQpCVA0KICAvRjEgMjQgVGYNCiAgMTAwIDEwMCBUZA0KICAoSGVsbG8gV29ybGQpIFRqDQpFVA0KZW5kc3RyZWFtDQplbmRvYmoNCg0KNyAwIG9iag0KPDwNCiAgL1R5cGUgL0ZvbnQNCiAgL1N1YnR5cGUgL1R5cGUxDQogIC9CYXNlRm9udCAvSGVsdmV0aWNhDQogIC9GaXJzdENoYXIgMzMNCiAgL0xhc3RDaGFyIDEyNg0KICAvV2lkdGhzIDggMCBSDQogIC9Gb250RGVzY3JpcHRvciA5IDAgUg0KPj4NCmVuZG9iag0KDQo4IDAgb2JqDQpbIDI3OCAzNTUgNTU2IDU1NiA4ODkgNjY3IDIyMiAzMzMgMzMzIDM4OSA1ODQgMjc4IDMzMyAyNzggMjc4IDU1Ng0KICA1NTYgNTU2IDU1NiA1NTYgNTU2IDU1NiA1NTYgNTU2IDU1NiAyNzggMjc4IDU4NCA1ODQgNTg0IDU1NiAxMDE1DQogIDY2NyA2NjcgNzIyIDcyMiA2NjcgNjExIDc3OCA3MjIgMjc4IDUwMCA2NjcgNTU2IDgzMyA3MjIgNzc4IDY2Nw0KICA3NzggNzIyIDY2NyA2MTEgNzIyIDY2NyA5NDQgNjY3IDY2NyA2MTEgMjc4IDI3OCAyNzggNDY5IDU1NiAyMjINCiAgNTU2IDU1NiA1MDAgNTU2IDU1NiAyNzggNTU2IDU1NiAyMjIgMjIyIDUwMCAyMjIgODMzIDU1NiA1NTYgNTU2DQogIDU1NiAzMzMgNTAwIDI3OCA1NTYgNTAwIDcyMiA1MDAgNTAwIDUwMCAzMzQgMjYwIDMzNCA1ODQgXQ0KZW5kb2JqDQoNCiUgVGhpcyBGb250RGVzY3JpcHRvciBjb250YWlucyBvbmx5IHRoZSByZXF1aXJlZCBlbnRyaWVzIGZvciBQREYgMi4wDQolIGZvciB1bmVtYmVkZGVkIHN0YW5kYXJkIDE0IGZvbnRzIHRoYXQgY29udGFpbiBMYXRpbiBjaGFyYWN0ZXJzDQo5IDAgb2JqDQo8PA0KICAvVHlwZSAvRm9udERlc2NyaXB0b3INCiAgL0ZvbnROYW1lIC9IZWx2ZXRpY2ENCiAgL0ZsYWdzIDMyDQogIC9Gb250QkJveCBbIC0xNjYgLTIyNSAxMDAwIDkzMSBdDQogIC9JdGFsaWNBbmdsZSAwDQogIC9Bc2NlbnQgNzE4DQogIC9EZXNjZW50IC0yMDcNCiAgL0NhcEhlaWdodCA3MTgNCiAgL1N0ZW1WIDg4DQogIC9NaXNzaW5nV2lkdGggMCAgDQo+Pg0KZW5kb2JqDQoNCiUgVGhlIG9iamVjdCBjcm9zcy1yZWZlcmVuY2UgdGFibGUuIFRoZSBmaXJzdCBlbnRyeQ0KJSBkZW5vdGVzIHRoZSBzdGFydCBvZiBQREYgZGF0YSBpbiB0aGlzIGZpbGUuDQp4cmVmDQowIDEwDQowMDAwMDAwMDAwIDY1NTM1IGYNCjAwMDAwMDAwMTIgMDAwMDAgbg0KMDAwMDAwMDA5MiAwMDAwMCBuDQowMDAwMDAyNTQzIDAwMDAwIG4NCjAwMDAwMDI2MTUgMDAwMDAgbg0KMDAwMDAwMjc3OCAwMDAwMCBuDQowMDAwMDAzNTgzIDAwMDAwIG4NCjAwMDAwMDM4MDcgMDAwMDAgbg0KMDAwMDAwMzk2OCAwMDAwMCBuDQowMDAwMDA0NTIwIDAwMDAwIG4NCnRyYWlsZXINCjw8DQogIC9TaXplIDEwDQogIC9Sb290IDEgMCBSDQogIC9JRCBbIDwzMWM3YThhMjY5ZTRjNTliYzNjZDdkZjBkYWJiZjM4OD48MzFjN2E4YTI2OWU0YzU5YmMzY2Q3ZGYwZGFiYmYzODg+IF0NCj4+DQpzdGFydHhyZWYNCjQ4NDcNCiUlRU9GDQo=`
+func loadCertificateAndKey(t *testing.T) (*x509.Certificate, *rsa.PrivateKey) {
+	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
+	if certificate_data_block == nil {
+		t.Fatalf("failed to parse PEM block containing the certificate")
+	}
+
+	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	key_data_block, _ := pem.Decode([]byte(signKeyPem))
+	if key_data_block == nil {
+		t.Fatalf("failed to parse PEM block containing the private key")
+	}
+
+	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	return cert, pkey
+}
+
+func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
+	_, err := verify.File(tmpfile)
+	if err != nil {
+		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
+
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		if err2 != nil {
+			t.Error(err2)
+		}
+	}
+}
 
 func TestReaderCanReadPDF(t *testing.T) {
 	files, err := os.ReadDir("../testfiles")
 	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
+		t.Fatalf("%s", err.Error())
 	}
 
 	for _, f := range files {
-		ext := filepath.Ext(f.Name())
-		if ext != ".pdf" {
+		if filepath.Ext(f.Name()) != ".pdf" {
 			continue
 		}
 
-		fileName := f.Name()
-		t.Run(fileName, func(st *testing.T) {
+		t.Run(f.Name(), func(st *testing.T) {
 			st.Parallel()
 
-			input_file, err := os.Open("../testfiles/" + fileName)
+			input_file, err := os.Open("../testfiles/" + f.Name())
 			if err != nil {
-				st.Errorf("%s: %s", fileName, err.Error())
-				return
+				st.Fatalf("%s: %s", f.Name(), err.Error())
 			}
+			defer input_file.Close()
 
 			finfo, err := input_file.Stat()
 			if err != nil {
-				input_file.Close()
-				st.Errorf("%s: %s", fileName, err.Error())
-				return
+				st.Fatalf("%s: %s", f.Name(), err.Error())
 			}
 			size := finfo.Size()
 
 			_, err = pdf.NewReader(input_file, size)
 			if err != nil {
-				input_file.Close()
-				st.Errorf("%s: %s", fileName, err.Error())
-				return
+				st.Fatalf("%s: %s", f.Name(), err.Error())
 			}
-
-			input_file.Close()
 		})
-
 	}
 }
 
@@ -104,77 +126,29 @@ func TestSignPDF(t *testing.T) {
 	_ = os.RemoveAll("../testfiles/failed/")
 	_ = os.MkdirAll("../testfiles/failed/", 0777)
 
-	files, err := os.ReadDir("../testfiles")
+	files, err := os.ReadDir("../testfiles/")
 	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
+		t.Fatalf("%s", err.Error())
 	}
 
-	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
-	if certificate_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the certificate")
-		return
-	}
-
-	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	key_data_block, _ := pem.Decode([]byte(signKeyPem))
-	if key_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the private key")
-		return
-	}
-
-	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	certificate_chains := make([][]*x509.Certificate, 0)
+	cert, pkey := loadCertificateAndKey(t)
+	certificateChains := [][]*x509.Certificate{}
 
 	for _, f := range files {
-		f := f
-
-		ext := filepath.Ext(f.Name())
-		if ext != ".pdf" {
+		if filepath.Ext(f.Name()) != ".pdf" {
 			continue
 		}
 
 		t.Run(f.Name(), func(st *testing.T) {
-			st.Log("Signing file", f.Name())
-
-			input_file, err := os.Open("../testfiles/" + f.Name())
+			outputFile, err := os.CreateTemp("", fmt.Sprintf("%s_%s_", t.Name(), f.Name()))
 			if err != nil {
-				st.Errorf("%s: %s", f.Name(), err.Error())
-				return
+				st.Fatalf("%s", err.Error())
+			}
+			if !testing.Verbose() {
+				defer os.Remove(outputFile.Name())
 			}
 
-			finfo, err := input_file.Stat()
-			if err != nil {
-				input_file.Close()
-				st.Errorf("%s: %s", f.Name(), err.Error())
-				return
-			}
-			size := finfo.Size()
-
-			rdr, err := pdf.NewReader(input_file, size)
-			if err != nil {
-				input_file.Close()
-				st.Errorf("%s: %s", f.Name(), err.Error())
-				return
-			}
-
-			outputFile, err := os.CreateTemp("", "pdfsign_test_"+f.Name())
-			if err != nil {
-				t.Errorf("%s", err.Error())
-				return
-			}
-
-			err = Sign(input_file, outputFile, rdr, size, SignData{
+			err = SignFile("../testfiles/"+f.Name(), outputFile.Name(), SignData{
 				Signature: SignDataSignature{
 					Info: SignDataSignatureInfo{
 						Name:        "John Doe",
@@ -188,7 +162,7 @@ func TestSignPDF(t *testing.T) {
 				},
 				Signer:            pkey,
 				Certificate:       cert,
-				CertificateChains: certificate_chains,
+				CertificateChains: certificateChains,
 				TSA: TSA{
 					URL: "http://timestamp.digicert.com",
 				},
@@ -197,128 +171,29 @@ func TestSignPDF(t *testing.T) {
 			})
 
 			if err != nil {
-				input_file.Close()
-				_ = os.Remove(outputFile.Name())
-				st.Errorf("%s: %s", f.Name(), err.Error())
-				return
+				st.Fatalf("%s: %s", f.Name(), err.Error())
 			}
-
-			_, err = verify.File(outputFile)
-			input_file.Close()
-			if err != nil {
-				err2 := os.Rename(outputFile.Name(), "../testfiles/failed/"+filepath.Base(input_file.Name()))
-				if err2 != nil {
-					st.Error(err2)
-				}
-				st.Errorf("%s: %s", f.Name(), err.Error())
-			} else {
-				os.Remove(outputFile.Name())
-			}
+			verifySignedFile(st, outputFile, filepath.Base(f.Name()))
 		})
 	}
 }
 
-func TestSignPDFFile(t *testing.T) {
-	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
-	if certificate_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the certificate")
-		return
-	}
-
-	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	key_data_block, _ := pem.Decode([]byte(signKeyPem))
-	if key_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the private key")
-		return
-	}
-
-	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	tmpfile, err := os.CreateTemp("", "pdfsign_test")
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
-		Signature: SignDataSignature{
-			Info: SignDataSignatureInfo{
-				Name:        "John Doe",
-				Location:    "Somewhere",
-				Reason:      "Test",
-				ContactInfo: "None",
-				Date:        time.Now().Local(),
-			},
-			CertType:   CertificationSignature,
-			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
-		},
-		DigestAlgorithm: crypto.SHA512,
-		Signer:          pkey,
-		Certificate:     cert,
-	})
-
-	if err != nil {
-		os.Remove(tmpfile.Name())
-		t.Errorf("%s: %s", "testfile20.pdf", err.Error())
-		return
-	}
-
-	_, err = verify.File(tmpfile)
-	if err != nil {
-		t.Errorf("%s: %s", tmpfile.Name(), err.Error())
-
-		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/testfile20.pdf")
-		if err2 != nil {
-			t.Error(err2)
-		}
-	} else {
-		os.Remove(tmpfile.Name())
-	}
-}
-
 func TestSignPDFFileUTF8(t *testing.T) {
-	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
-	if certificate_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the certificate")
-		return
-	}
-
-	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	key_data_block, _ := pem.Decode([]byte(signKeyPem))
-	if key_data_block == nil {
-		t.Errorf("failed to parse PEM block containing the private key")
-		return
-	}
-
-	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
-	tmpfile, err := os.CreateTemp("", "pdfsign_test")
-	if err != nil {
-		t.Errorf("%s", err.Error())
-		return
-	}
-
+	cert, pkey := loadCertificateAndKey(t)
 	signerName := "姓名"
 	signerLocation := "位置"
-	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
+	inputFilePath := "../testfiles/testfile20.pdf"
+	originalFileName := filepath.Base(inputFilePath)
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        signerName,
@@ -336,81 +211,48 @@ func TestSignPDFFileUTF8(t *testing.T) {
 	})
 
 	if err != nil {
-		os.Remove(tmpfile.Name())
-		t.Errorf("%s: %s", "testfile20.pdf", err.Error())
-		return
+		t.Fatalf("%s: %s", originalFileName, err.Error())
 	}
 
 	info, err := verify.File(tmpfile)
 	if err != nil {
-		t.Errorf("%s: %s", tmpfile.Name(), err.Error())
-
-		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/testfile20.pdf")
-		if err2 != nil {
-			t.Error(err2)
+		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
+		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
+			t.Error(err)
 		}
 	} else {
 		if info.Signers[0].Name != signerName {
-			t.Errorf("expected %q, got %q", signerName, info.Signers[0].Name)
+			t.Fatalf("expected %q, got %q", signerName, info.Signers[0].Name)
 		}
 		if info.Signers[0].Location != signerLocation {
-			t.Errorf("expected %q, got %q", signerLocation, info.Signers[0].Location)
+			t.Fatalf("expected %q, got %q", signerLocation, info.Signers[0].Location)
 		}
-
-		os.Remove(tmpfile.Name())
 	}
 }
 
 func BenchmarkSignPDF(b *testing.B) {
-	certificate_data_block, _ := pem.Decode([]byte(signCertPem))
-	if certificate_data_block == nil {
-		b.Errorf("failed to parse PEM block containing the certificate")
-		return
-	}
+	cert, pkey := loadCertificateAndKey(&testing.T{})
+	certificateChains := [][]*x509.Certificate{}
 
-	cert, err := x509.ParseCertificate(certificate_data_block.Bytes)
+	data, err := os.ReadFile("../testfiles/testfile20.pdf")
 	if err != nil {
-		b.Errorf("%s", err.Error())
-		return
+		b.Fatalf("%s", err.Error())
 	}
 
-	key_data_block, _ := pem.Decode([]byte(signKeyPem))
-	if key_data_block == nil {
-		b.Errorf("failed to parse PEM block containing the private key")
-		return
-	}
-
-	pkey, err := x509.ParsePKCS1PrivateKey(key_data_block.Bytes)
-	if err != nil {
-		b.Errorf("%s", err.Error())
-		return
-	}
-
-	certificate_chains := make([][]*x509.Certificate, 0)
-
-	data, err := base64.StdEncoding.DecodeString(staticPDFFile)
-	if err != nil {
-		b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-		return
-	}
-
-	input_file := filebuffer.New(data)
+	inputFile := filebuffer.New(data)
 	size := int64(len(data))
 
-	rdr, err := pdf.NewReader(input_file, size)
+	rdr, err := pdf.NewReader(inputFile, size)
 	if err != nil {
-		input_file.Close()
-		b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-		return
+		b.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 	}
 
 	for n := 0; n < b.N; n++ {
-		if _, err := input_file.Seek(0, 0); err != nil {
-			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-			return
+		if _, err := inputFile.Seek(0, 0); err != nil {
+			b.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
 
-		err = Sign(input_file, io.Discard, rdr, size, SignData{
+		err = Sign(inputFile, io.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "John Doe",
@@ -424,15 +266,170 @@ func BenchmarkSignPDF(b *testing.B) {
 			},
 			Signer:            pkey,
 			Certificate:       cert,
-			CertificateChains: certificate_chains,
+			CertificateChains: certificateChains,
 			RevocationData:    revocation.InfoArchival{},
 		})
 
 		if err != nil {
-			b.Errorf("%s: %s", "testfile20.pdf", err.Error())
-			return
+			b.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
 	}
+}
 
-	input_file.Close()
+func TestSignPDFWithTwoApproval(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	tbsFile := "../testfiles/testfile20.pdf"
+
+	for i := 1; i <= 2; i++ {
+		approvalTMPFile, err := os.CreateTemp("", fmt.Sprintf("%s_%d_", t.Name(), i))
+		if err != nil {
+			t.Fatalf("%s", err.Error())
+		}
+		if !testing.Verbose() {
+			defer os.Remove(approvalTMPFile.Name())
+		}
+
+		err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
+			Signature: SignDataSignature{
+				Info: SignDataSignatureInfo{
+					Name:        fmt.Sprintf("Jane %d Doe", i),
+					Location:    "Anywhere",
+					Reason:      fmt.Sprintf("Approval Signature %d", i),
+					ContactInfo: "None",
+					Date:        time.Now().Local(),
+				},
+				CertType:   ApprovalSignature,
+				DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotationsPerms,
+			},
+			DigestAlgorithm: crypto.SHA512,
+			Signer:          pkey,
+			Certificate:     cert,
+		})
+
+		if err != nil {
+			t.Fatalf("%s: %s", "testfile20.pdf", err.Error())
+		}
+
+		verifySignedFile(t, approvalTMPFile, filepath.Base(tbsFile))
+		tbsFile = approvalTMPFile.Name()
+	}
+}
+
+func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	tbsFile := "../testfiles/testfile20.pdf"
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	err = SignFile(tbsFile, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "John Doe",
+				Location:    "Somewhere",
+				Reason:      "Certification Test",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotationsPerms,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+
+	if err != nil {
+		t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
+	}
+
+	verifySignedFile(t, tmpfile, filepath.Base(tbsFile))
+	tbsFile = tmpfile.Name()
+
+	for i := 1; i <= 2; i++ {
+		approvalTMPFile, err := os.CreateTemp("", fmt.Sprintf("%s_approval_%d_", t.Name(), i))
+		if err != nil {
+			t.Fatalf("%s", err.Error())
+		}
+		if !testing.Verbose() {
+			defer os.Remove(approvalTMPFile.Name())
+		}
+
+		err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
+			Signature: SignDataSignature{
+				Info: SignDataSignatureInfo{
+					Name:        fmt.Sprintf("Jane %d Doe", i),
+					Location:    "Anywhere",
+					Reason:      fmt.Sprintf("Approval Signature %d", i),
+					ContactInfo: "None",
+					Date:        time.Now().Local(),
+				},
+				CertType:   ApprovalSignature,
+				DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotationsPerms,
+			},
+			DigestAlgorithm: crypto.SHA512,
+			Signer:          pkey,
+			Certificate:     cert,
+		})
+
+		if err != nil {
+			t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
+		}
+
+		verifySignedFile(t, approvalTMPFile, filepath.Base(tbsFile))
+		tbsFile = approvalTMPFile.Name()
+	}
+
+	timeStampTMPFile, err := os.CreateTemp("", fmt.Sprintf("%s_timestamp_", t.Name()))
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(timeStampTMPFile.Name())
+	}
+
+	err = SignFile(tbsFile, timeStampTMPFile.Name(), SignData{
+		Signature: SignDataSignature{
+			CertType: TimeStampSignature,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		TSA: TSA{
+			URL: "http://timestamp.entrust.net/TSS/RFC3161sha2TS",
+		},
+	})
+	if err != nil {
+		t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
+	}
+	verifySignedFile(t, timeStampTMPFile, "testfile20.pdf")
+}
+
+func TestTimestampPDFFile(t *testing.T) {
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			CertType: TimeStampSignature,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		TSA: TSA{
+			URL: "http://timestamp.entrust.net/TSS/RFC3161sha2TS",
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("%s: %s", "testfile20.pdf", err.Error())
+	}
+
+	verifySignedFile(t, tmpfile, "testfile20.pdf")
 }

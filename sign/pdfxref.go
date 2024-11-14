@@ -19,10 +19,11 @@ const (
 	pngUpPredictor      = 12
 )
 
+// writeXref writes the cross-reference table or stream based on the PDF type.
 func (context *SignContext) writeXref() error {
 	switch context.PDFReader.XrefInformation.Type {
 	case "table":
-		return context.writeXrefTable()
+		return context.writeIncrXrefTable()
 	case "stream":
 		return context.writeXrefStream()
 	default:
@@ -33,15 +34,13 @@ func (context *SignContext) writeXref() error {
 // writeXrefTable writes the cross-reference table to the output buffer.
 func (context *SignContext) writeXrefTable() error {
 	// Seek to the start of the xref table
-	_, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, 0)
-	if err != nil {
+	if _, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek to xref table: %w", err)
 	}
 
 	// Read the existing xref table
 	xrefContent := make([]byte, context.PDFReader.XrefInformation.Length)
-	_, err = context.InputFile.Read(xrefContent)
-	if err != nil {
+	if _, err := context.InputFile.Read(xrefContent); err != nil {
 		return fmt.Errorf("failed to read xref table: %w", err)
 	}
 
@@ -69,8 +68,7 @@ func (context *SignContext) writeXrefTable() error {
 	}{
 		{context.Filesize, "visual signature"},
 		{context.Filesize + context.VisualSignData.Length, "catalog"},
-		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length, "info"},
-		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length + context.InfoData.Length, "signature"},
+		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length, "signature"},
 	}
 
 	// Write new xref table
@@ -91,9 +89,49 @@ func (context *SignContext) writeXrefTable() error {
 
 	// Write new entries
 	for _, entry := range newEntries {
-		xrefLine := fmt.Sprintf("%010d 00000 n \n", entry.startPosition)
+		xrefLine := fmt.Sprintf("%010d 00000 n\r\n", entry.startPosition)
 		if _, err := context.OutputBuffer.Write([]byte(xrefLine)); err != nil {
 			return fmt.Errorf("failed to write new xref entry for %s: %w", entry.name, err)
+		}
+	}
+
+	return nil
+}
+
+// writeIncrXrefTable writes the incremental cross-reference table to the output buffer.
+func (context *SignContext) writeIncrXrefTable() error {
+	// Seek to the start of the xref table
+	if _, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek to xref table: %w", err)
+	}
+
+	// Calculate new entries
+	newEntries := []struct {
+		objectID      uint32
+		startPosition int64
+		name          string
+	}{
+		{context.VisualSignData.ObjectId, context.Filesize, "visual signature"},
+		{context.CatalogData.ObjectId, context.Filesize + context.VisualSignData.Length, "catalog"},
+		{context.SignData.ObjectId, context.Filesize + context.VisualSignData.Length + context.CatalogData.Length, "signature"},
+	}
+
+	// Write xref header
+	if _, err := context.OutputBuffer.Write([]byte("xref\n")); err != nil {
+		return fmt.Errorf("failed to write incremental xref header: %w", err)
+	}
+
+	// Write xref subsection header
+	startXrefObj := fmt.Sprintf("%d %d\n", newEntries[0].objectID, len(newEntries))
+	if _, err := context.OutputBuffer.Write([]byte(startXrefObj)); err != nil {
+		return fmt.Errorf("failed to write starting xref object: %w", err)
+	}
+
+	// Write new entries
+	for _, entry := range newEntries {
+		xrefLine := fmt.Sprintf("%010d 00000 n \r\n", entry.startPosition)
+		if _, err := context.OutputBuffer.Write([]byte(xrefLine)); err != nil {
+			return fmt.Errorf("failed to write incremental xref entry for %s: %w", entry.name, err)
 		}
 	}
 
@@ -134,7 +172,6 @@ func writeXrefStreamEntries(buffer *bytes.Buffer, context *SignContext) error {
 		{context.Filesize},
 		{context.Filesize + context.VisualSignData.Length},
 		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length},
-		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length + context.InfoData.Length},
 		{context.NewXrefStart},
 	}
 
@@ -168,22 +205,20 @@ func encodeXrefStream(data []byte, predictor int64) ([]byte, error) {
 
 // writeXrefStreamHeader writes the header for the xref stream.
 func writeXrefStreamHeader(context *SignContext, streamLength int) error {
-	newInfo := fmt.Sprintf("Info %d 0 R", context.InfoData.ObjectId)
 	newRoot := fmt.Sprintf("Root %d 0 R", context.CatalogData.ObjectId)
 
 	id := context.PDFReader.Trailer().Key("ID")
 	id0 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 	id1 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 
-	newXref := fmt.Sprintf("%d 0 obj\n<< /Type /XRef /Length %d /Filter /FlateDecode /DecodeParms << /Columns %d /Predictor %d >> /W [ 1 3 1 ] /Prev %d /Size %d /Index [ %d 5 ] /%s /%s /ID [<%s><%s>] >>\n",
+	newXref := fmt.Sprintf("%d 0 obj\n<< /Type /XRef /Length %d /Filter /FlateDecode /DecodeParms << /Columns %d /Predictor %d >> /W [ 1 3 1 ] /Prev %d /Size %d /Index [ %d 4 ] /%s /ID [<%s><%s>] >>\n",
 		context.SignData.ObjectId+1,
 		streamLength,
 		xrefStreamColumns,
 		xrefStreamPredictor,
 		context.PDFReader.XrefInformation.StartPos,
-		context.PDFReader.XrefInformation.ItemCount+5,
+		context.PDFReader.XrefInformation.ItemCount+4,
 		context.PDFReader.XrefInformation.ItemCount,
-		newInfo,
 		newRoot,
 		id0,
 		id1,
@@ -210,22 +245,25 @@ func writeXrefStreamContent(context *SignContext, streamBytes []byte) error {
 	return nil
 }
 
+// writeXrefStreamLine writes a single line in the xref stream.
 func writeXrefStreamLine(b *bytes.Buffer, xreftype byte, offset int, gen byte) {
 	b.WriteByte(xreftype)
 	b.Write(encodeInt(offset))
 	b.WriteByte(gen)
 }
 
+// encodeInt encodes an integer to a 3-byte slice.
 func encodeInt(i int) []byte {
 	result := make([]byte, 4)
 	binary.BigEndian.PutUint32(result, uint32(i))
 	return result[1:4]
 }
 
+// EncodePNGSUBBytes encodes data using PNG SUB filter.
 func EncodePNGSUBBytes(columns int, data []byte) ([]byte, error) {
 	rowCount := len(data) / columns
 	if len(data)%columns != 0 {
-		return nil, errors.New("Invalid row/column length")
+		return nil, errors.New("invalid row/column length")
 	}
 
 	buffer := bytes.NewBuffer(nil)
@@ -253,10 +291,11 @@ func EncodePNGSUBBytes(columns int, data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// EncodePNGUPBytes encodes data using PNG UP filter.
 func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
 	rowCount := len(data) / columns
 	if len(data)%columns != 0 {
-		return nil, errors.New("Invalid row/column length")
+		return nil, errors.New("invalid row/column length")
 	}
 
 	prevRowData := make([]byte, columns)

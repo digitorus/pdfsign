@@ -26,7 +26,7 @@ func (context *SignContext) updateByteRange() error {
 	// Signature ByteRange part 2 length is everything else of the file.
 	context.ByteRangeValues[3] = output_file_size - context.ByteRangeValues[2]
 
-	new_byte_range := fmt.Sprintf("/ByteRange[%d %d %d %d]", context.ByteRangeValues[0], context.ByteRangeValues[1], context.ByteRangeValues[2], context.ByteRangeValues[3])
+	new_byte_range := fmt.Sprintf("/ByteRange [%d %d %d %d]", context.ByteRangeValues[0], context.ByteRangeValues[1], context.ByteRangeValues[2], context.ByteRangeValues[3])
 
 	// Make sure our ByteRange string didn't shrink in length.
 	new_byte_range += strings.Repeat(" ", len(signatureByteRangePlaceholder)-len(new_byte_range))

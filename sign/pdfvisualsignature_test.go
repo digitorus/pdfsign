@@ -63,9 +63,9 @@ func TestVisualSignature(t *testing.T) {
 		SignData: sign_data,
 	}
 
-	expected_visual_signature := "10 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /P 4 0 R /F 132 /FT /Sig /T (Signature) /Ff 0 /V 13 0 R >>\nendobj\n"
+	expected_visual_signature := "10 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /P 4 0 R /F 132 /FT /Sig /T (Signature 1) /Ff 0 /V 13 0 R >>\nendobj\n"
 
-	visual_signature, err := context.createVisualSignature()
+	visual_signature, err := context.createVisualSignature(false, 1, [4]float64{0, 0, 0, 0})
 	if err != nil {
 		t.Errorf("%s", err.Error())
 		return

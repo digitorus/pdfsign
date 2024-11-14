@@ -6,7 +6,6 @@ import (
 )
 
 func (context *SignContext) writeTrailer() error {
-
 	if context.PDFReader.XrefInformation.Type == "table" {
 		trailer_length := context.PDFReader.XrefInformation.IncludingTrailerEndPos - context.PDFReader.XrefInformation.EndPos
 
@@ -23,18 +22,28 @@ func (context *SignContext) writeTrailer() error {
 		new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
 
 		size_string := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10)
-		new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+4, 10)
+		new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+3, 10)
 
-		info := context.PDFReader.Trailer().Key("Info")
-		infoPtr := info.GetPtr()
-
-		info_string := "Info " + strconv.Itoa(int(infoPtr.GetID())) + " " + strconv.Itoa(int(infoPtr.GetGen())) + " R"
-		new_info := "Info " + strconv.FormatInt(int64(context.InfoData.ObjectId), 10) + " 0 R"
+		prev_string := "Prev " + context.PDFReader.Trailer().Key("Prev").String()
+		new_prev := "Prev " + strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10)
 
 		trailer_string := string(trailer_buf)
 		trailer_string = strings.Replace(trailer_string, root_string, new_root, -1)
 		trailer_string = strings.Replace(trailer_string, size_string, new_size, -1)
-		trailer_string = strings.Replace(trailer_string, info_string, new_info, -1)
+		if strings.Contains(trailer_string, prev_string) {
+			trailer_string = strings.Replace(trailer_string, prev_string, new_prev, -1)
+		} else {
+			trailer_string = strings.Replace(trailer_string, new_root, new_root+"\n  /"+new_prev, -1)
+		}
+
+		// Ensure the same amount of padding (two spaces) for each line, except when the line does not start with a whitespace already.
+		lines := strings.Split(trailer_string, "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(line, " ") {
+				lines[i] = "    " + strings.TrimSpace(line)
+			}
+		}
+		trailer_string = strings.Join(lines, "\n")
 
 		// Write the new trailer.
 		if _, err := context.OutputBuffer.Write([]byte(trailer_string)); err != nil {
@@ -48,7 +57,7 @@ func (context *SignContext) writeTrailer() error {
 	}
 
 	// Write PDF ending.
-	if _, err := context.OutputBuffer.Write([]byte("%%EOF")); err != nil {
+	if _, err := context.OutputBuffer.Write([]byte("%%EOF\n")); err != nil {
 		return err
 	}
 
