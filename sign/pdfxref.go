@@ -12,15 +12,60 @@ import (
 	"strings"
 )
 
+type xrefEntry struct {
+	ID     uint32
+	Offset int64
+}
+
 const (
 	xrefStreamColumns   = 5
 	xrefStreamPredictor = 12
 	pngSubPredictor     = 11
 	pngUpPredictor      = 12
+	objectFooter        = "\nendobj\n"
 )
+
+func (context *SignContext) addObject(object []byte) (uint32, error) {
+	if context.lastXrefID == 0 {
+		lastXrefID, err := context.getLastObjectIDFromXref()
+		if err != nil {
+			return 0, fmt.Errorf("failed to get last object ID: %w", err)
+		}
+		context.lastXrefID = lastXrefID
+	}
+
+	objectID := context.lastXrefID + uint32(len(context.newXrefEntries)) + 1
+	context.newXrefEntries = append(context.newXrefEntries, xrefEntry{
+		ID:     objectID,
+		Offset: int64(context.OutputBuffer.Buff.Len()) + 1,
+	})
+
+	// Write the object header
+	if _, err := context.OutputBuffer.Write([]byte(fmt.Sprintf("\n%d 0 obj\n", objectID))); err != nil {
+		return 0, fmt.Errorf("failed to write object header: %w", err)
+	}
+
+	// Write the object content
+	object = bytes.TrimSpace(object)
+	if _, err := context.OutputBuffer.Write(object); err != nil {
+		return 0, fmt.Errorf("failed to write object content: %w", err)
+	}
+
+	// Write the object footer
+	if _, err := context.OutputBuffer.Write([]byte(objectFooter)); err != nil {
+		return 0, fmt.Errorf("failed to write object footer: %w", err)
+	}
+
+	return objectID, nil
+}
 
 // writeXref writes the cross-reference table or stream based on the PDF type.
 func (context *SignContext) writeXref() error {
+	if _, err := context.OutputBuffer.Write([]byte("\n")); err != nil {
+		return fmt.Errorf("failed to write newline before xref: %w", err)
+	}
+	context.NewXrefStart = int64(context.OutputBuffer.Buff.Len())
+
 	switch context.PDFReader.XrefInformation.Type {
 	case "table":
 		return context.writeIncrXrefTable()
@@ -31,109 +76,56 @@ func (context *SignContext) writeXref() error {
 	}
 }
 
-// writeXrefTable writes the cross-reference table to the output buffer.
-//
-//nolint:unused
-func (context *SignContext) writeXrefTable() error {
+func (context *SignContext) getLastObjectIDFromXref() (uint32, error) {
 	// Seek to the start of the xref table
 	if _, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to seek to xref table: %w", err)
+		return 0, fmt.Errorf("failed to seek to xref table: %w", err)
 	}
 
 	// Read the existing xref table
 	xrefContent := make([]byte, context.PDFReader.XrefInformation.Length)
 	if _, err := context.InputFile.Read(xrefContent); err != nil {
-		return fmt.Errorf("failed to read xref table: %w", err)
+		return 0, fmt.Errorf("failed to read xref table: %w", err)
 	}
 
 	// Parse the xref header
 	xrefLines := strings.Split(string(xrefContent), "\n")
 	xrefHeader := strings.Fields(xrefLines[1])
 	if len(xrefHeader) != 2 {
-		return fmt.Errorf("invalid xref header format")
+		return 0, fmt.Errorf("invalid xref header format")
 	}
 
-	firstObjectID, err := strconv.Atoi(xrefHeader[0])
+	firstObjectID, err := strconv.ParseUint(xrefHeader[0], 10, 32)
 	if err != nil {
-		return fmt.Errorf("invalid first object ID: %w", err)
+		return 0, fmt.Errorf("invalid first object ID: %w", err)
 	}
 
-	itemCount, err := strconv.Atoi(xrefHeader[1])
+	itemCount, err := strconv.ParseUint(xrefHeader[1], 10, 32)
 	if err != nil {
-		return fmt.Errorf("invalid item count: %w", err)
+		return 0, fmt.Errorf("invalid item count: %w", err)
 	}
 
-	// Calculate new entries
-	newEntries := []struct {
-		startPosition int64
-		name          string
-	}{
-		{context.Filesize, "visual signature"},
-		{context.Filesize + context.VisualSignData.Length, "catalog"},
-		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length, "signature"},
-	}
-
-	// Write new xref table
-	newXrefHeader := fmt.Sprintf("xref\n%d %d\n", firstObjectID, itemCount+len(newEntries))
-	if _, err := context.OutputBuffer.Write([]byte(newXrefHeader)); err != nil {
-		return fmt.Errorf("failed to write new xref header: %w", err)
-	}
-
-	// Write existing entries
-	for i, line := range xrefLines[2:] {
-		if i >= itemCount {
-			break
-		}
-		if _, err := context.OutputBuffer.Write([]byte(line + "\n")); err != nil {
-			return fmt.Errorf("failed to write existing xref entry: %w", err)
-		}
-	}
-
-	// Write new entries
-	for _, entry := range newEntries {
-		xrefLine := fmt.Sprintf("%010d 00000 n\r\n", entry.startPosition)
-		if _, err := context.OutputBuffer.Write([]byte(xrefLine)); err != nil {
-			return fmt.Errorf("failed to write new xref entry for %s: %w", entry.name, err)
-		}
-	}
-
-	return nil
+	return uint32(firstObjectID + itemCount), nil
 }
 
 // writeIncrXrefTable writes the incremental cross-reference table to the output buffer.
 func (context *SignContext) writeIncrXrefTable() error {
-	// Seek to the start of the xref table
-	if _, err := context.InputFile.Seek(context.PDFReader.XrefInformation.StartPos, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to seek to xref table: %w", err)
-	}
-
-	// Calculate new entries
-	newEntries := []struct {
-		objectID      uint32
-		startPosition int64
-		name          string
-	}{
-		{context.VisualSignData.ObjectId, context.Filesize, "visual signature"},
-		{context.CatalogData.ObjectId, context.Filesize + context.VisualSignData.Length, "catalog"},
-		{context.SignData.ObjectId, context.Filesize + context.VisualSignData.Length + context.CatalogData.Length, "signature"},
-	}
-
 	// Write xref header
 	if _, err := context.OutputBuffer.Write([]byte("xref\n")); err != nil {
 		return fmt.Errorf("failed to write incremental xref header: %w", err)
 	}
 
 	// Write xref subsection header
-	startXrefObj := fmt.Sprintf("%d %d\n", newEntries[0].objectID, len(newEntries))
+	startXrefObj := fmt.Sprintf("%d %d\n", context.lastXrefID+1, len(context.newXrefEntries))
 	if _, err := context.OutputBuffer.Write([]byte(startXrefObj)); err != nil {
 		return fmt.Errorf("failed to write starting xref object: %w", err)
 	}
 
 	// Write new entries
-	for _, entry := range newEntries {
-		xrefLine := fmt.Sprintf("%010d 00000 n \r\n", entry.startPosition)
+	for _, entry := range context.newXrefEntries {
+		xrefLine := fmt.Sprintf("%010d 00000 n\r\n", entry.Offset)
 		if _, err := context.OutputBuffer.Write([]byte(xrefLine)); err != nil {
-			return fmt.Errorf("failed to write incremental xref entry for %s: %w", entry.name, err)
+			return fmt.Errorf("failed to write incremental xref entry: %w", err)
 		}
 	}
 
@@ -168,17 +160,8 @@ func (context *SignContext) writeXrefStream() error {
 
 // writeXrefStreamEntries writes the individual entries for the xref stream.
 func writeXrefStreamEntries(buffer *bytes.Buffer, context *SignContext) error {
-	entries := []struct {
-		offset int64
-	}{
-		{context.Filesize},
-		{context.Filesize + context.VisualSignData.Length},
-		{context.Filesize + context.VisualSignData.Length + context.CatalogData.Length},
-		{context.NewXrefStart},
-	}
-
-	for _, entry := range entries {
-		writeXrefStreamLine(buffer, 1, int(entry.offset), 0)
+	for _, entry := range context.newXrefEntries {
+		writeXrefStreamLine(buffer, 1, int(entry.Offset), 0)
 	}
 
 	return nil
@@ -219,7 +202,7 @@ func writeXrefStreamHeader(context *SignContext, streamLength int) error {
 		xrefStreamColumns,
 		xrefStreamPredictor,
 		context.PDFReader.XrefInformation.StartPos,
-		context.PDFReader.XrefInformation.ItemCount+4,
+		context.PDFReader.XrefInformation.ItemCount+int64(len(context.newXrefEntries))+1,
 		context.PDFReader.XrefInformation.ItemCount,
 		newRoot,
 		id0,

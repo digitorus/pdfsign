@@ -48,7 +48,6 @@ func TestVisualSignature(t *testing.T) {
 	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
 
 	context := SignContext{
-		Filesize:  size + 1,
 		PDFReader: rdr,
 		InputFile: input_file,
 		VisualSignData: VisualSignData{
@@ -63,7 +62,7 @@ func TestVisualSignature(t *testing.T) {
 		SignData: sign_data,
 	}
 
-	expected_visual_signature := "10 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /P 4 0 R /F 132 /FT /Sig /T (Signature 1) /Ff 0 /V 13 0 R >>\nendobj\n"
+	expected_visual_signature := "<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /P 4 0 R /F 132 /FT /Sig /T (Signature 1) /Ff 0 /V 13 0 R >>\n"
 
 	visual_signature, err := context.createVisualSignature(false, 1, [4]float64{0, 0, 0, 0})
 	if err != nil {
@@ -71,7 +70,7 @@ func TestVisualSignature(t *testing.T) {
 		return
 	}
 
-	if visual_signature != expected_visual_signature {
-		t.Errorf("Visual signature mismatch, expected %s, but got %s", expected_visual_signature, visual_signature)
+	if string(visual_signature) != expected_visual_signature {
+		t.Errorf("Visual signature mismatch, expected\n%q\nbut got\n%q", expected_visual_signature, visual_signature)
 	}
 }

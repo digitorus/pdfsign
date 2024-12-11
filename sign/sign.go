@@ -17,7 +17,6 @@ import (
 
 type CatalogData struct {
 	ObjectId   uint32
-	Length     int64
 	RootString string
 }
 
@@ -45,12 +44,10 @@ type SignData struct {
 type VisualSignData struct {
 	PageId   uint32
 	ObjectId uint32
-	Length   int64
 }
 
 type InfoData struct {
 	ObjectId uint32
-	Length   int64
 }
 
 //go:generate stringer -type=CertType
@@ -87,21 +84,21 @@ type SignDataSignatureInfo struct {
 }
 
 type SignContext struct {
-	Filesize                   int64
-	InputFile                  io.ReadSeeker
-	OutputFile                 io.Writer
-	OutputBuffer               *filebuffer.Buffer
-	SignData                   SignData
-	CatalogData                CatalogData
-	VisualSignData             VisualSignData
-	InfoData                   InfoData
-	PDFReader                  *pdf.Reader
-	NewXrefStart               int64
-	ByteRangeStartByte         int64
-	SignatureContentsStartByte int64
-	ByteRangeValues            []int64
-	SignatureMaxLength         uint32
-	SignatureMaxLengthBase     uint32
+	InputFile              io.ReadSeeker
+	OutputFile             io.Writer
+	OutputBuffer           *filebuffer.Buffer
+	SignData               SignData
+	CatalogData            CatalogData
+	VisualSignData         VisualSignData
+	InfoData               InfoData
+	PDFReader              *pdf.Reader
+	NewXrefStart           int64
+	ByteRangeValues        []int64
+	SignatureMaxLength     uint32
+	SignatureMaxLengthBase uint32
+
+	lastXrefID     uint32
+	newXrefEntries []xrefEntry
 }
 
 func SignFile(input string, output string, sign_data SignData) error {
@@ -134,9 +131,7 @@ func SignFile(input string, output string, sign_data SignData) error {
 func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
 	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
-	// We do size+1 because we insert a newline.
 	context := SignContext{
-		Filesize:   size + 1,
 		PDFReader:  rdr,
 		InputFile:  input,
 		OutputFile: output,
@@ -265,6 +260,22 @@ func (context *SignContext) SignPDF() error {
 		context.SignatureMaxLength += uint32(hex.EncodedLen(9000))
 	}
 
+	// Create the signature object
+	var signature_object []byte
+
+	switch context.SignData.Signature.CertType {
+	case TimeStampSignature:
+		signature_object = context.createTimestampPlaceholder()
+	default:
+		signature_object = context.createSignaturePlaceholder()
+	}
+
+	// Write the new signature object
+	context.SignData.ObjectId, err = context.addObject(signature_object)
+	if err != nil {
+		return fmt.Errorf("failed to add signature object: %w", err)
+	}
+
 	// Create visual signature (visible or invisible based on CertType)
 	// visible := context.SignData.Signature.CertType == CertificationSignature
 	// Example usage: passing page number and default rect values
@@ -273,69 +284,45 @@ func (context *SignContext) SignPDF() error {
 		return fmt.Errorf("failed to create visual signature: %w", err)
 	}
 
-	context.VisualSignData.Length = int64(len(visual_signature))
-
 	// Write the new visual signature object.
-	if _, err := context.OutputBuffer.Write([]byte(visual_signature)); err != nil {
-		return err
+	context.VisualSignData.ObjectId, err = context.addObject(visual_signature)
+	if err != nil {
+		return fmt.Errorf("failed to add visual signature object: %w", err)
 	}
 
+	// Create a new catalog object
 	catalog, err := context.createCatalog()
 	if err != nil {
 		return fmt.Errorf("failed to create catalog: %w", err)
 	}
 
-	context.CatalogData.Length = int64(len(catalog))
-
-	// Write the new catalog object.
-	if _, err := context.OutputBuffer.Write([]byte(catalog)); err != nil {
-		return err
+	// Write the new catalog object
+	context.CatalogData.ObjectId, err = context.addObject(catalog)
+	if err != nil {
+		return fmt.Errorf("failed to add catalog object: %w", err)
 	}
 
-	// Create the signature object
-	var signature_object string
-	var byte_range_start_byte, signature_contents_start_byte int64
-
-	switch context.SignData.Signature.CertType {
-	case TimeStampSignature:
-		signature_object, byte_range_start_byte, signature_contents_start_byte = context.createTimestampPlaceholder()
-	default:
-		signature_object, byte_range_start_byte, signature_contents_start_byte = context.createSignaturePlaceholder()
-	}
-
-	appended_bytes := context.Filesize + int64(len(catalog)) + int64(len(visual_signature))
-
-	// Positions are relative to old start position of xref table.
-	byte_range_start_byte += appended_bytes
-	signature_contents_start_byte += appended_bytes
-
-	context.ByteRangeStartByte = byte_range_start_byte
-	context.SignatureContentsStartByte = signature_contents_start_byte
-
-	// Write the new signature object.
-	if _, err := context.OutputBuffer.Write([]byte(signature_object)); err != nil {
-		return fmt.Errorf("failed to create the new signature object: %w", err)
-	}
-
-	// Calculate the new start position of the xref table.
-	context.NewXrefStart = appended_bytes + int64(len(signature_object))
-
+	// Write xref table
 	if err := context.writeXref(); err != nil {
 		return fmt.Errorf("failed to write xref: %w", err)
 	}
 
+	// Write trailer
 	if err := context.writeTrailer(); err != nil {
 		return fmt.Errorf("failed to write trailer: %w", err)
 	}
 
+	// Update byte range
 	if err := context.updateByteRange(); err != nil {
 		return fmt.Errorf("failed to update byte range: %w", err)
 	}
 
+	// Replace signature
 	if err := context.replaceSignature(); err != nil {
-		return err
+		return fmt.Errorf("failed to replace signature: %w", err)
 	}
 
+	// Write final output
 	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
 		return err
 	}

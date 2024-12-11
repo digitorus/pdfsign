@@ -217,6 +217,8 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
 			t.Error(err)
 		}
+	} else if len(info.Signers) == 0 {
+		t.Fatalf("no signers found in %s", tmpfile.Name())
 	} else {
 		if info.Signers[0].Name != signerName {
 			t.Fatalf("expected %q, got %q", signerName, info.Signers[0].Name)

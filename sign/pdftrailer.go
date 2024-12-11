@@ -22,7 +22,7 @@ func (context *SignContext) writeTrailer() error {
 		new_root := "Root " + strconv.FormatInt(int64(context.CatalogData.ObjectId), 10) + " 0 R"
 
 		size_string := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount, 10)
-		new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+3, 10)
+		new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+int64(len(context.newXrefEntries)+1), 10)
 
 		prev_string := "Prev " + context.PDFReader.Trailer().Key("Prev").String()
 		new_prev := "Prev " + strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10)

@@ -21,22 +21,19 @@ import (
 
 const signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
-func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_range_start_byte int64, signature_contents_start_byte int64) {
+func (context *SignContext) createSignaturePlaceholder() []byte {
 	// Using a buffer because it's way faster than concatenating.
 	var signature_buffer bytes.Buffer
-	signature_buffer.WriteString(strconv.Itoa(int(context.SignData.ObjectId)) + " 0 obj\n")
-	signature_buffer.WriteString("<< /Type /Sig\n")
+
+	signature_buffer.WriteString("<<\n")
+	signature_buffer.WriteString(" /Type /Sig\n")
 	signature_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
 	signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
 
 	signature_buffer.WriteString(context.createPropBuild())
 
-	byte_range_start_byte = int64(signature_buffer.Len()) + 1
-
 	// Create a placeholder for the byte range string, we will replace it later.
 	signature_buffer.WriteString(" " + signatureByteRangePlaceholder)
-
-	signature_contents_start_byte = int64(signature_buffer.Len()) + 11
 
 	// Create a placeholder for the actual signature content, we will replace it later.
 	signature_buffer.WriteString(" /Contents<")
@@ -168,40 +165,47 @@ func (context *SignContext) createSignaturePlaceholder() (dssd string, byte_rang
 		signature_buffer.WriteString(pdfString(context.SignData.Signature.Info.ContactInfo))
 		signature_buffer.WriteString("\n")
 	}
-	signature_buffer.WriteString(" /M ")
-	signature_buffer.WriteString(pdfDateTime(context.SignData.Signature.Info.Date))
-	signature_buffer.WriteString("\n")
 
-	signature_buffer.WriteString(" >>\n")
-	signature_buffer.WriteString("endobj\n")
+	// (Optional) The time of signing. Depending on the signature handler, this may
+	// be a normal unverified computer time or a time generated in a verifiable way
+	// from a secure time server.
+	//
+	// This value should be used only when the time of signing is not available in the
+	// signature. If SubFilter is ETSI.RFC3161, this entry should not be used and
+	// should be ignored by a PDF processor.
+	//
+	// A timestamp can be embedded in a CMS binary data object (see 12.8.3.3, "CMS
+	// (PKCS #7) signatures").
+	if context.SignData.TSA.URL == "" {
+		signature_buffer.WriteString(" /M ")
+		signature_buffer.WriteString(pdfDateTime(context.SignData.Signature.Info.Date))
+		signature_buffer.WriteString("\n")
+	}
 
-	return signature_buffer.String(), byte_range_start_byte, signature_contents_start_byte
+	signature_buffer.WriteString(">>\n")
+
+	return signature_buffer.Bytes()
 }
 
-func (context *SignContext) createTimestampPlaceholder() (dssd string, byte_range_start_byte int64, signature_contents_start_byte int64) {
+func (context *SignContext) createTimestampPlaceholder() []byte {
 	var timestamp_buffer bytes.Buffer
 
-	timestamp_buffer.WriteString(strconv.Itoa(int(context.SignData.ObjectId)) + " 0 obj\n")
-	timestamp_buffer.WriteString("<< /Type /DocTimeStamp\n")
+	timestamp_buffer.WriteString("<<\n")
+	timestamp_buffer.WriteString(" /Type /DocTimeStamp\n")
 	timestamp_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
 	timestamp_buffer.WriteString(" /SubFilter /ETSI.RFC3161\n")
 
 	timestamp_buffer.WriteString(context.createPropBuild())
 
-	byte_range_start_byte = int64(timestamp_buffer.Len()) + 1
-
 	// Create a placeholder for the byte range string, we will replace it later.
 	timestamp_buffer.WriteString(" " + signatureByteRangePlaceholder)
-
-	signature_contents_start_byte = int64(timestamp_buffer.Len()) + 11
 
 	timestamp_buffer.WriteString(" /Contents<")
 	timestamp_buffer.Write(bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)))
 	timestamp_buffer.WriteString(">\n")
 	timestamp_buffer.WriteString(">>\n")
-	timestamp_buffer.WriteString("endobj\n")
 
-	return timestamp_buffer.String(), byte_range_start_byte, signature_contents_start_byte
+	return timestamp_buffer.Bytes()
 }
 
 func (context *SignContext) fetchRevocationData() error {
@@ -446,16 +450,31 @@ func (context *SignContext) replaceSignature() error {
 	}
 	file_content := context.OutputBuffer.Buff.Bytes()
 
-	if _, err := context.OutputBuffer.Write(file_content[:(context.ByteRangeValues[0] + context.ByteRangeValues[1] + 1)]); err != nil {
+	// Write the file content up to the signature
+	if _, err := context.OutputBuffer.Write(file_content[context.ByteRangeValues[0]:context.ByteRangeValues[1]]); err != nil {
 		return err
 	}
 
-	// Write new ByteRange.
+	// Write new signature
+	if _, err := context.OutputBuffer.Write([]byte("<")); err != nil {
+		return err
+	}
+
 	if _, err := context.OutputBuffer.Write([]byte(dst)); err != nil {
 		return err
 	}
 
-	if _, err := context.OutputBuffer.Write(file_content[(context.ByteRangeValues[0]+context.ByteRangeValues[1]+1)+int64(len(dst)):]); err != nil {
+	// Write 0s to ensure the signature remains the same size
+	zeroPadding := bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)-len(dst))
+	if _, err := context.OutputBuffer.Write(zeroPadding); err != nil {
+		return err
+	}
+
+	if _, err := context.OutputBuffer.Write([]byte(">")); err != nil {
+		return err
+	}
+
+	if _, err := context.OutputBuffer.Write(file_content[context.ByteRangeValues[2] : context.ByteRangeValues[2]+context.ByteRangeValues[3]]); err != nil {
 		return err
 	}
 

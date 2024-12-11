@@ -1,6 +1,7 @@
 package sign
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -9,43 +10,46 @@ func (context *SignContext) updateByteRange() error {
 	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
 		return err
 	}
-	output_file_size := int64(context.OutputBuffer.Buff.Len())
 
-	// Calculate ByteRange values to replace them.
-	context.ByteRangeValues = make([]int64, 4)
+	// Set ByteRangeValues by looking for the /Contents< filled with zeros
+	contentsPlaceholder := bytes.Repeat([]byte("0"), int(context.SignatureMaxLength))
+	contentsIndex := bytes.Index(context.OutputBuffer.Buff.Bytes(), contentsPlaceholder)
+	if contentsIndex == -1 {
+		return fmt.Errorf("failed to find contents placeholder")
+	}
 
-	// Signature ByteRange part 1 start byte is always byte 0.
-	context.ByteRangeValues[0] = int64(0)
-
-	// Signature ByteRange part 1 length always stops at the actual signature start byte.
-	context.ByteRangeValues[1] = context.SignatureContentsStartByte - 1
-
-	// Signature ByteRange part 2 start byte directly starts after the actual signature.
-	context.ByteRangeValues[2] = context.ByteRangeValues[1] + 1 + int64(context.SignatureMaxLength) + 1
-
-	// Signature ByteRange part 2 length is everything else of the file.
-	context.ByteRangeValues[3] = output_file_size - context.ByteRangeValues[2]
+	// Calculate ByteRangeValues
+	signatureContentsStart := int64(contentsIndex) - 1
+	signatureContentsEnd := signatureContentsStart + int64(context.SignatureMaxLength) + 2
+	context.ByteRangeValues = []int64{
+		0,
+		signatureContentsStart,
+		signatureContentsEnd,
+		int64(context.OutputBuffer.Buff.Len()) - signatureContentsEnd,
+	}
 
 	new_byte_range := fmt.Sprintf("/ByteRange [%d %d %d %d]", context.ByteRangeValues[0], context.ByteRangeValues[1], context.ByteRangeValues[2], context.ByteRangeValues[3])
 
-	// Make sure our ByteRange string didn't shrink in length.
-	new_byte_range += strings.Repeat(" ", len(signatureByteRangePlaceholder)-len(new_byte_range))
-
-	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
-		return err
-	}
-	file_content := context.OutputBuffer.Buff.Bytes()
-
-	if _, err := context.OutputBuffer.Write(file_content[:context.ByteRangeStartByte]); err != nil {
-		return err
+	// Make sure our ByteRange string has the same length as the placeholder.
+	if len(new_byte_range) < len(signatureByteRangePlaceholder) {
+		new_byte_range += strings.Repeat(" ", len(signatureByteRangePlaceholder)-len(new_byte_range))
+	} else if len(new_byte_range) != len(signatureByteRangePlaceholder) {
+		return fmt.Errorf("new byte range string is the same lenght as the placeholder")
 	}
 
-	// Write new ByteRange.
-	if _, err := context.OutputBuffer.Write([]byte(new_byte_range)); err != nil {
-		return err
+	// Find the placeholder in the buffer
+	placeholderIndex := bytes.Index(context.OutputBuffer.Buff.Bytes(), []byte(signatureByteRangePlaceholder))
+	if placeholderIndex == -1 {
+		return fmt.Errorf("failed to find ByteRange placeholder")
 	}
 
-	if _, err := context.OutputBuffer.Write(file_content[context.ByteRangeStartByte+int64(len(new_byte_range)):]); err != nil {
+	// Replace the placeholder with the new byte range
+	bufferBytes := context.OutputBuffer.Buff.Bytes()
+	copy(bufferBytes[placeholderIndex:placeholderIndex+len(new_byte_range)], []byte(new_byte_range))
+
+	// Rewrite the buffer with the updated bytes
+	context.OutputBuffer.Buff.Reset()
+	if _, err := context.OutputBuffer.Buff.Write(bufferBytes); err != nil {
 		return err
 	}
 

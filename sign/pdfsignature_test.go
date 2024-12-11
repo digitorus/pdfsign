@@ -1,100 +1,91 @@
 package sign
 
-// import (
-// 	"fmt"
-// 	"os"
-// 	"testing"
-// 	"time"
+import (
+	"fmt"
+	"os"
+	"testing"
+	"time"
 
-// 	"github.com/digitorus/pdf"
-// )
+	"github.com/digitorus/pdf"
+)
 
-// var signatureTests = []struct {
-// 	file               string
-// 	expectedSignatures map[uint]string
-// }{
-// 	{
-// 		file: "../testfiles/testfile20.pdf",
-// 		expectedSignatures: map[uint]string{
-// 			CertificationSignature: "13 0 obj\n<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange[0 ********** ********** **********] /Contents<> /Reference [ << /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >> ] /Name (John Doe) /Location (Somewhere) /Reason (Test) /ContactInfo (None) /M (D:20170923143900+03'00') >>\nendobj\n",
-// 			UsageRightsSignature:   "13 0 obj\n<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange[0 ********** ********** **********] /Contents<> /Reference [ << /Type /SigRef /TransformMethod /UR3 /TransformParams << /Type /TransformParams /V /2.2 >> >> ] /Name (John Doe) /Location (Somewhere) /Reason (Test) /ContactInfo (None) /M (D:20170923143900+03'00') >>\nendobj\n",
-// 			ApprovalSignature:      "13 0 obj\n<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange[0 ********** ********** **********] /Contents<> /Reference [ << /Type /SigRef /TransformMethod /FieldMDP /TransformParams << /Type /TransformParams /Fields [<< /Type /SigFieldLock /Action /All >>] /V /1.2 >> >> ] /Name (John Doe) /Location (Somewhere) /Reason (Test) /ContactInfo (None) /M (D:20170923143900+03'00') >>\nendobj\n",
-// 		},
-// 	},
-// }
+var signatureTests = []struct {
+	file               string
+	expectedSignatures map[CertType]string
+}{
+	{
+		file: "../testfiles/testfile20.pdf",
+		expectedSignatures: map[CertType]string{
+			CertificationSignature: "<<\n /Type /Sig\n /Filter /Adobe.PPKLite\n /SubFilter /adbe.pkcs7.detached\n /Prop_Build <<\n   /App << /Name /Digitorus#20PDFSign >>\n >>\n /ByteRange[0 ********** ********** **********] /Contents<>\n /Reference [\n << /Type /SigRef\n /TransformMethod /DocMDP\n /TransformParams <<\n   /Type /TransformParams\n   /P 2   /V /1.2\n   >>\n >> ] /Name (John Doe)\n /Location (Somewhere)\n /Reason (Test)\n /ContactInfo (None)\n /M (D:20170923143900+03'00')\n>>\n",
+			UsageRightsSignature:   "<<\n /Type /Sig\n /Filter /Adobe.PPKLite\n /SubFilter /adbe.pkcs7.detached\n /Prop_Build <<\n   /App << /Name /Digitorus#20PDFSign >>\n >>\n /ByteRange[0 ********** ********** **********] /Contents<>\n /Reference [\n << /Type /SigRef\n   /TransformMethod /UR3\n   /TransformParams <<\n     /Type /TransformParams\n     /V /2.2\n   >>\n >> ] /Name (John Doe)\n /Location (Somewhere)\n /Reason (Test)\n /ContactInfo (None)\n /M (D:20170923143900+03'00')\n>>\n",
+			ApprovalSignature:      "<<\n /Type /Sig\n /Filter /Adobe.PPKLite\n /SubFilter /adbe.pkcs7.detached\n /Prop_Build <<\n   /App << /Name /Digitorus#20PDFSign >>\n >>\n /ByteRange[0 ********** ********** **********] /Contents<>\n   /TransformMethod /FieldMDP\n   /TransformParams <<\n     /Type /TransformParams\n     /Action /All\n     /V /1.2\n >>\n /Name (John Doe)\n /Location (Somewhere)\n /Reason (Test)\n /ContactInfo (None)\n /M (D:20170923143900+03'00')\n>>\n",
+		},
+	},
+}
 
-// func TestCreateSignaturePlaceholder(t *testing.T) {
-// 	for _, testFile := range signatureTests {
-// 		for certType, expectedSignature := range testFile.expectedSignatures {
-// 			t.Run(fmt.Sprintf("%s_certType-%d", testFile.file, certType), func(st *testing.T) {
-// 				inputFile, err := os.Open(testFile.file)
-// 				if err != nil {
-// 					st.Errorf("Failed to load test PDF")
-// 					return
-// 				}
+func TestCreateSignaturePlaceholder(t *testing.T) {
+	for _, testFile := range signatureTests {
+		for certType, expectedSignature := range testFile.expectedSignatures {
+			t.Run(fmt.Sprintf("%s_certType-%d", testFile.file, certType), func(st *testing.T) {
+				inputFile, err := os.Open(testFile.file)
+				if err != nil {
+					st.Errorf("Failed to load test PDF")
+					return
+				}
 
-// 				finfo, err := inputFile.Stat()
-// 				if err != nil {
-// 					st.Errorf("Failed to load test PDF")
-// 					return
-// 				}
-// 				size := finfo.Size()
+				finfo, err := inputFile.Stat()
+				if err != nil {
+					st.Errorf("Failed to load test PDF")
+					return
+				}
+				size := finfo.Size()
 
-// 				rdr, err := pdf.NewReader(inputFile, size)
-// 				if err != nil {
-// 					st.Errorf("Failed to load test PDF")
-// 					return
-// 				}
+				rdr, err := pdf.NewReader(inputFile, size)
+				if err != nil {
+					st.Errorf("Failed to load test PDF")
+					return
+				}
 
-// 				timezone, _ := time.LoadLocation("Europe/Tallinn")
-// 				now := time.Date(2017, 9, 23, 14, 39, 0, 0, timezone)
+				timezone, _ := time.LoadLocation("Europe/Tallinn")
+				now := time.Date(2017, 9, 23, 14, 39, 0, 0, timezone)
 
-// 				sign_data := SignData{
-// 					Signature: SignDataSignature{
-// 						Info: SignDataSignatureInfo{
-// 							Name:        "John Doe",
-// 							Location:    "Somewhere",
-// 							Reason:      "Test",
-// 							ContactInfo: "None",
-// 							Date:        now,
-// 						},
-// 						CertType:   certType,
-// 						DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
-// 					},
-// 				}
+				sign_data := SignData{
+					Signature: SignDataSignature{
+						Info: SignDataSignatureInfo{
+							Name:        "John Doe",
+							Location:    "Somewhere",
+							Reason:      "Test",
+							ContactInfo: "None",
+							Date:        now,
+						},
+						CertType:   certType,
+						DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+					},
+				}
 
-// 				sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
+				sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
 
-// 				context := SignContext{
-// 					Filesize:  size + 1,
-// 					PDFReader: rdr,
-// 					InputFile: inputFile,
-// 					VisualSignData: VisualSignData{
-// 						ObjectId: uint32(rdr.XrefInformation.ItemCount),
-// 					},
-// 					CatalogData: CatalogData{
-// 						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
-// 					},
-// 					InfoData: InfoData{
-// 						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
-// 					},
-// 					SignData: sign_data,
-// 				}
+				context := SignContext{
+					PDFReader: rdr,
+					InputFile: inputFile,
+					VisualSignData: VisualSignData{
+						ObjectId: uint32(rdr.XrefInformation.ItemCount),
+					},
+					CatalogData: CatalogData{
+						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
+					},
+					InfoData: InfoData{
+						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
+					},
+					SignData: sign_data,
+				}
 
-// 				signature, byte_range_start_byte, signature_contents_start_byte := context.createSignaturePlaceholder()
+				signature := context.createSignaturePlaceholder()
 
-// 				if signature != expectedSignature {
-// 					st.Errorf("Signature mismatch, expected %s, but got %s", expectedSignature, signature)
-// 				}
-
-// 				if byte_range_start_byte != 78 {
-// 					st.Errorf("Byte range start mismatch, expected %d, but got %d", 78, byte_range_start_byte)
-// 				}
-
-// 				if signature_contents_start_byte != 135 {
-// 					st.Errorf("Signature contents start byte mismatch, expected %d, but got %d", 135, signature_contents_start_byte)
-// 				}
-// 			})
-// 		}
-// 	}
-// }
+				if string(signature) != expectedSignature {
+					st.Errorf("Signature mismatch, expected:\n%q\nbut got:\n%q", expectedSignature, signature)
+				}
+			})
+		}
+	}
+}

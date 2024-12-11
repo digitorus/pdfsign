@@ -15,17 +15,17 @@ var testFiles = []struct {
 	{
 		file: "../testfiles/testfile20.pdf",
 		expectedCatalogs: map[CertType]string{
-			CertificationSignature: "11 0 obj\n<< /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n",
-			UsageRightsSignature:   "11 0 obj\n<< /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 1 >> >>\nendobj\n",
-			ApprovalSignature:      "11 0 obj\n<< /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n",
+			CertificationSignature: "<<\n  /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
+			UsageRightsSignature:   "<<\n  /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 1 >>\n>>\n",
+			ApprovalSignature:      "<<\n  /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
 		},
 	},
 	{
 		file: "../testfiles/testfile21.pdf",
 		expectedCatalogs: map[CertType]string{
-			CertificationSignature: "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n",
-			UsageRightsSignature:   "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 1 >> >>\nendobj\n",
-			ApprovalSignature:      "17 0 obj\n<< /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >> >>\nendobj\n",
+			CertificationSignature: "<<\n  /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
+			UsageRightsSignature:   "<<\n  /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 1 >>\n>>\n",
+			ApprovalSignature:      "<<\n  /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
 		},
 	},
 }
@@ -54,7 +54,6 @@ func TestCreateCatalog(t *testing.T) {
 				}
 
 				context := SignContext{
-					Filesize:  size + 1,
 					PDFReader: rdr,
 					InputFile: inputFile,
 					VisualSignData: VisualSignData{
@@ -80,8 +79,8 @@ func TestCreateCatalog(t *testing.T) {
 					return
 				}
 
-				if catalog != expectedCatalog {
-					st.Errorf("Catalog mismatch, expected %s, but got %s", expectedCatalog, catalog)
+				if string(catalog) != expectedCatalog {
+					st.Errorf("Catalog mismatch, expected\n%s\nbut got\n%s", expectedCatalog, catalog)
 				}
 			})
 		}

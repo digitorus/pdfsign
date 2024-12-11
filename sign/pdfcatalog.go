@@ -1,16 +1,16 @@
 package sign
 
 import (
+	"bytes"
 	"strconv"
-	"strings"
 )
 
-func (context *SignContext) createCatalog() (string, error) {
-	var catalogBuilder strings.Builder
+func (context *SignContext) createCatalog() ([]byte, error) {
+	var catalog_buffer bytes.Buffer
 
 	// Start the catalog object
-	catalogBuilder.WriteString(strconv.Itoa(int(context.CatalogData.ObjectId)) + " 0 obj\n")
-	catalogBuilder.WriteString("<< /Type /Catalog")
+	catalog_buffer.WriteString("<<\n")
+	catalog_buffer.WriteString("  /Type /Catalog")
 
 	// (Optional; PDF 1.4) The version of the PDF specification to which
 	// the document conforms (for example, 1.4) if later than the version
@@ -25,7 +25,7 @@ func (context *SignContext) createCatalog() (string, error) {
 	//
 	// If an incremental upgrade requires a version that is higher than specified by the document.
 	// if context.PDFReader.PDFVersion < "2.0" {
-	// catalogBuilder.WriteString(" /Version /2.0")
+	// catalog_buffer.WriteString(" /Version /2.0")
 	// }
 
 	// Retrieve the root and check for necessary keys in one loop
@@ -49,33 +49,33 @@ func (context *SignContext) createCatalog() (string, error) {
 	// Add Pages and Names references if they exist
 	if foundPages {
 		pages := root.Key("Pages").GetPtr()
-		catalogBuilder.WriteString(" /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R")
+		catalog_buffer.WriteString(" /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R")
 	}
 	if foundNames {
 		names := root.Key("Names").GetPtr()
-		catalogBuilder.WriteString(" /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R")
+		catalog_buffer.WriteString(" /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R")
 	}
 
 	// Start the AcroForm dictionary with /NeedAppearances
-	catalogBuilder.WriteString(" /AcroForm << /Fields [")
+	catalog_buffer.WriteString(" /AcroForm << /Fields [")
 
 	// Add existing signatures to the AcroForm dictionary
 	for i, sig := range context.SignData.ExistingSignatures {
 		if i > 0 {
-			catalogBuilder.WriteString(" ")
+			catalog_buffer.WriteString(" ")
 		}
-		catalogBuilder.WriteString(strconv.Itoa(int(sig.ObjectId)) + " 0 R")
+		catalog_buffer.WriteString(strconv.Itoa(int(sig.ObjectId)) + " 0 R")
 	}
 
 	// Add the visual signature field to the AcroForm dictionary
 	if len(context.SignData.ExistingSignatures) > 0 {
-		catalogBuilder.WriteString(" ")
+		catalog_buffer.WriteString(" ")
 	}
-	catalogBuilder.WriteString(strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 R")
+	catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 R")
 
-	catalogBuilder.WriteString("]") // close Fields array
+	catalog_buffer.WriteString("]") // close Fields array
 
-	catalogBuilder.WriteString(" /NeedAppearances false")
+	catalog_buffer.WriteString(" /NeedAppearances false")
 
 	// Signature flags (Table 225)
 	//
@@ -100,14 +100,14 @@ func (context *SignContext) createCatalog() (string, error) {
 	// Set SigFlags and Permissions based on Signature Type
 	switch context.SignData.Signature.CertType {
 	case CertificationSignature, ApprovalSignature, TimeStampSignature:
-		catalogBuilder.WriteString(" /SigFlags 3")
+		catalog_buffer.WriteString(" /SigFlags 3")
 	case UsageRightsSignature:
-		catalogBuilder.WriteString(" /SigFlags 1")
+		catalog_buffer.WriteString(" /SigFlags 1")
 	}
 
 	// Finalize the AcroForm and Catalog object
-	catalogBuilder.WriteString(" >>")           // Close AcroForm
-	catalogBuilder.WriteString(" >>\nendobj\n") // Close catalog object
+	catalog_buffer.WriteString(" >>\n") // Close AcroForm
+	catalog_buffer.WriteString(">>\n")  // Close Catalog
 
-	return catalogBuilder.String(), nil
+	return catalog_buffer.Bytes(), nil
 }

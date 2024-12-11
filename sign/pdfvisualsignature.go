@@ -1,6 +1,7 @@
 package sign
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 
@@ -26,20 +27,20 @@ const (
 // pageNumber: the page number where the signature should be placed.
 // rect: the rectangle defining the position and size of the signature field.
 // Returns the visual signature string and an error if any.
-func (context *SignContext) createVisualSignature(visible bool, pageNumber int, rect [4]float64) (visual_signature string, err error) {
-	// Initialize the visual signature object with its ID.
-	visual_signature = strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 obj\n"
+func (context *SignContext) createVisualSignature(visible bool, pageNumber int, rect [4]float64) ([]byte, error) {
+	var visual_signature bytes.Buffer
+
 	// Define the object as an annotation.
-	visual_signature += "<< /Type /Annot"
+	visual_signature.WriteString("<< /Type /Annot")
 	// Specify the annotation subtype as a widget.
-	visual_signature += " /Subtype /Widget"
+	visual_signature.WriteString(" /Subtype /Widget")
 
 	if visible {
 		// Set the position and size of the signature field if visible.
-		visual_signature += fmt.Sprintf(" /Rect [%f %f %f %f]", rect[0], rect[1], rect[2], rect[3])
+		visual_signature.WriteString(fmt.Sprintf(" /Rect [%f %f %f %f]", rect[0], rect[1], rect[2], rect[3]))
 	} else {
 		// Set the rectangle to zero if the signature is invisible.
-		visual_signature += " /Rect [0 0 0 0]"
+		visual_signature.WriteString(" /Rect [0 0 0 0]")
 	}
 
 	// Retrieve the root object from the PDF trailer.
@@ -64,7 +65,7 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber int, 
 		// Find the page object by its number.
 		page, err := findPageByNumber(root.Key("Pages"), pageNumber)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		// Get the pointer to the page object.
@@ -74,16 +75,16 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber int, 
 		context.VisualSignData.PageId = page_ptr.GetID()
 
 		// Add the page reference to the visual signature.
-		visual_signature += " /P " + strconv.Itoa(int(page_ptr.GetID())) + " " + strconv.Itoa(int(page_ptr.GetGen())) + " R"
+		visual_signature.WriteString(" /P " + strconv.Itoa(int(page_ptr.GetID())) + " " + strconv.Itoa(int(page_ptr.GetGen())) + " R")
 	}
 
 	// Define the annotation flags for the signature field (132)
 	// annotationFlags := AnnotationFlagPrint | AnnotationFlagNoZoom | AnnotationFlagNoRotate | AnnotationFlagReadOnly | AnnotationFlagLockedContents
-	visual_signature += fmt.Sprintf(" /F %d", 132)
+	visual_signature.WriteString(fmt.Sprintf(" /F %d", 132))
 	// Define the field type as a signature.
-	visual_signature += " /FT /Sig"
+	visual_signature.WriteString(" /FT /Sig")
 	// Set a unique title for the signature field.
-	visual_signature += " /T " + pdfString("Signature "+strconv.Itoa(len(context.SignData.ExistingSignatures)+1))
+	visual_signature.WriteString(" /T " + pdfString("Signature "+strconv.Itoa(len(context.SignData.ExistingSignatures)+1)))
 
 	// (Optional) A set of bit flags specifying the interpretation of specific entries
 	// in this dictionary. A value of 1 for the flag indicates that the associated entry
@@ -92,16 +93,15 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber int, 
 	// (Reasons); 5 (LegalAttestation); 6 (AddRevInfo); and 7 (DigestMethod).
 	// For PDF 2.0 the following bit flags are added: 8 (Lockdocument); and 9
 	// (AppearanceFilter). Default value: 0.
-	visual_signature += " /Ff 0"
+	visual_signature.WriteString(" /Ff 0")
 
 	// Reference the signature dictionary.
-	visual_signature += " /V " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R"
+	visual_signature.WriteString(" /V " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R")
 
 	// Close the dictionary and end the object.
-	visual_signature += " >>"
-	visual_signature += "\nendobj\n"
+	visual_signature.WriteString(" >>\n")
 
-	return visual_signature, nil
+	return visual_signature.Bytes(), nil
 }
 
 // Helper function to find a page by its number.
