@@ -231,7 +231,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 
 func TestSignPDFVisible(t *testing.T) {
 	cert, pkey := loadCertificateAndKey(t)
-	inputFilePath := "../testfiles/minimal.pdf"
+	inputFilePath := "../testfiles/testfile20.pdf"
 	originalFileName := filepath.Base(inputFilePath)
 
 	tmpfile, err := os.CreateTemp("", t.Name())
