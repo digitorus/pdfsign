@@ -15,17 +15,17 @@ var testFiles = []struct {
 	{
 		file: "../testfiles/testfile20.pdf",
 		expectedCatalogs: map[CertType]string{
-			CertificationSignature: "<<\n  /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
-			UsageRightsSignature:   "<<\n  /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 1 >>\n>>\n",
-			ApprovalSignature:      "<<\n  /Type /Catalog /Pages 3 0 R /AcroForm << /Fields [10 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
+			CertificationSignature: "<<\n  /Type /Catalog\n  /Pages 3 0 R\n  /AcroForm <<\n    /Fields [10 0 R]\n    /SigFlags 3\n  >>\n>>\n",
+			UsageRightsSignature:   "<<\n  /Type /Catalog\n  /Pages 3 0 R\n  /AcroForm <<\n    /Fields [10 0 R]\n    /SigFlags 1\n  >>\n>>\n",
+			ApprovalSignature:      "<<\n  /Type /Catalog\n  /Pages 3 0 R\n  /AcroForm <<\n    /Fields [10 0 R]\n    /SigFlags 3\n  >>\n>>\n",
 		},
 	},
 	{
 		file: "../testfiles/testfile21.pdf",
 		expectedCatalogs: map[CertType]string{
-			CertificationSignature: "<<\n  /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
-			UsageRightsSignature:   "<<\n  /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 1 >>\n>>\n",
-			ApprovalSignature:      "<<\n  /Type /Catalog /Pages 9 0 R /Names 6 0 R /AcroForm << /Fields [16 0 R] /NeedAppearances false /SigFlags 3 >>\n>>\n",
+			CertificationSignature: "<<\n  /Type /Catalog\n  /Pages 9 0 R\n  /Names 6 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 3\n  >>\n>>\n",
+			UsageRightsSignature:   "<<\n  /Type /Catalog\n  /Pages 9 0 R\n  /Names 6 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 1\n  >>\n>>\n",
+			ApprovalSignature:      "<<\n  /Type /Catalog\n  /Pages 9 0 R\n  /Names 6 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 3\n  >>\n>>\n",
 		},
 	},
 }
@@ -33,7 +33,7 @@ var testFiles = []struct {
 func TestCreateCatalog(t *testing.T) {
 	for _, testFile := range testFiles {
 		for certType, expectedCatalog := range testFile.expectedCatalogs {
-			t.Run(fmt.Sprintf("%s_certType-%d", testFile.file, certType), func(st *testing.T) {
+			t.Run(fmt.Sprintf("%s_%s", testFile.file, certType.String()), func(st *testing.T) {
 				inputFile, err := os.Open(testFile.file)
 				if err != nil {
 					st.Errorf("Failed to load test PDF")
@@ -57,13 +57,7 @@ func TestCreateCatalog(t *testing.T) {
 					PDFReader: rdr,
 					InputFile: inputFile,
 					VisualSignData: VisualSignData{
-						ObjectId: uint32(rdr.XrefInformation.ItemCount),
-					},
-					CatalogData: CatalogData{
-						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
-					},
-					InfoData: InfoData{
-						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
+						objectId: uint32(rdr.XrefInformation.ItemCount),
 					},
 					SignData: SignData{
 						Signature: SignDataSignature{
@@ -80,7 +74,7 @@ func TestCreateCatalog(t *testing.T) {
 				}
 
 				if string(catalog) != expectedCatalog {
-					st.Errorf("Catalog mismatch, expected\n%s\nbut got\n%s", expectedCatalog, catalog)
+					st.Errorf("Catalog mismatch, expected\n%q\nbut got\n%q", expectedCatalog, catalog)
 				}
 			})
 		}

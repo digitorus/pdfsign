@@ -29,7 +29,6 @@ type TSA struct {
 type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error
 
 type SignData struct {
-	ObjectId           uint32
 	Signature          SignDataSignature
 	Signer             crypto.Signer
 	DigestAlgorithm    crypto.Hash
@@ -38,12 +37,24 @@ type SignData struct {
 	TSA                TSA
 	RevocationData     revocation.InfoArchival
 	RevocationFunction RevocationFunction
-	ExistingSignatures []SignData
+	Appearance         Appearance
+
+	objectId uint32
+}
+
+// Appearance represents the appearance of the signature
+type Appearance struct {
+	Visible     bool
+	Page        uint32
+	LowerLeftX  float64
+	LowerLeftY  float64
+	UpperRightX float64
+	UpperRightY float64
 }
 
 type VisualSignData struct {
-	PageId   uint32
-	ObjectId uint32
+	pageObjectId uint32
+	objectId     uint32
 }
 
 type InfoData struct {
@@ -97,8 +108,10 @@ type SignContext struct {
 	SignatureMaxLength     uint32
 	SignatureMaxLengthBase uint32
 
-	lastXrefID     uint32
-	newXrefEntries []xrefEntry
+	existingSignatures []SignData
+	lastXrefID         uint32
+	newXrefEntries     []xrefEntry
+	updatedXrefEntries []xrefEntry
 }
 
 func SignFile(input string, output string, sign_data SignData) error {
@@ -129,21 +142,12 @@ func SignFile(input string, output string, sign_data SignData) error {
 }
 
 func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
-	sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 2
+	sign_data.objectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
 	context := SignContext{
-		PDFReader:  rdr,
-		InputFile:  input,
-		OutputFile: output,
-		VisualSignData: VisualSignData{
-			ObjectId: uint32(rdr.XrefInformation.ItemCount),
-		},
-		CatalogData: CatalogData{
-			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
-		},
-		InfoData: InfoData{
-			ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
-		},
+		PDFReader:              rdr,
+		InputFile:              input,
+		OutputFile:             output,
 		SignData:               sign_data,
 		SignatureMaxLengthBase: uint32(hex.EncodedLen(512)),
 	}
@@ -153,7 +157,7 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 	if err != nil {
 		return err
 	}
-	context.SignData.ExistingSignatures = existingSignatures
+	context.existingSignatures = existingSignatures
 
 	err = context.SignPDF()
 	if err != nil {
@@ -173,6 +177,9 @@ func (context *SignContext) SignPDF() error {
 	}
 	if !context.SignData.DigestAlgorithm.Available() {
 		context.SignData.DigestAlgorithm = crypto.SHA256
+	}
+	if context.SignData.Appearance.Page == 0 {
+		context.SignData.Appearance.Page = 1
 	}
 
 	context.OutputBuffer = filebuffer.New([]byte{})
@@ -271,23 +278,47 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Write the new signature object
-	context.SignData.ObjectId, err = context.addObject(signature_object)
+	context.SignData.objectId, err = context.addObject(signature_object)
 	if err != nil {
 		return fmt.Errorf("failed to add signature object: %w", err)
 	}
 
 	// Create visual signature (visible or invisible based on CertType)
-	// visible := context.SignData.Signature.CertType == CertificationSignature
+	visible := false
+	rectangle := [4]float64{0, 0, 0, 0}
+	if context.SignData.Signature.CertType != ApprovalSignature && context.SignData.Appearance.Visible {
+		return fmt.Errorf("visible signatures are only allowed for approval signatures")
+	} else if context.SignData.Signature.CertType == ApprovalSignature && context.SignData.Appearance.Visible {
+		visible = true
+		rectangle = [4]float64{
+			context.SignData.Appearance.LowerLeftX,
+			context.SignData.Appearance.LowerLeftY,
+			context.SignData.Appearance.UpperRightX,
+			context.SignData.Appearance.UpperRightY,
+		}
+	}
+
 	// Example usage: passing page number and default rect values
-	visual_signature, err := context.createVisualSignature(false, 1, [4]float64{0, 0, 0, 0})
+	visual_signature, err := context.createVisualSignature(visible, context.SignData.Appearance.Page, rectangle)
 	if err != nil {
 		return fmt.Errorf("failed to create visual signature: %w", err)
 	}
 
 	// Write the new visual signature object.
-	context.VisualSignData.ObjectId, err = context.addObject(visual_signature)
+	context.VisualSignData.objectId, err = context.addObject(visual_signature)
 	if err != nil {
 		return fmt.Errorf("failed to add visual signature object: %w", err)
+	}
+
+	if context.SignData.Appearance.Visible {
+		inc_page_update, err := context.createIncPageUpdate(context.SignData.Appearance.Page, context.VisualSignData.objectId)
+		if err != nil {
+			return fmt.Errorf("failed to create incremental page update: %w", err)
+		}
+		err = context.updateObject(context.VisualSignData.pageObjectId, inc_page_update)
+		if err != nil {
+			return fmt.Errorf("failed to add incremental page update object: %w", err)
+		}
 	}
 
 	// Create a new catalog object

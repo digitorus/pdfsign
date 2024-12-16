@@ -229,6 +229,54 @@ func TestSignPDFFileUTF8(t *testing.T) {
 	}
 }
 
+func TestSignPDFVisible(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/minimal.pdf"
+	originalFileName := filepath.Base(inputFilePath)
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "John Doe",
+				Location:    "Somewhere",
+				Reason:      "Test with visible signature",
+				ContactInfo: "None",
+			},
+			CertType:   ApprovalSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Appearance: Appearance{
+			Visible:     true,
+			LowerLeftX:  350,
+			LowerLeftY:  75,
+			UpperRightX: 600,
+			UpperRightY: 100,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+	if err != nil {
+		t.Fatalf("%s: %s", originalFileName, err.Error())
+	}
+
+	_, err = verify.File(tmpfile)
+	if err != nil {
+		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
+		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
 func BenchmarkSignPDF(b *testing.B) {
 	cert, pkey := loadCertificateAndKey(&testing.T{})
 	certificateChains := [][]*x509.Certificate{}

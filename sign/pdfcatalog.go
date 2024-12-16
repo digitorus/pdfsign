@@ -10,7 +10,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 
 	// Start the catalog object
 	catalog_buffer.WriteString("<<\n")
-	catalog_buffer.WriteString("  /Type /Catalog")
+	catalog_buffer.WriteString("  /Type /Catalog\n")
 
 	// (Optional; PDF 1.4) The version of the PDF specification to which
 	// the document conforms (for example, 1.4) if later than the version
@@ -49,33 +49,45 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	// Add Pages and Names references if they exist
 	if foundPages {
 		pages := root.Key("Pages").GetPtr()
-		catalog_buffer.WriteString(" /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R")
+		catalog_buffer.WriteString("  /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R\n")
 	}
 	if foundNames {
 		names := root.Key("Names").GetPtr()
-		catalog_buffer.WriteString(" /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R")
+		catalog_buffer.WriteString("  /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R\n")
 	}
 
 	// Start the AcroForm dictionary with /NeedAppearances
-	catalog_buffer.WriteString(" /AcroForm << /Fields [")
+	catalog_buffer.WriteString("  /AcroForm <<\n")
+	catalog_buffer.WriteString("    /Fields [")
 
 	// Add existing signatures to the AcroForm dictionary
-	for i, sig := range context.SignData.ExistingSignatures {
+	for i, sig := range context.existingSignatures {
 		if i > 0 {
 			catalog_buffer.WriteString(" ")
 		}
-		catalog_buffer.WriteString(strconv.Itoa(int(sig.ObjectId)) + " 0 R")
+		catalog_buffer.WriteString(strconv.Itoa(int(sig.objectId)) + " 0 R")
 	}
 
 	// Add the visual signature field to the AcroForm dictionary
-	if len(context.SignData.ExistingSignatures) > 0 {
+	if len(context.existingSignatures) > 0 {
 		catalog_buffer.WriteString(" ")
 	}
-	catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.ObjectId)) + " 0 R")
+	catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.objectId)) + " 0 R")
 
-	catalog_buffer.WriteString("]") // close Fields array
+	catalog_buffer.WriteString("]\n") // close Fields array
 
-	catalog_buffer.WriteString(" /NeedAppearances false")
+	// (Optional; deprecated in PDF 2.0) A flag specifying whether
+	// to construct appearance streams and appearance
+	// dictionaries for all widget annotations in the document (see
+	// 12.7.4.3, "Variable text"). Default value: false. A PDF writer
+	// shall include this key, with a value of true, if it has not
+	// provided appearance streams for all visible widget
+	// annotations present in the document.
+	// if context.SignData.Visible {
+	// 	catalog_buffer.WriteString(" /NeedAppearances true")
+	// } else {
+	// 	catalog_buffer.WriteString(" /NeedAppearances false")
+	// }
 
 	// Signature flags (Table 225)
 	//
@@ -100,14 +112,14 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	// Set SigFlags and Permissions based on Signature Type
 	switch context.SignData.Signature.CertType {
 	case CertificationSignature, ApprovalSignature, TimeStampSignature:
-		catalog_buffer.WriteString(" /SigFlags 3")
+		catalog_buffer.WriteString("    /SigFlags 3\n")
 	case UsageRightsSignature:
-		catalog_buffer.WriteString(" /SigFlags 1")
+		catalog_buffer.WriteString("    /SigFlags 1\n")
 	}
 
 	// Finalize the AcroForm and Catalog object
-	catalog_buffer.WriteString(" >>\n") // Close AcroForm
-	catalog_buffer.WriteString(">>\n")  // Close Catalog
+	catalog_buffer.WriteString("  >>\n") // Close AcroForm
+	catalog_buffer.WriteString(">>\n")   // Close Catalog
 
 	return catalog_buffer.Bytes(), nil
 }

@@ -40,23 +40,46 @@ func (context *SignContext) addObject(object []byte) (uint32, error) {
 		Offset: int64(context.OutputBuffer.Buff.Len()) + 1,
 	})
 
+	err := context.writeObject(objectID, object)
+	if err != nil {
+		return 0, fmt.Errorf("failed to write object: %w", err)
+	}
+
+	return objectID, nil
+}
+
+func (context *SignContext) updateObject(id uint32, object []byte) error {
+	context.updatedXrefEntries = append(context.updatedXrefEntries, xrefEntry{
+		ID:     id,
+		Offset: int64(context.OutputBuffer.Buff.Len()) + 1,
+	})
+
+	err := context.writeObject(id, object)
+	if err != nil {
+		return fmt.Errorf("failed to write object: %w", err)
+	}
+
+	return nil
+}
+
+func (context *SignContext) writeObject(id uint32, object []byte) error {
 	// Write the object header
-	if _, err := context.OutputBuffer.Write([]byte(fmt.Sprintf("\n%d 0 obj\n", objectID))); err != nil {
-		return 0, fmt.Errorf("failed to write object header: %w", err)
+	if _, err := context.OutputBuffer.Write([]byte(fmt.Sprintf("\n%d 0 obj\n", id))); err != nil {
+		return fmt.Errorf("failed to write object header: %w", err)
 	}
 
 	// Write the object content
 	object = bytes.TrimSpace(object)
 	if _, err := context.OutputBuffer.Write(object); err != nil {
-		return 0, fmt.Errorf("failed to write object content: %w", err)
+		return fmt.Errorf("failed to write object content: %w", err)
 	}
 
 	// Write the object footer
 	if _, err := context.OutputBuffer.Write([]byte(objectFooter)); err != nil {
-		return 0, fmt.Errorf("failed to write object footer: %w", err)
+		return fmt.Errorf("failed to write object footer: %w", err)
 	}
 
-	return objectID, nil
+	return nil
 }
 
 // writeXref writes the cross-reference table or stream based on the PDF type.
@@ -113,6 +136,19 @@ func (context *SignContext) writeIncrXrefTable() error {
 	// Write xref header
 	if _, err := context.OutputBuffer.Write([]byte("xref\n")); err != nil {
 		return fmt.Errorf("failed to write incremental xref header: %w", err)
+	}
+
+	// Write updated entries
+	for _, entry := range context.updatedXrefEntries {
+		pageXrefObj := fmt.Sprintf("%d %d\n", entry.ID, 1)
+		if _, err := context.OutputBuffer.Write([]byte(pageXrefObj)); err != nil {
+			return fmt.Errorf("failed to write updated xref object: %w", err)
+		}
+
+		xrefLine := fmt.Sprintf("%010d 00000 n\r\n", entry.Offset)
+		if _, err := context.OutputBuffer.Write([]byte(xrefLine)); err != nil {
+			return fmt.Errorf("failed to write updated incremental xref entry: %w", err)
+		}
 	}
 
 	// Write xref subsection header
@@ -190,26 +226,25 @@ func encodeXrefStream(data []byte, predictor int64) ([]byte, error) {
 
 // writeXrefStreamHeader writes the header for the xref stream.
 func writeXrefStreamHeader(context *SignContext, streamLength int) error {
-	newRoot := fmt.Sprintf("Root %d 0 R", context.CatalogData.ObjectId)
-
 	id := context.PDFReader.Trailer().Key("ID")
 	id0 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 	id1 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 
-	newXref := fmt.Sprintf("%d 0 obj\n<< /Type /XRef /Length %d /Filter /FlateDecode /DecodeParms << /Columns %d /Predictor %d >> /W [ 1 3 1 ] /Prev %d /Size %d /Index [ %d 4 ] /%s /ID [<%s><%s>] >>\n",
-		context.SignData.ObjectId+1,
-		streamLength,
-		xrefStreamColumns,
-		xrefStreamPredictor,
-		context.PDFReader.XrefInformation.StartPos,
-		context.PDFReader.XrefInformation.ItemCount+int64(len(context.newXrefEntries))+1,
-		context.PDFReader.XrefInformation.ItemCount,
-		newRoot,
-		id0,
-		id1,
-	)
+	var buffer bytes.Buffer
+	buffer.WriteString(fmt.Sprintf("%d 0 obj\n", context.SignData.objectId))
+	buffer.WriteString("<< /Type /XRef\n")
+	buffer.WriteString(fmt.Sprintf("  /Length %d\n", streamLength))
+	buffer.WriteString("  /Filter /FlateDecode\n")
+	buffer.WriteString(fmt.Sprintf("  /DecodeParms << /Columns %d /Predictor %d >>\n", xrefStreamColumns, xrefStreamPredictor))
+	buffer.WriteString("  /W [ 1 3 1 ]\n")
+	buffer.WriteString(fmt.Sprintf("  /Prev %d\n", context.PDFReader.XrefInformation.StartPos))
+	buffer.WriteString(fmt.Sprintf("  /Size %d\n", context.PDFReader.XrefInformation.ItemCount+int64(len(context.newXrefEntries))+1))
+	buffer.WriteString(fmt.Sprintf("  /Index [ %d 4 ]\n", context.PDFReader.XrefInformation.ItemCount))
+	buffer.WriteString(fmt.Sprintf("  /Root %d 0 R\n", context.CatalogData.ObjectId))
+	buffer.WriteString(fmt.Sprintf("  /ID [<%s><%s>]\n", id0, id1))
+	buffer.WriteString(">>\n")
 
-	_, err := io.WriteString(context.OutputBuffer, newXref)
+	_, err := context.OutputBuffer.Write(buffer.Bytes())
 	return err
 }
 

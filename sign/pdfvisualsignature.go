@@ -27,20 +27,37 @@ const (
 // pageNumber: the page number where the signature should be placed.
 // rect: the rectangle defining the position and size of the signature field.
 // Returns the visual signature string and an error if any.
-func (context *SignContext) createVisualSignature(visible bool, pageNumber int, rect [4]float64) ([]byte, error) {
+func (context *SignContext) createVisualSignature(visible bool, pageNumber uint32, rect [4]float64) ([]byte, error) {
 	var visual_signature bytes.Buffer
 
+	visual_signature.WriteString("<<\n")
+
 	// Define the object as an annotation.
-	visual_signature.WriteString("<< /Type /Annot")
+	visual_signature.WriteString("  /Type /Annot\n")
 	// Specify the annotation subtype as a widget.
-	visual_signature.WriteString(" /Subtype /Widget")
+	visual_signature.WriteString("  /Subtype /Widget\n")
 
 	if visible {
 		// Set the position and size of the signature field if visible.
-		visual_signature.WriteString(fmt.Sprintf(" /Rect [%f %f %f %f]", rect[0], rect[1], rect[2], rect[3]))
+		visual_signature.WriteString(fmt.Sprintf("  /Rect [%f %f %f %f]\n", rect[0], rect[1], rect[2], rect[3]))
+
+		appearance, err := context.createAppearance(rect)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create appearance: %w", err)
+		}
+
+		appearanceObjectId, err := context.addObject(appearance)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add appearance object: %w", err)
+		}
+
+		// An appearance dictionary specifying how the annotation
+		// shall be presented visually on the page (see 12.5.5, "Appearance streams").
+		visual_signature.WriteString(fmt.Sprintf("  /AP << /N %d 0 R >>\n", appearanceObjectId))
+
 	} else {
 		// Set the rectangle to zero if the signature is invisible.
-		visual_signature.WriteString(" /Rect [0 0 0 0]")
+		visual_signature.WriteString("  /Rect [0 0 0 0]\n")
 	}
 
 	// Retrieve the root object from the PDF trailer.
@@ -72,40 +89,72 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber int, 
 		page_ptr := page.GetPtr()
 
 		// Store the page ID in the visual signature context so that we can add it to xref table later.
-		context.VisualSignData.PageId = page_ptr.GetID()
+		context.VisualSignData.pageObjectId = page_ptr.GetID()
 
 		// Add the page reference to the visual signature.
-		visual_signature.WriteString(" /P " + strconv.Itoa(int(page_ptr.GetID())) + " " + strconv.Itoa(int(page_ptr.GetGen())) + " R")
+		visual_signature.WriteString("  /P " + strconv.Itoa(int(page_ptr.GetID())) + " " + strconv.Itoa(int(page_ptr.GetGen())) + " R\n")
 	}
 
 	// Define the annotation flags for the signature field (132)
-	// annotationFlags := AnnotationFlagPrint | AnnotationFlagNoZoom | AnnotationFlagNoRotate | AnnotationFlagReadOnly | AnnotationFlagLockedContents
-	visual_signature.WriteString(fmt.Sprintf(" /F %d", 132))
-	// Define the field type as a signature.
-	visual_signature.WriteString(" /FT /Sig")
-	// Set a unique title for the signature field.
-	visual_signature.WriteString(" /T " + pdfString("Signature "+strconv.Itoa(len(context.SignData.ExistingSignatures)+1)))
+	annotationFlags := AnnotationFlagPrint | AnnotationFlagLocked
+	visual_signature.WriteString(fmt.Sprintf("  /F %d\n", annotationFlags))
 
-	// (Optional) A set of bit flags specifying the interpretation of specific entries
-	// in this dictionary. A value of 1 for the flag indicates that the associated entry
-	// is a required constraint. A value of 0 indicates that the associated entry is
-	// an optional constraint. Bit positions are 1 (Filter); 2 (SubFilter); 3 (V); 4
-	// (Reasons); 5 (LegalAttestation); 6 (AddRevInfo); and 7 (DigestMethod).
-	// For PDF 2.0 the following bit flags are added: 8 (Lockdocument); and 9
-	// (AppearanceFilter). Default value: 0.
-	visual_signature.WriteString(" /Ff 0")
+	// Define the field type as a signature.
+	visual_signature.WriteString("  /FT /Sig\n")
+	// Set a unique title for the signature field.
+	visual_signature.WriteString(fmt.Sprintf("  /T %s\n", pdfString("Signature "+strconv.Itoa(len(context.existingSignatures)+1))))
 
 	// Reference the signature dictionary.
-	visual_signature.WriteString(" /V " + strconv.Itoa(int(context.SignData.ObjectId)) + " 0 R")
+	visual_signature.WriteString(fmt.Sprintf("  /V %d 0 R\n", context.SignData.objectId))
 
 	// Close the dictionary and end the object.
-	visual_signature.WriteString(" >>\n")
+	visual_signature.WriteString(">>\n")
 
 	return visual_signature.Bytes(), nil
 }
 
+func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byte, error) {
+	var page_buffer bytes.Buffer
+
+	// Retrieve the root object from the PDF trailer.
+	root := context.PDFReader.Trailer().Key("Root")
+	page, err := findPageByNumber(root.Key("Pages"), pageNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	page_buffer.WriteString("<<\n")
+
+	// TODO: Update digitorus/pdf to get raw values without resolving pointers
+	for _, key := range page.Keys() {
+		switch key {
+		case "Contents", "Parent":
+			ptr := page.Key(key).GetPtr()
+			page_buffer.WriteString(fmt.Sprintf("  /%s %d 0 R\n", key, ptr.GetID()))
+		case "Annots":
+			page_buffer.WriteString("  /Annots [\n")
+			for i := 0; i < page.Key("Annots").Len(); i++ {
+				ptr := page.Key(key).Index(i).GetPtr()
+				page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", ptr.GetID()))
+			}
+			page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", annot))
+			page_buffer.WriteString("  ]\n")
+		default:
+			page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, page.Key(key).String()))
+		}
+	}
+
+	if page.Key("Annots").IsNull() {
+		page_buffer.WriteString(fmt.Sprintf("  /Annots [%d 0 R]\n", annot))
+	}
+
+	page_buffer.WriteString(">>\n")
+
+	return page_buffer.Bytes(), nil
+}
+
 // Helper function to find a page by its number.
-func findPageByNumber(pages pdf.Value, pageNumber int) (pdf.Value, error) {
+func findPageByNumber(pages pdf.Value, pageNumber uint32) (pdf.Value, error) {
 	if pages.Key("Type").Name() == "Pages" {
 		kids := pages.Key("Kids")
 		for i := 0; i < kids.Len(); i++ {

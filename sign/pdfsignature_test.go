@@ -63,21 +63,12 @@ func TestCreateSignaturePlaceholder(t *testing.T) {
 					},
 				}
 
-				sign_data.ObjectId = uint32(rdr.XrefInformation.ItemCount) + 3
+				sign_data.objectId = uint32(rdr.XrefInformation.ItemCount) + 3
 
 				context := SignContext{
 					PDFReader: rdr,
 					InputFile: inputFile,
-					VisualSignData: VisualSignData{
-						ObjectId: uint32(rdr.XrefInformation.ItemCount),
-					},
-					CatalogData: CatalogData{
-						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 1,
-					},
-					InfoData: InfoData{
-						ObjectId: uint32(rdr.XrefInformation.ItemCount) + 2,
-					},
-					SignData: sign_data,
+					SignData:  sign_data,
 				}
 
 				signature := context.createSignaturePlaceholder()

@@ -176,7 +176,7 @@ func (context *SignContext) createSignaturePlaceholder() []byte {
 	//
 	// A timestamp can be embedded in a CMS binary data object (see 12.8.3.3, "CMS
 	// (PKCS #7) signatures").
-	if context.SignData.TSA.URL == "" {
+	if context.SignData.TSA.URL == "" && !context.SignData.Signature.Info.Date.IsZero() {
 		signature_buffer.WriteString(" /M ")
 		signature_buffer.WriteString(pdfDateTime(context.SignData.Signature.Info.Date))
 		signature_buffer.WriteString("\n")
@@ -499,7 +499,7 @@ func (context *SignContext) fetchExistingSignatures() ([]SignData, error) {
 		if field.Key("FT").Name() == "Sig" {
 			ptr := field.GetPtr()
 			sig := SignData{
-				ObjectId: uint32(ptr.GetID()),
+				objectId: uint32(ptr.GetID()),
 			}
 			signatures = append(signatures, sig)
 		}
