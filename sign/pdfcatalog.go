@@ -2,15 +2,21 @@ package sign
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/digitorus/pdf"
+	"io"
+	"slices"
 	"strconv"
 )
 
 func (context *SignContext) createCatalog() ([]byte, error) {
+	var overwrittenCatalogKeys []string
 	var catalog_buffer bytes.Buffer
 
 	// Start the catalog object
 	catalog_buffer.WriteString("<<\n")
 	catalog_buffer.WriteString("  /Type /Catalog\n")
+	overwrittenCatalogKeys = append(overwrittenCatalogKeys, "Type")
 
 	// (Optional; PDF 1.4) The version of the PDF specification to which
 	// the document conforms (for example, 1.4) if later than the version
@@ -50,13 +56,16 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	if foundPages {
 		pages := root.Key("Pages").GetPtr()
 		catalog_buffer.WriteString("  /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R\n")
+		overwrittenCatalogKeys = append(overwrittenCatalogKeys, "Pages")
 	}
 	if foundNames {
 		names := root.Key("Names").GetPtr()
 		catalog_buffer.WriteString("  /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R\n")
+		overwrittenCatalogKeys = append(overwrittenCatalogKeys, "Names")
 	}
 
 	// Start the AcroForm dictionary with /NeedAppearances
+	overwrittenCatalogKeys = append(overwrittenCatalogKeys, "AcroForm")
 	catalog_buffer.WriteString("  /AcroForm <<\n")
 	catalog_buffer.WriteString("    /Fields [")
 
@@ -119,7 +128,65 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 
 	// Finalize the AcroForm and Catalog object
 	catalog_buffer.WriteString("  >>\n") // Close AcroForm
-	catalog_buffer.WriteString(">>\n")   // Close Catalog
+
+	// Copy over existing catalog entries from the original document that we did not need to override.
+	for _, key := range root.Keys() {
+		if !slices.Contains(overwrittenCatalogKeys, key) {
+			_, _ = fmt.Fprintf(&catalog_buffer, "/%s ", key)
+			context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key))
+		}
+	}
+	catalog_buffer.WriteString(">>\n") // Close Catalog
 
 	return catalog_buffer.Bytes(), nil
+}
+
+// serializeCatalogEntry takes a pdf.Value and serializes it to the given writer.
+func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32, value pdf.Value) {
+	if ptr := value.GetPtr(); ptr.GetID() != rootObjId {
+		// Indirect object
+		_, _ = fmt.Fprintf(w, "%d %d R", ptr.GetID(), ptr.GetGen())
+		return
+	}
+
+	// Direct object
+	switch value.Kind() {
+	case pdf.String:
+		_, _ = fmt.Fprintf(w, "(%s)", value.RawString())
+	case pdf.Null:
+		_, _ = fmt.Fprint(w, "null")
+	case pdf.Bool:
+		if value.Bool() {
+			_, _ = fmt.Fprint(w, "true")
+		} else {
+			_, _ = fmt.Fprint(w, "false")
+		}
+	case pdf.Integer:
+		_, _ = fmt.Fprintf(w, "%d", value.Int64())
+	case pdf.Real:
+		_, _ = fmt.Fprintf(w, "%f", value.Float64())
+	case pdf.Name:
+		_, _ = fmt.Fprintf(w, "/%s", value.Name())
+	case pdf.Dict:
+		_, _ = fmt.Fprint(w, "<<")
+		for idx, key := range value.Keys() {
+			if idx > 0 {
+				_, _ = fmt.Fprint(w, " ") // Space between items
+			}
+			_, _ = fmt.Fprintf(w, "/%s ", key)
+			context.serializeCatalogEntry(w, rootObjId, value.Key(key))
+		}
+		_, _ = fmt.Fprint(w, ">>")
+	case pdf.Array:
+		_, _ = fmt.Fprint(w, "[")
+		for idx := range value.Len() {
+			if idx > 0 {
+				_, _ = fmt.Fprint(w, " ") // Space between items
+			}
+			context.serializeCatalogEntry(w, rootObjId, value.Index(idx))
+		}
+		_, _ = fmt.Fprint(w, "]")
+	case pdf.Stream:
+		panic("stream cannot be a direct object")
+	}
 }
