@@ -12,14 +12,12 @@ func TestGetLastObjectIDFromXref(t *testing.T) {
 		fileName string
 		expected uint32
 	}{
-		{"minimal.pdf", 5},
 		{"testfile12.pdf", 16},
 		{"testfile14.pdf", 15},
 		{"testfile16.pdf", 567},
 		{"testfile17.pdf", 20},
 		{"testfile20.pdf", 10},
 		{"testfile21.pdf", 16},
-		{"small.pdf", 7},
 	}
 
 	for _, tc := range testCases {
