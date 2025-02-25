@@ -3,20 +3,18 @@ package sign
 import (
 	"bytes"
 	"fmt"
-	"github.com/digitorus/pdf"
 	"io"
-	"slices"
 	"strconv"
+
+	"github.com/digitorus/pdf"
 )
 
 func (context *SignContext) createCatalog() ([]byte, error) {
-	var overwrittenCatalogKeys []string
 	var catalog_buffer bytes.Buffer
 
 	// Start the catalog object
 	catalog_buffer.WriteString("<<\n")
 	catalog_buffer.WriteString("  /Type /Catalog\n")
-	overwrittenCatalogKeys = append(overwrittenCatalogKeys, "Type")
 
 	// (Optional; PDF 1.4) The version of the PDF specification to which
 	// the document conforms (for example, 1.4) if later than the version
@@ -34,38 +32,21 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	// catalog_buffer.WriteString(" /Version /2.0")
 	// }
 
-	// Retrieve the root and check for necessary keys in one loop
+	// Retrieve the root, its pointer and set the root string
 	root := context.PDFReader.Trailer().Key("Root")
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 
-	foundPages, foundNames := false, false
+	// Copy over existing catalog entries except for type and AcroForum
 	for _, key := range root.Keys() {
-		switch key {
-		case "Pages":
-			foundPages = true
-		case "Names":
-			foundNames = true
+		if key != "Type" && key != "AcroForm" {
+			_, _ = fmt.Fprintf(&catalog_buffer, "  /%s ", key)
+			context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key))
+			catalog_buffer.WriteString("\n")
 		}
-		if foundPages && foundNames {
-			break
-		}
-	}
-
-	// Add Pages and Names references if they exist
-	if foundPages {
-		pages := root.Key("Pages").GetPtr()
-		catalog_buffer.WriteString("  /Pages " + strconv.Itoa(int(pages.GetID())) + " " + strconv.Itoa(int(pages.GetGen())) + " R\n")
-		overwrittenCatalogKeys = append(overwrittenCatalogKeys, "Pages")
-	}
-	if foundNames {
-		names := root.Key("Names").GetPtr()
-		catalog_buffer.WriteString("  /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R\n")
-		overwrittenCatalogKeys = append(overwrittenCatalogKeys, "Names")
 	}
 
 	// Start the AcroForm dictionary with /NeedAppearances
-	overwrittenCatalogKeys = append(overwrittenCatalogKeys, "AcroForm")
 	catalog_buffer.WriteString("  /AcroForm <<\n")
 	catalog_buffer.WriteString("    /Fields [")
 
@@ -128,15 +109,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 
 	// Finalize the AcroForm and Catalog object
 	catalog_buffer.WriteString("  >>\n") // Close AcroForm
-
-	// Copy over existing catalog entries from the original document that we did not need to override.
-	for _, key := range root.Keys() {
-		if !slices.Contains(overwrittenCatalogKeys, key) {
-			_, _ = fmt.Fprintf(&catalog_buffer, "/%s ", key)
-			context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key))
-		}
-	}
-	catalog_buffer.WriteString(">>\n") // Close Catalog
+	catalog_buffer.WriteString(">>\n")   // Close Catalog
 
 	return catalog_buffer.Bytes(), nil
 }
