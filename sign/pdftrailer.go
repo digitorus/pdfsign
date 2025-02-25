@@ -49,6 +49,10 @@ func (context *SignContext) writeTrailer() error {
 		if _, err := context.OutputBuffer.Write([]byte(trailer_string)); err != nil {
 			return err
 		}
+	} else if context.PDFReader.XrefInformation.Type == "stream" {
+		if _, err := context.OutputBuffer.Write([]byte("startxref\n")); err != nil {
+			return err
+		}
 	}
 
 	// Write the new xref start position.
