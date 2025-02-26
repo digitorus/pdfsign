@@ -2,8 +2,6 @@ package sign
 
 import (
 	"bytes"
-	"compress/zlib"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -58,212 +56,6 @@ func TestGetLastObjectIDFromXref(t *testing.T) {
 				st.Fatalf("%s: expected object id %d, got %d", tc.fileName, tc.expected, obj)
 			}
 		})
-	}
-}
-
-func TestWriteXrefStreamLine(t *testing.T) {
-	tests := []struct {
-		name     string
-		xreftype byte
-		offset   int
-		gen      byte
-		expected []byte
-	}{
-		{
-			name:     "basic entry",
-			xreftype: 1,
-			offset:   1234,
-			gen:      0,
-			expected: []byte{1, 0, 0, 4, 210, 0},
-		},
-		{
-			name:     "zero entry",
-			xreftype: 0,
-			offset:   0,
-			gen:      0,
-			expected: []byte{0, 0, 0, 0, 0, 0},
-		},
-		{
-			name:     "max offset",
-			xreftype: 1,
-			offset:   16777215, // 2^24 - 1
-			gen:      255,
-			expected: []byte{1, 0, 255, 255, 255, 255},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var buf bytes.Buffer
-			writeXrefStreamLine(&buf, tt.xreftype, tt.offset, tt.gen)
-			result := buf.Bytes()
-			if !bytes.Equal(result, tt.expected) {
-				t.Errorf("writeXrefStreamLine() = %v, want %v", result, tt.expected)
-				t.Errorf("hex: got %x, want %x", result, tt.expected)
-			}
-			if len(result) != xrefStreamColumns {
-				t.Errorf("incorrect length: got %d bytes, want %d bytes", len(result), xrefStreamColumns)
-			}
-		})
-	}
-}
-
-func TestEncodePNGSUBBytes(t *testing.T) {
-	tests := []struct {
-		name     string
-		columns  int
-		input    []byte
-		expected []byte
-		wantErr  bool
-	}{
-		{
-			name:     "valid encoding",
-			columns:  3,
-			input:    []byte{10, 20, 30, 40, 50, 60},
-			expected: []byte{1, 10, 10, 10, 1, 40, 10, 10},
-			wantErr:  false,
-		},
-		{
-			name:    "invalid columns",
-			columns: 4,
-			input:   []byte{1, 2, 3, 4, 5},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := EncodePNGSUBBytes(tt.columns, tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("EncodePNGSUBBytes() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr {
-				if got == nil {
-					t.Error("EncodePNGSUBBytes() returned nil for valid input")
-				}
-				// Decompress the result
-				r, err := zlib.NewReader(bytes.NewReader(got))
-				if err != nil {
-					t.Fatalf("Failed to create zlib reader: %v", err)
-				}
-				defer r.Close()
-
-				decompressed, err := io.ReadAll(r)
-				if err != nil {
-					t.Fatalf("Failed to decompress: %v", err)
-				}
-
-				if !bytes.Equal(decompressed, tt.expected) {
-					t.Errorf("EncodePNGSUBBytes() = %v, want %v", decompressed, tt.expected)
-				}
-			}
-		})
-	}
-}
-
-func TestEncodePNGUPBytes(t *testing.T) {
-	tests := []struct {
-		name     string
-		columns  int
-		input    []byte
-		expected []byte
-		wantErr  bool
-	}{
-		{
-			name:     "valid encoding",
-			columns:  3,
-			input:    []byte{10, 20, 30, 40, 50, 60},
-			expected: []byte{2, 10, 20, 30, 2, 30, 30, 30},
-			wantErr:  false,
-		},
-		{
-			name:    "invalid columns",
-			columns: 4,
-			input:   []byte{1, 2, 3, 4, 5},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := EncodePNGUPBytes(tt.columns, tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("EncodePNGUPBytes() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr {
-				if got == nil {
-					t.Error("EncodePNGUPBytes() returned nil for valid input")
-				}
-				// Decompress the result
-				r, err := zlib.NewReader(bytes.NewReader(got))
-				if err != nil {
-					t.Fatalf("Failed to create zlib reader: %v", err)
-				}
-				defer r.Close()
-
-				decompressed, err := io.ReadAll(r)
-				if err != nil {
-					t.Fatalf("Failed to decompress: %v", err)
-				}
-
-				if !bytes.Equal(decompressed, tt.expected) {
-					t.Errorf("EncodePNGUPBytes() = %v, want %v", decompressed, tt.expected)
-				}
-			}
-		})
-	}
-}
-
-func TestWriteXrefStream(t *testing.T) {
-	input_file, err := os.Open("../testfiles/testfile12.pdf")
-	if err != nil {
-		t.Fatalf("Failed to open test file: %v", err)
-	}
-	defer input_file.Close()
-
-	finfo, err := input_file.Stat()
-	if err != nil {
-		t.Fatalf("Failed to get file info: %v", err)
-	}
-
-	r, err := pdf.NewReader(input_file, finfo.Size())
-	if err != nil {
-		t.Fatalf("Failed to create PDF reader: %v", err)
-	}
-
-	outputBuf := &filebuffer.Buffer{
-		Buff: new(bytes.Buffer),
-	}
-	context := &SignContext{
-		InputFile:    input_file,
-		PDFReader:    r,
-		OutputBuffer: outputBuf,
-		newXrefEntries: []xrefEntry{
-			{ID: 1, Offset: 100},
-		},
-	}
-
-	err = context.writeXrefStream()
-	if err != nil {
-		t.Errorf("writeXrefStream() error = %v", err)
-	}
-
-	// Check if output contains required xref stream elements
-	output := outputBuf.Buff.String()
-	requiredElements := []string{
-		"/Type /XRef",
-		"/Filter /FlateDecode",
-		"/W [ 1 4 1 ]",
-		"stream\n",
-		"endstream",
-	}
-
-	for _, elem := range requiredElements {
-		if !strings.Contains(output, elem) {
-			t.Errorf("Output missing required element: %s", elem)
-		}
 	}
 }
 
@@ -326,5 +118,174 @@ func TestAddObject(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestUpdateObject(t *testing.T) {
+	context := &SignContext{
+		OutputBuffer: &filebuffer.Buffer{
+			Buff: new(bytes.Buffer),
+		},
+		lastXrefID: 10,
+	}
+
+	tests := []struct {
+		name         string
+		objectID     uint32
+		object       []byte
+		expectedText string
+		wantErr      bool
+	}{
+		{
+			name:         "valid update",
+			objectID:     5,
+			object:       []byte("updated content"),
+			expectedText: "5 0 obj\nupdated content\nendobj\n",
+			wantErr:      false,
+		},
+		{
+			name:         "update with whitespace",
+			objectID:     8,
+			object:       []byte("  updated content  "),
+			expectedText: "8 0 obj\nupdated content\nendobj\n",
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			context.OutputBuffer.Buff.Reset()
+			err := context.updateObject(tt.objectID, tt.object)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("updateObject() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			got := context.OutputBuffer.Buff.String()
+			if !strings.Contains(got, tt.expectedText) {
+				t.Errorf("updateObject() output = %q, want to contain %q", got, tt.expectedText)
+			}
+
+			// Check xref entry
+			if len(context.updatedXrefEntries) == 0 {
+				t.Error("No updated xref entry added")
+			} else {
+				lastEntry := context.updatedXrefEntries[len(context.updatedXrefEntries)-1]
+				if lastEntry.ID != tt.objectID {
+					t.Errorf("xref entry ID = %v, want %v", lastEntry.ID, tt.objectID)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteObject(t *testing.T) {
+	context := &SignContext{
+		OutputBuffer: &filebuffer.Buffer{
+			Buff: new(bytes.Buffer),
+		},
+	}
+
+	tests := []struct {
+		name         string
+		objectID     uint32
+		object       []byte
+		expectedText string
+		wantErr      bool
+	}{
+		{
+			name:         "simple object",
+			objectID:     1,
+			object:       []byte("test content"),
+			expectedText: "1 0 obj\ntest content\nendobj\n",
+			wantErr:      false,
+		},
+		{
+			name:         "empty object",
+			objectID:     2,
+			object:       []byte{},
+			expectedText: "2 0 obj\n\nendobj\n",
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			context.OutputBuffer.Buff.Reset()
+			err := context.writeObject(tt.objectID, tt.object)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("writeObject() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			got := context.OutputBuffer.Buff.String()
+			if !strings.Contains(got, tt.expectedText) {
+				t.Errorf("writeObject() output = %q, want to contain %q", got, tt.expectedText)
+			}
+		})
+	}
+}
+
+// TestWriteIncrXrefTable tests the writeIncrXref function with a table xref type.
+func TestWriteXrefTypeTable(t *testing.T) {
+	context := &SignContext{
+		OutputBuffer: &filebuffer.Buffer{
+			Buff: new(bytes.Buffer),
+		},
+		newXrefEntries: []xrefEntry{
+			{ID: 1, Offset: 100, Generation: 0, Free: false},
+			{ID: 2, Offset: 200, Generation: 0, Free: false},
+		},
+		lastXrefID: 2,
+	}
+
+	context.PDFReader = &pdf.Reader{
+		XrefInformation: pdf.ReaderXrefInformation{
+			Type: "table",
+		},
+	}
+
+	err := context.writeXref()
+	if err != nil {
+		t.Errorf("writeXref() error = %v", err)
+		return
+	}
+
+	got := context.OutputBuffer.Buff.String()
+	expect := "\nxref\n3 2\n0000000100 00000 n\r\n0000000200 00000 n\r\n"
+	if got != expect {
+		t.Errorf("writeXref() output = %q, want %q", got, expect)
+	}
+}
+
+// TestWriteIncrXrefTable tests the writeIncrXref function with a xref stream type.
+func TestWriteXrefTypeStream(t *testing.T) {
+	context := &SignContext{
+		OutputBuffer: &filebuffer.Buffer{
+			Buff: new(bytes.Buffer),
+		},
+		newXrefEntries: []xrefEntry{
+			{ID: 1, Offset: 100, Generation: 0, Free: false},
+			{ID: 2, Offset: 200, Generation: 0, Free: false},
+		},
+		lastXrefID: 2,
+	}
+
+	context.PDFReader = &pdf.Reader{
+		XrefInformation: pdf.ReaderXrefInformation{
+			Type: "stream",
+		},
+	}
+
+	err := context.writeXref()
+	if err != nil {
+		t.Errorf("writeXref() error = %v", err)
+		return
+	}
+
+	got := context.OutputBuffer.Buff.String()
+	expect := "\n\n5 0 obj\n<< /Type /XRef\n  /Length 22\n  /Filter /FlateDecode\n  /W [ 1 4 1 ]\n  /Prev 0\n  /Size 3\n  /Index [ 3 2 ]\n  /Root 0 0 R\n>>\nstream\nx\x9cbd``Ha\x00\x91'\x18\x00\x01\x00\x00\xff\xff\x04\xce\x01/\nendstream\nendobj\n"
+	if got != expect {
+		t.Errorf("writeXref() output = %q, want %q", got, expect)
 	}
 }
