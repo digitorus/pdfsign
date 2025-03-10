@@ -12,6 +12,7 @@ import (
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
+
 	"github.com/mattetti/filebuffer"
 )
 
@@ -203,6 +204,10 @@ func (context *SignContext) SignPDF() error {
 
 	// If not a timestamp signature
 	if context.SignData.Signature.CertType != TimeStampSignature {
+		if context.SignData.Certificate == nil {
+			return fmt.Errorf("certificate is required")
+		}
+
 		switch context.SignData.Certificate.SignatureAlgorithm.String() {
 		case "SHA1-RSA":
 		case "ECDSA-SHA1":
