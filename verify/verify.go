@@ -2,7 +2,6 @@ package verify
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
@@ -175,8 +174,9 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 						apiResp.Error = fmt.Sprintln("Failed to parse timestamp", err)
 					} else {
 						r := bytes.NewReader(s.EncryptedDigest)
-						h := crypto.SHA256.New()
-						b := make([]byte, 32)
+
+						h := signer.TimeStamp.HashAlgorithm.New()
+						b := make([]byte, h.Size())
 						for {
 							n, err := r.Read(b)
 							if err == io.EOF {
@@ -187,7 +187,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 						}
 
 						if !bytes.Equal(h.Sum(nil), signer.TimeStamp.HashedMessage) {
-							apiResp.Error = fmt.Sprintln("Hash in timestamp is different from pkcs7")
+							apiResp.Error = fmt.Sprintln("Timestamp hash does not match")
 						}
 
 						break
