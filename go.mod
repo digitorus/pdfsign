@@ -1,6 +1,7 @@
 module github.com/digitorus/pdfsign
 
 go 1.22
+toolchain go1.23.7
 
 require (
 	github.com/digitorus/pdf v0.1.2
@@ -8,5 +9,5 @@ require (
 	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7
 	github.com/mattetti/filebuffer v1.0.1
 	golang.org/x/crypto v0.33.0
-	golang.org/x/text v0.22.0
+	golang.org/x/text v0.23.0
 )
