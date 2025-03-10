@@ -169,10 +169,6 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 }
 
 func (context *SignContext) SignPDF() error {
-	if context.SignData.Certificate == nil {
-		return fmt.Errorf("certificate is required")
-	}
-
 	// set defaults
 	if context.SignData.Signature.CertType == 0 {
 		context.SignData.Signature.CertType = 1
@@ -208,6 +204,10 @@ func (context *SignContext) SignPDF() error {
 
 	// If not a timestamp signature
 	if context.SignData.Signature.CertType != TimeStampSignature {
+		if context.SignData.Certificate == nil {
+			return fmt.Errorf("certificate is required")
+		}
+
 		switch context.SignData.Certificate.SignatureAlgorithm.String() {
 		case "SHA1-RSA":
 		case "ECDSA-SHA1":
