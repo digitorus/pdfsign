@@ -12,6 +12,7 @@ import (
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
+
 	"github.com/mattetti/filebuffer"
 )
 
@@ -168,6 +169,10 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 }
 
 func (context *SignContext) SignPDF() error {
+	if context.SignData.Certificate == nil {
+		return fmt.Errorf("certificate is required")
+	}
+
 	// set defaults
 	if context.SignData.Signature.CertType == 0 {
 		context.SignData.Signature.CertType = 1
