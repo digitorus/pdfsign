@@ -93,6 +93,7 @@ type SignDataSignatureInfo struct {
 	Reason      string
 	ContactInfo string
 	Date        time.Time
+	Image       []byte // Image data to use in signature appearance
 }
 
 type SignContext struct {

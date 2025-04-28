@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -194,4 +195,36 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+// CopyFile copies a file from src to dst.
+// It's a replacement for os.Rename that works across filesystems.
+func CopyFile(src, dst string) error {
+	// Open the source file
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Create the destination directory if it doesn't exist
+	dstDir := dst[:strings.LastIndex(dst, "/")]
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Create the destination file
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dstFile.Close()
+
+	// Copy the contents
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
 }

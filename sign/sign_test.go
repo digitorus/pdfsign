@@ -80,9 +80,9 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
 
-		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
-		if err2 != nil {
-			t.Error(err2)
+		destinationPath := "../testfiles/failed/" + originalFileName
+		if copyErr := CopyFile(tmpfile.Name(), destinationPath); copyErr != nil {
+			t.Errorf("Failed to copy failed test file: %s", copyErr)
 		}
 	}
 }
@@ -214,7 +214,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 	info, err := verify.File(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
+		if err := CopyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
 			t.Error(err)
 		}
 	} else if len(info.Signers) == 0 {
@@ -231,7 +231,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 
 func TestSignPDFVisible(t *testing.T) {
 	cert, pkey := loadCertificateAndKey(t)
-	inputFilePath := "../testfiles/testfile20.pdf"
+	inputFilePath := "../testfiles/testfile12.pdf"
 	originalFileName := filepath.Base(inputFilePath)
 
 	tmpfile, err := os.CreateTemp("", t.Name())
@@ -271,7 +271,7 @@ func TestSignPDFVisible(t *testing.T) {
 	_, err = verify.File(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
+		if err := CopyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
 			t.Error(err)
 		}
 	}
@@ -474,4 +474,62 @@ func TestTimestampPDFFile(t *testing.T) {
 	}
 
 	verifySignedFile(t, tmpfile, "testfile20.pdf")
+}
+
+// TestSignPDFWithImage tests signing a PDF with an image in the signature
+func TestSignPDFWithImage(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/testfile12.pdf"
+	originalFileName := filepath.Base(inputFilePath)
+
+	// Read the signature image file
+	signatureImage, err := os.ReadFile("../testfiles/pdfsign-signature.jpg")
+	if err != nil {
+		t.Fatalf("Failed to read signature image: %s", err.Error())
+	}
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "John Doe",
+				Location:    "Somewhere",
+				Reason:      "Test with visible signature and image",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+				Image:       signatureImage, // Use the signature image
+			},
+			CertType:   ApprovalSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Appearance: Appearance{
+			Visible:     true,
+			LowerLeftX:  400,
+			LowerLeftY:  50,
+			UpperRightX: 600,
+			UpperRightY: 125,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+	if err != nil {
+		t.Fatalf("%s: %s", originalFileName, err.Error())
+	}
+
+	_, err = verify.File(tmpfile)
+	if err != nil {
+		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
+		destinationPath := "../testfiles/failed/" + originalFileName
+		if copyErr := CopyFile(tmpfile.Name(), destinationPath); copyErr != nil {
+			t.Errorf("Failed to copy failed test file: %s", copyErr)
+		}
+	}
 }
