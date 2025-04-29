@@ -524,12 +524,95 @@ func TestSignPDFWithImage(t *testing.T) {
 		t.Fatalf("%s: %s", originalFileName, err.Error())
 	}
 
-	_, err = verify.File(tmpfile)
+	verifySignedFile(t, tmpfile, originalFileName)
+}
+
+// TestSignPDFWithTwoImages tests signing a PDF with two different signatures with images
+func TestSignPDFWithTwoImages(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	tbsFile := "../testfiles/testfile12.pdf"
+
+	// Read the signature image file
+	signatureImage, err := os.ReadFile("../testfiles/pdfsign-signature.jpg")
 	if err != nil {
-		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		destinationPath := "../testfiles/failed/" + originalFileName
-		if copyErr := CopyFile(tmpfile.Name(), destinationPath); copyErr != nil {
-			t.Errorf("Failed to copy failed test file: %s", copyErr)
-		}
+		t.Fatalf("Failed to read signature image: %s", err.Error())
 	}
+
+	// First signature
+	firstSignature, err := os.CreateTemp("", fmt.Sprintf("%s_first_", t.Name()))
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(firstSignature.Name())
+	}
+
+	err = SignFile(tbsFile, firstSignature.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "John Doe",
+				Location:    "Somewhere",
+				Reason:      "First signature with image",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+				Image:       signatureImage,
+			},
+			CertType:   ApprovalSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Appearance: Appearance{
+			Visible:     true,
+			LowerLeftX:  50,
+			LowerLeftY:  50,
+			UpperRightX: 250,
+			UpperRightY: 125,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+	if err != nil {
+		t.Fatalf("First signature failed: %s", err.Error())
+	}
+
+	verifySignedFile(t, firstSignature, filepath.Base(tbsFile))
+
+	// Second signature
+	secondSignature, err := os.CreateTemp("", fmt.Sprintf("%s_second_", t.Name()))
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(secondSignature.Name())
+	}
+
+	err = SignFile(firstSignature.Name(), secondSignature.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "Jane Doe",
+				Location:    "Elsewhere",
+				Reason:      "Second signature with image",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+				Image:       signatureImage,
+			},
+			CertType:   ApprovalSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Appearance: Appearance{
+			Visible:     true,
+			LowerLeftX:  300,
+			LowerLeftY:  50,
+			UpperRightX: 500,
+			UpperRightY: 125,
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+	if err != nil {
+		t.Fatalf("Second signature failed: %s", err.Error())
+	}
+
+	verifySignedFile(t, secondSignature, filepath.Base(tbsFile))
 }
