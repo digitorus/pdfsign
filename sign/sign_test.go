@@ -214,8 +214,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 	info, err := verify.File(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
-		if err != nil {
+		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
 			t.Error(err)
 		}
 	} else if len(info.Signers) == 0 {
@@ -272,8 +271,7 @@ func TestSignPDFVisible(t *testing.T) {
 	_, err = verify.File(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
-		if err != nil {
+		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
 			t.Error(err)
 		}
 	}
