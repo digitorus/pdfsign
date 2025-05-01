@@ -618,3 +618,55 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 
 	verifySignedFile(t, secondSignature, filepath.Base(tbsFile))
 }
+
+// TestSignPDFWithWatermarkImage tests signing a PDF with an image and text above
+func TestSignPDFWithWatermarkImage(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/testfile12.pdf"
+	originalFileName := filepath.Base(inputFilePath)
+
+	// Read the signature image file
+	signatureImage, err := os.ReadFile("../testfiles/pdfsign-signature-watermark.jpg")
+	if err != nil {
+		t.Fatalf("Failed to read signature image: %s", err.Error())
+	}
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "James SuperSmith",
+				Location:    "Somewhere",
+				Reason:      "Test with visible signature and watermark image",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+			},
+			CertType:   ApprovalSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Appearance: Appearance{
+			Visible:          true,
+			LowerLeftX:       400,
+			LowerLeftY:       50,
+			UpperRightX:      600,
+			UpperRightY:      125,
+			Image:            signatureImage, // Use the signature image
+			ImageAsWatermark: true,           // Set the image as a watermark
+		},
+		DigestAlgorithm: crypto.SHA512,
+		Signer:          pkey,
+		Certificate:     cert,
+	})
+	if err != nil {
+		t.Fatalf("%s: %s", originalFileName, err.Error())
+	}
+
+	verifySignedFile(t, tmpfile, originalFileName)
+}
