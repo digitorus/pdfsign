@@ -6,3 +6,4 @@ testfiles/*_signed.pdf
 testfiles/failed/*
 pdfsign
 certs/*
+tmp/

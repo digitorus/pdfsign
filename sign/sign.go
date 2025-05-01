@@ -45,12 +45,16 @@ type SignData struct {
 
 // Appearance represents the appearance of the signature
 type Appearance struct {
-	Visible     bool
+	Visible bool
+
 	Page        uint32
 	LowerLeftX  float64
 	LowerLeftY  float64
 	UpperRightX float64
 	UpperRightY float64
+
+	Image            []byte // Image data to use as signature appearance
+	ImageAsWatermark bool   // If true, the text will be drawn over the image
 }
 
 type VisualSignData struct {
@@ -93,7 +97,6 @@ type SignDataSignatureInfo struct {
 	Reason      string
 	ContactInfo string
 	Date        time.Time
-	Image       []byte // Image data to use in signature appearance
 }
 
 type SignContext struct {
