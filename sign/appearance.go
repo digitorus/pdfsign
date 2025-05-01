@@ -7,13 +7,6 @@ import (
 	_ "image/jpeg" // register JPEG format
 )
 
-func (context *SignContext) createAppearance(rect [4]float64) ([]byte, error) {
-	if len(context.SignData.Appearance.Image) > 0 {
-		return context.createImageAppearance(rect)
-	}
-	return context.createTextAppearance(rect)
-}
-
 // Helper functions for PDF resource components
 
 // writeAppearanceHeader writes the header for the appearance stream.
@@ -49,7 +42,7 @@ func writeFormTypeAndLength(buffer *bytes.Buffer, streamLength int) {
 	buffer.WriteString(">>\n")
 }
 
-func writeBufferStream(buffer *bytes.Buffer, stream []byte) {
+func writeAppearanceStreamBuffer(buffer *bytes.Buffer, stream []byte) {
 	buffer.WriteString("stream\n")
 	buffer.Write(stream)
 	buffer.WriteString("endstream\n")
@@ -129,7 +122,7 @@ func drawImage(buffer *bytes.Buffer, rectWidth, rectHeight float64) {
 	buffer.WriteString("Q\n")       // Restore graphics state
 }
 
-func (context *SignContext) createTextAppearance(rect [4]float64) ([]byte, error) {
+func (context *SignContext) createAppearance(rect [4]float64) ([]byte, error) {
 	rectWidth := rect[2] - rect[0]
 	rectHeight := rect[3] - rect[1]
 
@@ -137,13 +130,8 @@ func (context *SignContext) createTextAppearance(rect [4]float64) ([]byte, error
 		return nil, fmt.Errorf("invalid rectangle dimensions: width %.2f and height %.2f must be greater than 0", rectWidth, rectHeight)
 	}
 
-	text := context.SignData.Signature.Info.Name
-
-	fontSize, textX, textY := computeTextSizeAndPosition(text, rectWidth, rectHeight)
-
-	var appearance_stream_buffer bytes.Buffer
-
-	drawText(&appearance_stream_buffer, text, fontSize, textX, textY)
+	hasImage := len(context.SignData.Appearance.Image) > 0
+	shouldDisplayText := context.SignData.Appearance.ImageAsWatermark || !hasImage
 
 	// Create the appearance XObject
 	var appearance_buffer bytes.Buffer
@@ -151,51 +139,44 @@ func (context *SignContext) createTextAppearance(rect [4]float64) ([]byte, error
 
 	// Resources dictionary with font
 	appearance_buffer.WriteString("  /Resources <<\n")
-	createFontResource(&appearance_buffer)
+
+	if hasImage {
+		// Create and add the image XObject
+		imageStream, err := context.createImageXObject()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create image XObject: %w", err)
+		}
+
+		imageObjectId, err := context.addObject(imageStream)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add image object: %w", err)
+		}
+
+		createImageResource(&appearance_buffer, imageObjectId)
+	}
+
+	if shouldDisplayText {
+		createFontResource(&appearance_buffer)
+	}
+
 	appearance_buffer.WriteString("  >>\n")
 
-	writeFormTypeAndLength(&appearance_buffer, appearance_stream_buffer.Len())
-
-	writeBufferStream(&appearance_buffer, appearance_stream_buffer.Bytes())
-
-	return appearance_buffer.Bytes(), nil
-}
-
-func (context *SignContext) createImageAppearance(rect [4]float64) ([]byte, error) {
-	rectWidth := rect[2] - rect[0]
-	rectHeight := rect[3] - rect[1]
-
-	if rectWidth < 1 || rectHeight < 1 {
-		return nil, fmt.Errorf("invalid rectangle dimensions: width %.2f and height %.2f must be greater than 0", rectWidth, rectHeight)
-	}
-
-	// Create and add the image XObject
-	imageStream, err := context.createImageXObject()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create image XObject: %w", err)
-	}
-
-	imageObjectId, err := context.addObject(imageStream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add image object: %w", err)
-	}
-
+	// Create the appearance stream
 	var appearance_stream_buffer bytes.Buffer
 
-	drawImage(&appearance_stream_buffer, rectWidth, rectHeight)
+	if hasImage {
+		drawImage(&appearance_stream_buffer, rectWidth, rectHeight)
+	}
 
-	// Create the appearance XObject
-	var appearance_buffer bytes.Buffer
-	writeAppearanceHeader(&appearance_buffer, rectWidth, rectHeight)
-
-	// Resources dictionary with XObject
-	appearance_buffer.WriteString("  /Resources <<\n")
-	createImageResource(&appearance_buffer, imageObjectId)
-	appearance_buffer.WriteString("  >>\n")
+	if shouldDisplayText {
+		text := context.SignData.Signature.Info.Name
+		fontSize, textX, textY := computeTextSizeAndPosition(text, rectWidth, rectHeight)
+		drawText(&appearance_stream_buffer, text, fontSize, textX, textY)
+	}
 
 	writeFormTypeAndLength(&appearance_buffer, appearance_stream_buffer.Len())
 
-	writeBufferStream(&appearance_buffer, appearance_stream_buffer.Bytes())
+	writeAppearanceStreamBuffer(&appearance_buffer, appearance_stream_buffer.Bytes())
 
 	return appearance_buffer.Bytes(), nil
 }
