@@ -2,9 +2,11 @@ package sign
 
 import (
 	"bytes"
+	"compress/zlib"
 	"fmt"
 	"image"
 	_ "image/jpeg" // register JPEG format
+	_ "image/png"  // register PNG format
 )
 
 // Helper functions for PDF resource components
@@ -48,38 +50,127 @@ func writeAppearanceStreamBuffer(buffer *bytes.Buffer, stream []byte) {
 	buffer.WriteString("endstream\n")
 }
 
-func (context *SignContext) createImageXObject() ([]byte, error) {
+func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 	imageData := context.SignData.Appearance.Image
 
-	// Read image configuration to get original dimensions
-	img, _, err := image.DecodeConfig(bytes.NewReader(imageData))
+	// Read image to get format and decode image data
+	img, format, err := image.Decode(bytes.NewReader(imageData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode image configuration: %w", err)
+		return nil, nil, fmt.Errorf("failed to decode image: %w", err)
 	}
 
-	// Use original image dimensions
-	width := float64(img.Width)
-	height := float64(img.Height)
+	// Get image dimensions
+	bounds := img.Bounds()
+	width := bounds.Max.X - bounds.Min.X
+	height := bounds.Max.Y - bounds.Min.Y
 
 	// Create basic PDF Image XObject
 	var imageObject bytes.Buffer
+	var maskObjectBytes []byte
 
 	imageObject.WriteString("<<\n")
 	imageObject.WriteString("  /Type /XObject\n")
 	imageObject.WriteString("  /Subtype /Image\n")
-	imageObject.WriteString(fmt.Sprintf("  /Width %.0f\n", width))
-	imageObject.WriteString(fmt.Sprintf("  /Height %.0f\n", height))
+	imageObject.WriteString(fmt.Sprintf("  /Width %d\n", width))
+	imageObject.WriteString(fmt.Sprintf("  /Height %d\n", height))
 	imageObject.WriteString("  /ColorSpace /DeviceRGB\n")
 	imageObject.WriteString("  /BitsPerComponent 8\n")
-	imageObject.WriteString("  /Filter /DCTDecode\n")
-	imageObject.WriteString(fmt.Sprintf("  /Length %d\n", len(imageData)))
-	imageObject.WriteString(">>\n")
 
+	var rgbData = new(bytes.Buffer)
+	var alphaData = new(bytes.Buffer)
+
+	// Handle different formats
+	switch format {
+	case "jpeg":
+		imageObject.WriteString("  /Filter /DCTDecode\n")
+		rgbData = bytes.NewBuffer(imageData) // JPEG data is already in the correct format
+	case "png":
+		imageObject.WriteString("  /Filter /FlateDecode\n")
+
+		// Extract RGB and alpha values from each pixel
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				// Get the color at pixel (x,y)
+				originalColor := img.At(x, y)
+
+				// Extract RGBA values (ranges from 0-65535 in Go's color model)
+				r, g, b, a := originalColor.RGBA()
+
+				// Convert to 8-bit (0-255)
+				rgbData.WriteByte(byte(r >> 8))
+				rgbData.WriteByte(byte(g >> 8))
+				rgbData.WriteByte(byte(b >> 8))
+				alphaData.WriteByte(byte(a >> 8))
+			}
+		}
+
+		// If image has alpha channel, create soft mask
+		if hasAlpha(img) {
+			compressedAlphaData := compressData(alphaData.Bytes())
+
+			// Create and add the soft mask object
+			maskObjectBytes, err = context.createAlphaMask(width, height, compressedAlphaData)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create alpha mask: %w", err)
+			}
+
+			imageObject.WriteString(fmt.Sprintf("  /SMask %d 0 R\n", context.getNextObjectID()+1)) // the smask will be placed after the image
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported image format: %s", format)
+	}
+
+	compressedRgbData := compressData(rgbData.Bytes())
+
+	imageObject.WriteString(fmt.Sprintf("  /Length %d\n", len(compressedRgbData)))
+	imageObject.WriteString(">>\n")
 	imageObject.WriteString("stream\n")
-	imageObject.Write(imageData)
+	imageObject.Write(compressedRgbData)
 	imageObject.WriteString("\nendstream\n")
 
-	return imageObject.Bytes(), nil
+	return imageObject.Bytes(), maskObjectBytes, nil
+}
+
+func compressData(data []byte) []byte {
+	var compressedData bytes.Buffer
+	writer := zlib.NewWriter(&compressedData)
+	defer writer.Close()
+	_, err := writer.Write(data)
+	if err != nil {
+		return nil
+	}
+	writer.Close()
+	return compressedData.Bytes()
+}
+
+func (context *SignContext) createAlphaMask(width, height int, alphaData []byte) ([]byte, error) {
+	var maskObject bytes.Buffer
+
+	maskObject.WriteString("<<\n")
+	maskObject.WriteString("  /Type /XObject\n")
+	maskObject.WriteString("  /Subtype /Image\n")
+	maskObject.WriteString(fmt.Sprintf("  /Width %d\n", width))
+	maskObject.WriteString(fmt.Sprintf("  /Height %d\n", height))
+	maskObject.WriteString("  /ColorSpace /DeviceGray\n")
+	maskObject.WriteString("  /BitsPerComponent 8\n")
+	maskObject.WriteString("  /Filter /FlateDecode\n")
+	maskObject.WriteString(fmt.Sprintf("  /Length %d\n", len(alphaData)))
+	maskObject.WriteString(">>\n")
+	maskObject.WriteString("stream\n")
+	maskObject.Write(alphaData)
+	maskObject.WriteString("\nendstream\n")
+
+	return maskObject.Bytes(), nil
+}
+
+// hasAlpha checks if the image has an alpha channel
+func hasAlpha(img image.Image) bool {
+	switch img.(type) {
+	case *image.NRGBA, *image.RGBA:
+		return true
+	default:
+		return false
+	}
 }
 
 func computeTextSizeAndPosition(text string, rectWidth, rectHeight float64) (float64, float64, float64) {
@@ -142,14 +233,22 @@ func (context *SignContext) createAppearance(rect [4]float64) ([]byte, error) {
 
 	if hasImage {
 		// Create and add the image XObject
-		imageStream, err := context.createImageXObject()
+		imageBytes, maskObjectBytes, err := context.createImageXObject()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create image XObject: %w", err)
 		}
 
-		imageObjectId, err := context.addObject(imageStream)
+		imageObjectId, err := context.addObject(imageBytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add image object: %w", err)
+		}
+
+		if maskObjectBytes != nil {
+			// Create and add the mask XObject
+			_, err := context.addObject(maskObjectBytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to add mask object: %w", err)
+			}
 		}
 
 		createImageResource(&appearance_buffer, imageObjectId)
