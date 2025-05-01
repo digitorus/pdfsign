@@ -80,9 +80,9 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
 
-		destinationPath := "../testfiles/failed/" + originalFileName
-		if copyErr := CopyFile(tmpfile.Name(), destinationPath); copyErr != nil {
-			t.Errorf("Failed to copy failed test file: %s", copyErr)
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		if err2 != nil {
+			t.Error(err2)
 		}
 	}
 }
@@ -214,7 +214,8 @@ func TestSignPDFFileUTF8(t *testing.T) {
 	info, err := verify.File(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		if err := CopyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
+		err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		if err != nil {
 			t.Error(err)
 		}
 	} else if len(info.Signers) == 0 {
@@ -271,7 +272,8 @@ func TestSignPDFVisible(t *testing.T) {
 	_, err = verify.File(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
-		if err := CopyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
+		err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		if err != nil {
 			t.Error(err)
 		}
 	}
@@ -504,7 +506,6 @@ func TestSignPDFWithImage(t *testing.T) {
 				Reason:      "Test with visible signature and image",
 				ContactInfo: "None",
 				Date:        time.Now().Local(),
-				Image:       signatureImage, // Use the signature image
 			},
 			CertType:   ApprovalSignature,
 			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
@@ -515,6 +516,7 @@ func TestSignPDFWithImage(t *testing.T) {
 			LowerLeftY:  50,
 			UpperRightX: 600,
 			UpperRightY: 125,
+			Image:       signatureImage, // Use the signature image
 		},
 		DigestAlgorithm: crypto.SHA512,
 		Signer:          pkey,
@@ -555,7 +557,6 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 				Reason:      "First signature with image",
 				ContactInfo: "None",
 				Date:        time.Now().Local(),
-				Image:       signatureImage,
 			},
 			CertType:   ApprovalSignature,
 			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
@@ -566,6 +567,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 			LowerLeftY:  50,
 			UpperRightX: 250,
 			UpperRightY: 125,
+			Image:       signatureImage,
 		},
 		DigestAlgorithm: crypto.SHA512,
 		Signer:          pkey,
@@ -594,7 +596,6 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 				Reason:      "Second signature with image",
 				ContactInfo: "None",
 				Date:        time.Now().Local(),
-				Image:       signatureImage,
 			},
 			CertType:   ApprovalSignature,
 			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
@@ -605,6 +606,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 			LowerLeftY:  50,
 			UpperRightX: 500,
 			UpperRightY: 125,
+			Image:       signatureImage,
 		},
 		DigestAlgorithm: crypto.SHA512,
 		Signer:          pkey,
