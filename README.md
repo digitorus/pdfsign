@@ -98,3 +98,60 @@ if err != nil {
 }
 
 ```
+
+## Signature Appearance with Text and / or Images
+
+You can add an image (JPG or PNG) to the visible signature appearance. This is useful for including a handwritten signature or a company logo in the signature field.
+
+**Supported image formats:** JPG and PNG.
+
+### Example: Signing a PDF with a visible signature and image
+
+```go
+// Read the signature image file
+signatureImage, err := os.ReadFile("signature.jpg")
+if err != nil {
+    log.Fatal(err)
+}
+
+err := sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
+    Signature: sign.SignDataSignature{
+        Info: sign.SignDataSignatureInfo{
+            Name:        "John Doe",
+            Location:    "Somewhere",
+            Reason:      "Signed with image",
+            ContactInfo: "None",
+            Date:        time.Now().Local(),
+        },
+        CertType:   sign.ApprovalSignature,
+        DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
+    },
+    Appearance: sign.Appearance{
+        Visible:     true,
+        LowerLeftX:  400,
+        LowerLeftY:  50,
+        UpperRightX: 600,
+        UpperRightY: 125,
+        Image:       signatureImage, // JPG or PNG image bytes
+        // ImageAsWatermark: true,   // Optional: set to true to draw text over the image
+    },
+    DigestAlgorithm: crypto.SHA512,
+    Signer:          privateKey,
+    Certificate:     certificate,
+})
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Key Features:
+
+1. **Image Support**: Both JPG and PNG formats are supported
+2. **Flexible Positioning**: Control signature placement with LowerLeftX/Y and UpperRightX/Y coordinates
+3. **Watermark Mode**: Optional ImageAsWatermark setting allows drawing text over the image
+4. **Transparency Support**: PNG images with alpha channel (transparency) are properly handled
+
+### Notes:
+- The image will be scaled to fit the signature rectangle while maintaining its aspect ratio
+- For optimal results, prepare your image with the desired dimensions and transparency before using it
+- Only visible approval signatures can include images
