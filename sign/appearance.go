@@ -82,7 +82,7 @@ func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 	// Handle different formats
 	switch format {
 	case "jpeg":
-		imageObject.WriteString("  /Filter /DCTDecode\n")
+		imageObject.WriteString("  /Filter [/FlateDecode/DCTDecode]\n")
 		rgbData = bytes.NewBuffer(imageData) // JPEG data is already in the correct format
 	case "png":
 		imageObject.WriteString("  /Filter /FlateDecode\n")
