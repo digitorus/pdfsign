@@ -43,7 +43,7 @@ func (context *SignContext) writeTrailer() error {
 				lines[i] = "    " + strings.TrimSpace(line)
 			}
 		}
-		trailer_string = strings.Join(lines, "\n")
+		trailer_string = strings.Join(lines, "\n") + "\n"
 
 		// Write the new trailer.
 		if _, err := context.OutputBuffer.Write([]byte(trailer_string)); err != nil {
@@ -54,7 +54,6 @@ func (context *SignContext) writeTrailer() error {
 			return err
 		}
 	}
-
 	// Write the new xref start position.
 	if _, err := context.OutputBuffer.Write([]byte(strconv.FormatInt(context.NewXrefStart, 10) + "\n")); err != nil {
 		return err
