@@ -21,11 +21,11 @@ var testFiles = []struct {
 		},
 	},
 	{
-		file: "../testfiles/testfile21.pdf",
+		file: "../testfiles/testfile12.pdf",
 		expectedCatalogs: map[CertType]string{
-			CertificationSignature: "<<\n  /Type /Catalog\n  /Metadata 8 0 R\n  /Names 6 0 R\n  /Pages 9 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 3\n  >>\n>>\n",
-			UsageRightsSignature:   "<<\n  /Type /Catalog\n  /Metadata 8 0 R\n  /Names 6 0 R\n  /Pages 9 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 1\n  >>\n>>\n",
-			ApprovalSignature:      "<<\n  /Type /Catalog\n  /Metadata 8 0 R\n  /Names 6 0 R\n  /Pages 9 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 3\n  >>\n>>\n",
+			CertificationSignature: "<<\n  /Type /Catalog\n  /Version /1.5\n  /Outlines 2 0 R\n  /Pages 3 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 3\n  >>\n>>\n",
+			UsageRightsSignature:   "<<\n  /Type /Catalog\n  /Version /1.5\n  /Outlines 2 0 R\n  /Pages 3 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 1\n  >>\n>>\n",
+			ApprovalSignature:      "<<\n  /Type /Catalog\n  /Version /1.5\n  /Outlines 2 0 R\n  /Pages 3 0 R\n  /AcroForm <<\n    /Fields [16 0 R]\n    /SigFlags 3\n  >>\n>>\n",
 		},
 	},
 }

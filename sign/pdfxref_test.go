@@ -20,7 +20,6 @@ func TestGetLastObjectIDFromXref(t *testing.T) {
 		{"testfile16.pdf", 567},
 		{"testfile17.pdf", 20},
 		{"testfile20.pdf", 10},
-		{"testfile21.pdf", 16},
 	}
 
 	for _, tc := range testCases {

@@ -30,7 +30,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	// If an incremental upgrade requires a version that is higher than specified by the document.
 	// Ensure PDF version is at least 1.5 to support SigFlags in acroFormDict (1.4) and UF in the fileSpecDict (1.5)
 	if v, err := strconv.ParseFloat(context.PDFReader.PDFVersion, 64); err == nil && v < 1.5 {
-		catalog_buffer.WriteString(" /Version /1.5")
+		catalog_buffer.WriteString("  /Version /1.5\n")
 	}
 
 	// Retrieve the root, its pointer and set the root string
