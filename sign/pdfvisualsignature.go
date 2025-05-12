@@ -128,9 +128,25 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 	// TODO: Update digitorus/pdf to get raw values without resolving pointers
 	for _, key := range page.Keys() {
 		switch key {
-		case "Contents", "Parent":
+		case "Parent":
 			ptr := page.Key(key).GetPtr()
 			page_buffer.WriteString(fmt.Sprintf("  /%s %d 0 R\n", key, ptr.GetID()))
+		case "Contents":
+			// Special handling for Contents - must preserve stream structure
+			contentsValue := page.Key(key)
+			if contentsValue.Kind() == pdf.Array {
+				// If Contents is an array, keep it as an array reference
+				page_buffer.WriteString("  /Contents [")
+				for i := 0; i < contentsValue.Len(); i++ {
+					ptr := contentsValue.Index(i).GetPtr()
+					page_buffer.WriteString(fmt.Sprintf(" %d 0 R", ptr.GetID()))
+				}
+				page_buffer.WriteString(" ]\n")
+			} else {
+				// If Contents is a single reference, keep it as a single reference
+				ptr := contentsValue.GetPtr()
+				page_buffer.WriteString(fmt.Sprintf("  /%s %d 0 R\n", key, ptr.GetID()))
+			}
 		case "Annots":
 			page_buffer.WriteString("  /Annots [\n")
 			for i := 0; i < page.Key("Annots").Len(); i++ {
