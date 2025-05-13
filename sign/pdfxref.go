@@ -16,6 +16,19 @@ const (
 	objectFooter = "\nendobj\n"
 )
 
+func (context *SignContext) getNextObjectID() uint32 {
+	if context.lastXrefID == 0 {
+		lastXrefID, err := context.getLastObjectIDFromXref()
+		if err != nil {
+			return 0
+		}
+		context.lastXrefID = lastXrefID
+	}
+
+	objectID := context.lastXrefID + uint32(len(context.newXrefEntries)) + 1
+	return objectID
+}
+
 func (context *SignContext) addObject(object []byte) (uint32, error) {
 	if context.lastXrefID == 0 {
 		lastXrefID, err := context.getLastObjectIDFromXref()
