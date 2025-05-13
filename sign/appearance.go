@@ -28,6 +28,20 @@ func createFontResource(buffer *bytes.Buffer) {
 	buffer.WriteString("       /Type /Font\n")
 	buffer.WriteString("       /Subtype /Type1\n")
 	buffer.WriteString("       /BaseFont /Times-Roman\n")
+	buffer.WriteString("       /FirstChar 32\n") // Standard ASCII range start (space)
+	buffer.WriteString("       /LastChar 255\n") // Standard ASCII range end
+	buffer.WriteString("       /FontDescriptor <<\n")
+	buffer.WriteString("         /Type /FontDescriptor\n")
+	buffer.WriteString("         /FontName /Times-Roman\n")
+	buffer.WriteString("         /Flags 32\n")
+	buffer.WriteString("         /FontBBox [-168 -218 1000 898]\n")
+	buffer.WriteString("         /ItalicAngle 0\n")
+	buffer.WriteString("         /Ascent 683\n")
+	buffer.WriteString("         /Descent -217\n")
+	buffer.WriteString("         /CapHeight 662\n")
+	buffer.WriteString("         /StemV 84\n") // StemH is optionnal per ISO 32000-1:2008
+	buffer.WriteString("         /XHeight 450\n")
+	buffer.WriteString("       >>\n")
 	buffer.WriteString("     >>\n")
 	buffer.WriteString("   >>\n")
 }
