@@ -720,3 +720,71 @@ func TestSignPDFWithWatermarkImagePNG(t *testing.T) {
 
 	verifySignedFile(t, tmpfile, originalFileName)
 }
+
+func TestVisualSignLastPage(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/testfile16.pdf"
+	input_file, err := os.Open(inputFilePath)
+	originalFileName := filepath.Base(inputFilePath)
+	if err != nil {
+		t.Fail()
+	}
+	defer input_file.Close()
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fail()
+	}
+	if !testing.Verbose() {
+		defer os.Remove(tmpfile.Name())
+	}
+
+	finfo, err := input_file.Stat()
+	if err != nil {
+		t.Fail()
+	}
+	size := finfo.Size()
+
+	rdr, err := pdf.NewReader(input_file, size)
+	if err != nil {
+		t.Fail()
+	}
+	lastPage := rdr.NumPage() - 1
+	t.Logf("pdf total pages: %d", lastPage)
+	err = Sign(input_file, tmpfile, rdr, size, SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "John Doe",
+				Location:    "Somewhere on the globe",
+				Reason:      "My season for signing this document",
+				ContactInfo: "How you like",
+				Date:        time.Now().Local(),
+			},
+			CertType:   ApprovalSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Signer:          pkey,          // crypto.Signer
+		DigestAlgorithm: crypto.SHA256, // hash algorithm for the digest creation
+		Certificate:     cert,          // x509.Certificate
+		Appearance: Appearance{
+			Visible:     true,
+			LowerLeftX:  400,
+			LowerLeftY:  50,
+			UpperRightX: 600,
+			UpperRightY: 125,
+			Page:        uint32(lastPage),
+		},
+		RevocationData:     revocation.InfoArchival{},
+		RevocationFunction: DefaultEmbedRevocationStatusFunction,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+	if err2 != nil {
+		t.Error(err2)
+	}
+
+	verifySignedFile(t, tmpfile, filepath.Base("../testfiles/testfile16.pdf"))
+}
