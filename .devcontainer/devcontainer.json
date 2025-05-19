@@ -4,7 +4,7 @@
     "customizations": {
         "vscode": {
             "settings": {},
-            "extensions": ["streetsidesoftware.code-spell-checker"]
+            "extensions": ["golang.go"]
         }
     },
     "postCreateCommand": "echo 'export TMPDIR=/workspaces/pdfsign/tmp' >> ~/.bashrc"
