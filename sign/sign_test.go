@@ -617,7 +617,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 	verifySignedFile(t, secondSignature, filepath.Base(tbsFile))
 }
 
-// TestSignPDFWithWatermarkImage tests signing a PDF with a JPG image and text above
+// TestSignPDFWithWatermarkImageJPG tests signing a PDF with a JPG image and text above
 func TestSignPDFWithWatermarkImageJPG(t *testing.T) {
 	cert, pkey := loadCertificateAndKey(t)
 	inputFilePath := "../testfiles/testfile12.pdf"
@@ -749,7 +749,7 @@ func TestVisualSignLastPage(t *testing.T) {
 	if err != nil {
 		t.Fail()
 	}
-	lastPage := rdr.NumPage() - 1
+	lastPage := rdr.NumPage()
 	t.Logf("pdf total pages: %d", lastPage)
 	err = Sign(input_file, tmpfile, rdr, size, SignData{
 		Signature: SignDataSignature{
@@ -781,10 +781,5 @@ func TestVisualSignLastPage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
-	if err2 != nil {
-		t.Error(err2)
-	}
-
-	verifySignedFile(t, tmpfile, filepath.Base("../testfiles/testfile16.pdf"))
+	verifySignedFile(t, tmpfile, originalFileName)
 }

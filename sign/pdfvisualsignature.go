@@ -169,21 +169,35 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 	return page_buffer.Bytes(), nil
 }
 
-// Helper function to find a page by its number.
+// Helper function to find a page by its number
 func findPageByNumber(pages pdf.Value, pageNumber uint32) (pdf.Value, error) {
+	page, remaining, err := findPageByNumberRec(pages, pageNumber)
+	if err != nil {
+		return pdf.Value{}, err
+	}
+	if remaining != 0 {
+		return pdf.Value{}, fmt.Errorf("page number %d not found", pageNumber)
+	}
+	return page, nil
+}
+
+// Internal recursive helper that returns the found page and the remaining page number to find.
+func findPageByNumberRec(pages pdf.Value, pageNumber uint32) (pdf.Value, uint32, error) {
 	if pages.Key("Type").Name() == "Pages" {
 		kids := pages.Key("Kids")
 		for i := 0; i < kids.Len(); i++ {
-			page, err := findPageByNumber(kids.Index(i), pageNumber)
-			if err == nil {
-				return page, nil
+			page, remaining, err := findPageByNumberRec(kids.Index(i), pageNumber)
+			if err == nil && remaining == 0 {
+				return page, 0, nil
 			}
+			pageNumber = remaining
 		}
+		return pdf.Value{}, pageNumber, fmt.Errorf("page number %d not found", pageNumber)
 	} else if pages.Key("Type").Name() == "Page" {
 		if pageNumber == 1 {
-			return pages, nil
+			return pages, 0, nil
 		}
-		pageNumber--
+		return pdf.Value{}, pageNumber - 1, nil
 	}
-	return pdf.Value{}, fmt.Errorf("page number %d not found", pageNumber)
+	return pdf.Value{}, pageNumber, fmt.Errorf("page number %d not found", pageNumber)
 }
