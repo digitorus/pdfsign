@@ -10,5 +10,5 @@ require (
 	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7
 	github.com/mattetti/filebuffer v1.0.1
 	golang.org/x/crypto v0.38.0
-	golang.org/x/text v0.25.0
+	golang.org/x/text v0.26.0
 )
