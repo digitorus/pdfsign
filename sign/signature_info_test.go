@@ -41,14 +41,14 @@ func TestSignatureInfoOutput(t *testing.T) {
 	if result == nil {
 		t.Fatal("Expected SigningResult but got nil")
 	} // Verify the result has valid hash values
-	if result.DocumentHashSHA256 == "" {
-		t.Error("Expected DocumentHashSHA256 to be populated")
+	if result.DocumentHash == "" {
+		t.Error("Expected DocumentHash to be populated")
 	}
-	if result.SignatureHashSHA256 == "" {
-		t.Error("Expected SignatureHashSHA256 to be populated")
+	if result.SignatureHash == "" {
+		t.Error("Expected SignatureHash to be populated")
 	}
-	if result.CertificateHashSHA256 == "" {
-		t.Error("Expected CertificateHashSHA256 to be populated")
+	if result.CertificateHash == "" {
+		t.Error("Expected CertificateHash to be populated")
 	}
 
 	// Assert specific certificate details match expected values from test certificate
@@ -80,8 +80,8 @@ func TestSignatureInfoOutput(t *testing.T) {
 	if result.Certificate.SignatureAlgorithm.String() != expectedSignatureAlgorithm {
 		t.Errorf("Expected SignatureAlgorithm '%s', got '%s'", expectedSignatureAlgorithm, result.Certificate.SignatureAlgorithm.String())
 	}
-	if result.CertificateHashSHA256 != expectedCertificateHash {
-		t.Errorf("Expected CertificateHashSHA256 '%s', got '%s'", expectedCertificateHash, result.CertificateHashSHA256)
+	if result.CertificateHash != expectedCertificateHash {
+		t.Errorf("Expected CertificateHash '%s', got '%s'", expectedCertificateHash, result.CertificateHash)
 	}
 
 	// Verify Issuer details (self-signed certificate, so issuer == subject)
@@ -103,9 +103,9 @@ func TestSignatureInfoOutput(t *testing.T) {
 		t.Error("Certificate should be valid (NotAfter is in the past)")
 	}
 
-	t.Logf("Document Hash (SHA256): %s", result.DocumentHashSHA256)
-	t.Logf("Signature Hash (SHA256): %s", result.SignatureHashSHA256)
-	t.Logf("Certificate Hash (SHA256): %s", result.CertificateHashSHA256)
+	t.Logf("Document Hash (SHA256): %s", result.DocumentHash)
+	t.Logf("Signature Hash (SHA256): %s", result.SignatureHash)
+	t.Logf("Certificate Hash (SHA256): %s", result.CertificateHash)
 	t.Logf("All certificate details verified successfully!")
 
 	// Verify the signed file is valid

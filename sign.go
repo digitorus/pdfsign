@@ -150,9 +150,9 @@ func signPDF(input string) {
 	} else {
 		log.Println("Signed PDF written to " + output)
 		if result != nil {
-			log.Printf("Document Hash (SHA256): %s", result.DocumentHashSHA256)
-			log.Printf("Signature Hash (SHA256): %s", result.SignatureHashSHA256)
-			log.Printf("Certificate Hash (SHA256): %s", result.CertificateHashSHA256)
+			log.Printf("Document Hash (SHA256): %s", result.DocumentHash)
+			log.Printf("Signature Hash (SHA256): %s", result.SignatureHash)
+			log.Printf("Certificate Hash (SHA256): %s", result.CertificateHash)
 			if result.Certificate != nil {
 				log.Printf("Certificate Details:")
 				log.Printf("  Subject CN: %s", result.Certificate.Subject.CommonName)
@@ -248,10 +248,10 @@ func timeStampPDF(input, output, tsa string) {
 	} else {
 		log.Println("Signed PDF written to " + output)
 		if result != nil {
-			log.Printf("Document Hash (SHA256): %s", result.DocumentHashSHA256)
-			log.Printf("Signature Hash (SHA256): %s", result.SignatureHashSHA256)
-			if result.CertificateHashSHA256 != "" {
-				log.Printf("Certificate Hash (SHA256): %s", result.CertificateHashSHA256)
+			log.Printf("Document Hash (SHA256): %s", result.DocumentHash)
+			log.Printf("Signature Hash (SHA256): %s", result.SignatureHash)
+			if result.CertificateHash != "" {
+				log.Printf("Certificate Hash (SHA256): %s", result.CertificateHash)
 			}
 		}
 	}

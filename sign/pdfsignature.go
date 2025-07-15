@@ -290,7 +290,7 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	// Calculate SHA256 hash of the document content and store it
 	documentHash := sha256.Sum256(sign_content)
-	context.Result.DocumentHashSHA256 = hex.EncodeToString(documentHash[:])
+	context.Result.DocumentHash = hex.EncodeToString(documentHash[:])
 
 	// Return the timestamp if we are signing a timestamp.
 	if context.SignData.Signature.CertType == TimeStampSignature {
@@ -388,7 +388,7 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	// Calculate SHA256 hash of the signature and store it
 	signatureHash := sha256.Sum256(signature)
-	context.Result.SignatureHashSHA256 = hex.EncodeToString(signatureHash[:])
+	context.Result.SignatureHash = hex.EncodeToString(signatureHash[:])
 
 	return signature, nil
 }

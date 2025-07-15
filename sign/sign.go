@@ -32,10 +32,10 @@ type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoA
 
 // SigningResult contains information about the signing operation
 type SigningResult struct {
-	DocumentHashSHA256    string            // SHA256 hash of the original document being signed
-	SignatureHashSHA256   string            // SHA256 hash of the actual signature
-	CertificateHashSHA256 string            // SHA256 hash of the certificate used for signing
-	Certificate           *x509.Certificate // The certificate used for signing
+	DocumentHash    string            // SHA256 hash of the original document being signed
+	SignatureHash   string            // SHA256 hash of the actual signature
+	CertificateHash string            // SHA256 hash of the certificate used for signing
+	Certificate     *x509.Certificate // The certificate used for signing
 }
 
 type SignData struct {
@@ -203,7 +203,7 @@ func (context *SignContext) SignPDF() error {
 	if context.SignData.Certificate != nil {
 		context.Result.Certificate = context.SignData.Certificate
 		hash := sha256.Sum256(context.SignData.Certificate.Raw)
-		context.Result.CertificateHashSHA256 = hex.EncodeToString(hash[:])
+		context.Result.CertificateHash = hex.EncodeToString(hash[:])
 	}
 
 	context.OutputBuffer = filebuffer.New([]byte{})
