@@ -62,44 +62,44 @@ func TestSignatureInfoOutput(t *testing.T) {
 	expectedCertificateHash := "1b4e1b530438893595f5889c9848fa6776679a8a65d0c94af493ec529dcbb7e6"
 
 	// Verify Subject details
-	if result.CertificateDetails.CommonName != expectedCommonName {
-		t.Errorf("Expected CommonName '%s', got '%s'", expectedCommonName, result.CertificateDetails.CommonName)
+	if result.Certificate.Subject.CommonName != expectedCommonName {
+		t.Errorf("Expected CommonName '%s', got '%s'", expectedCommonName, result.Certificate.Subject.CommonName)
 	}
-	if len(result.CertificateDetails.Country) != 1 || result.CertificateDetails.Country[0] != expectedCountry[0] {
-		t.Errorf("Expected Country %v, got %v", expectedCountry, result.CertificateDetails.Country)
+	if len(result.Certificate.Subject.Country) != 1 || result.Certificate.Subject.Country[0] != expectedCountry[0] {
+		t.Errorf("Expected Country %v, got %v", expectedCountry, result.Certificate.Subject.Country)
 	}
-	if len(result.CertificateDetails.Organization) != 1 || result.CertificateDetails.Organization[0] != expectedOrganization[0] {
-		t.Errorf("Expected Organization %v, got %v", expectedOrganization, result.CertificateDetails.Organization)
+	if len(result.Certificate.Subject.Organization) != 1 || result.Certificate.Subject.Organization[0] != expectedOrganization[0] {
+		t.Errorf("Expected Organization %v, got %v", expectedOrganization, result.Certificate.Subject.Organization)
 	}
-	if result.CertificateDetails.SerialNumber != expectedSerialNumber {
-		t.Errorf("Expected SerialNumber '%s', got '%s'", expectedSerialNumber, result.CertificateDetails.SerialNumber)
+	if result.Certificate.SerialNumber.String() != expectedSerialNumber {
+		t.Errorf("Expected SerialNumber '%s', got '%s'", expectedSerialNumber, result.Certificate.SerialNumber.String())
 	}
-	if result.CertificateDetails.PublicKeyAlgorithm != expectedPublicKeyAlgorithm {
-		t.Errorf("Expected PublicKeyAlgorithm '%s', got '%s'", expectedPublicKeyAlgorithm, result.CertificateDetails.PublicKeyAlgorithm)
+	if result.Certificate.PublicKeyAlgorithm.String() != expectedPublicKeyAlgorithm {
+		t.Errorf("Expected PublicKeyAlgorithm '%s', got '%s'", expectedPublicKeyAlgorithm, result.Certificate.PublicKeyAlgorithm.String())
 	}
-	if result.CertificateDetails.SignatureAlgorithm != expectedSignatureAlgorithm {
-		t.Errorf("Expected SignatureAlgorithm '%s', got '%s'", expectedSignatureAlgorithm, result.CertificateDetails.SignatureAlgorithm)
+	if result.Certificate.SignatureAlgorithm.String() != expectedSignatureAlgorithm {
+		t.Errorf("Expected SignatureAlgorithm '%s', got '%s'", expectedSignatureAlgorithm, result.Certificate.SignatureAlgorithm.String())
 	}
 	if result.CertificateHashSHA256 != expectedCertificateHash {
 		t.Errorf("Expected CertificateHashSHA256 '%s', got '%s'", expectedCertificateHash, result.CertificateHashSHA256)
 	}
 
 	// Verify Issuer details (self-signed certificate, so issuer == subject)
-	if result.CertificateDetails.Issuer.CommonName != expectedCommonName {
-		t.Errorf("Expected Issuer CommonName '%s', got '%s'", expectedCommonName, result.CertificateDetails.Issuer.CommonName)
+	if result.Certificate.Issuer.CommonName != expectedCommonName {
+		t.Errorf("Expected Issuer CommonName '%s', got '%s'", expectedCommonName, result.Certificate.Issuer.CommonName)
 	}
-	if len(result.CertificateDetails.Issuer.Country) != 1 || result.CertificateDetails.Issuer.Country[0] != expectedCountry[0] {
-		t.Errorf("Expected Issuer Country %v, got %v", expectedCountry, result.CertificateDetails.Issuer.Country)
+	if len(result.Certificate.Issuer.Country) != 1 || result.Certificate.Issuer.Country[0] != expectedCountry[0] {
+		t.Errorf("Expected Issuer Country %v, got %v", expectedCountry, result.Certificate.Issuer.Country)
 	}
-	if len(result.CertificateDetails.Issuer.Organization) != 1 || result.CertificateDetails.Issuer.Organization[0] != expectedOrganization[0] {
-		t.Errorf("Expected Issuer Organization %v, got %v", expectedOrganization, result.CertificateDetails.Issuer.Organization)
+	if len(result.Certificate.Issuer.Organization) != 1 || result.Certificate.Issuer.Organization[0] != expectedOrganization[0] {
+		t.Errorf("Expected Issuer Organization %v, got %v", expectedOrganization, result.Certificate.Issuer.Organization)
 	}
 
 	// Verify date validity (certificate should be valid for 100 years)
-	if result.CertificateDetails.NotBefore.After(time.Now()) {
+	if result.Certificate.NotBefore.After(time.Now()) {
 		t.Error("Certificate should be valid (NotBefore is in the future)")
 	}
-	if result.CertificateDetails.NotAfter.Before(time.Now()) {
+	if result.Certificate.NotAfter.Before(time.Now()) {
 		t.Error("Certificate should be valid (NotAfter is in the past)")
 	}
 
