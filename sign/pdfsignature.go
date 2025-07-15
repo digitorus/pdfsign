@@ -3,6 +3,7 @@ package sign
 import (
 	"bytes"
 	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
@@ -287,6 +288,10 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[0]:(context.ByteRangeValues[0]+context.ByteRangeValues[1])]...)
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[2]:(context.ByteRangeValues[2]+context.ByteRangeValues[3])]...)
 
+	// Calculate SHA256 hash of the document content and store it
+	documentHash := sha256.Sum256(sign_content)
+	context.Result.DocumentHashSHA256 = hex.EncodeToString(documentHash[:])
+
 	// Return the timestamp if we are signing a timestamp.
 	if context.SignData.Signature.CertType == TimeStampSignature {
 		// ETSI EN 319 142-1 V1.2.1
@@ -376,7 +381,16 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		}
 	}
 
-	return signed_data.Finish()
+	signature, err := signed_data.Finish()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate SHA256 hash of the signature and store it
+	signatureHash := sha256.Sum256(signature)
+	context.Result.SignatureHashSHA256 = hex.EncodeToString(signatureHash[:])
+
+	return signature, nil
 }
 
 func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {

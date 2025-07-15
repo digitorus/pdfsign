@@ -2,6 +2,7 @@ package sign
 
 import (
 	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
@@ -28,6 +29,36 @@ type TSA struct {
 }
 
 type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error
+
+// SigningResult contains information about the signing operation
+type SigningResult struct {
+	DocumentHashSHA256    string             // SHA256 hash of the original document being signed
+	SignatureHashSHA256   string             // SHA256 hash of the actual signature
+	CertificateHashSHA256 string             // SHA256 hash of the certificate used for signing
+	CertificateDetails    CertificateDetails // Details of the certificate used for signing
+}
+
+// CertificateDetails contains information about the signing certificate
+type CertificateDetails struct {
+	CommonName         string   // CN
+	Country            []string // C
+	Organization       []string // O
+	OrganizationalUnit []string // OU
+	SerialNumber       string
+	Issuer             CertificateIssuer
+	NotBefore          time.Time
+	NotAfter           time.Time
+	PublicKeyAlgorithm string
+	SignatureAlgorithm string
+}
+
+// CertificateIssuer contains information about the certificate issuer
+type CertificateIssuer struct {
+	CommonName         string   // CN
+	Country            []string // C
+	Organization       []string // O
+	OrganizationalUnit []string // OU
+}
 
 type SignData struct {
 	Signature          SignDataSignature
@@ -117,36 +148,38 @@ type SignContext struct {
 	lastXrefID         uint32
 	newXrefEntries     []xrefEntry
 	updatedXrefEntries []xrefEntry
+
+	Result *SigningResult // Contains hashes and certificate details
 }
 
-func SignFile(input string, output string, sign_data SignData) error {
+func SignFile(input string, output string, sign_data SignData) (*SigningResult, error) {
 	input_file, err := os.Open(input)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer input_file.Close()
 
 	output_file, err := os.Create(output)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer output_file.Close()
 
 	finfo, err := input_file.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	size := finfo.Size()
 
 	rdr, err := pdf.NewReader(input_file, size)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return Sign(input_file, output_file, rdr, size, sign_data)
 }
 
-func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
+func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) (*SigningResult, error) {
 	sign_data.objectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
 	context := SignContext{
@@ -155,21 +188,50 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 		OutputFile:             output,
 		SignData:               sign_data,
 		SignatureMaxLengthBase: uint32(hex.EncodedLen(512)),
+		Result:                 &SigningResult{},
 	}
 
 	// Fetch existing signatures
 	existingSignatures, err := context.fetchExistingSignatures()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	context.existingSignatures = existingSignatures
 
 	err = context.SignPDF()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return context.Result, nil
+}
+
+// extractCertificateDetails extracts details from an x509 certificate
+func extractCertificateDetails(cert *x509.Certificate) CertificateDetails {
+	details := CertificateDetails{
+		CommonName:         cert.Subject.CommonName,
+		Country:            cert.Subject.Country,
+		Organization:       cert.Subject.Organization,
+		OrganizationalUnit: cert.Subject.OrganizationalUnit,
+		SerialNumber:       cert.SerialNumber.String(),
+		NotBefore:          cert.NotBefore,
+		NotAfter:           cert.NotAfter,
+		PublicKeyAlgorithm: cert.PublicKeyAlgorithm.String(),
+		SignatureAlgorithm: cert.SignatureAlgorithm.String(),
+		Issuer: CertificateIssuer{
+			CommonName:         cert.Issuer.CommonName,
+			Country:            cert.Issuer.Country,
+			Organization:       cert.Issuer.Organization,
+			OrganizationalUnit: cert.Issuer.OrganizationalUnit,
+		},
+	}
+	return details
+}
+
+// calculateCertificateHash calculates the SHA256 hash of the certificate
+func calculateCertificateHash(cert *x509.Certificate) string {
+	hash := sha256.Sum256(cert.Raw)
+	return hex.EncodeToString(hash[:])
 }
 
 func (context *SignContext) SignPDF() error {
@@ -185,6 +247,12 @@ func (context *SignContext) SignPDF() error {
 	}
 	if context.SignData.Appearance.Page == 0 {
 		context.SignData.Appearance.Page = 1
+	}
+
+	// Extract certificate details if available
+	if context.SignData.Certificate != nil {
+		context.Result.CertificateDetails = extractCertificateDetails(context.SignData.Certificate)
+		context.Result.CertificateHashSHA256 = calculateCertificateHash(context.SignData.Certificate)
 	}
 
 	context.OutputBuffer = filebuffer.New([]byte{})
