@@ -17,16 +17,24 @@ type VerifyOptions struct {
 	// RequiredEKUs specifies the Extended Key Usages that must be present
 	// Default: Document Signing EKU (1.3.6.1.5.5.7.3.36) per RFC 9336
 	RequiredEKUs []x509.ExtKeyUsage
-	
+
 	// AllowedEKUs specifies additional Extended Key Usages that are acceptable
 	// Common alternatives: Email Protection (1.3.6.1.5.5.7.3.4), Client Auth (1.3.6.1.5.5.7.3.2)
 	AllowedEKUs []x509.ExtKeyUsage
-	
+
 	// RequireDigitalSignatureKU requires the Digital Signature bit in Key Usage
 	RequireDigitalSignatureKU bool
-	
+
 	// AllowNonRepudiationKU allows the Non-Repudiation bit in Key Usage (optional but recommended)
 	AllowNonRepudiationKU bool
+
+	// UseEmbeddedTimestamp when true, uses the embedded timestamp for certificate validation
+	// instead of the current time. This provides more accurate historical validation.
+	UseEmbeddedTimestamp bool
+
+	// FallbackToCurrentTime when true, falls back to current time if embedded timestamp
+	// is not available or invalid. If false, validation fails when timestamp is required but missing.
+	FallbackToCurrentTime bool
 }
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -42,6 +50,8 @@ func DefaultVerifyOptions() *VerifyOptions {
 		},
 		RequireDigitalSignatureKU: true,
 		AllowNonRepudiationKU:     true,
+		UseEmbeddedTimestamp:      true, // Use embedded timestamp for accurate historical validation
+		FallbackToCurrentTime:     true, // Fall back to current time if timestamp unavailable
 	}
 }
 
@@ -66,16 +76,16 @@ type Signer struct {
 }
 
 type Certificate struct {
-	Certificate          *x509.Certificate `json:"certificate"`
-	VerifyError          string            `json:"verify_error"`
-	KeyUsageValid        bool              `json:"key_usage_valid"`
-	KeyUsageError        string            `json:"key_usage_error,omitempty"`
-	ExtKeyUsageValid     bool              `json:"ext_key_usage_valid"`
-	ExtKeyUsageError     string            `json:"ext_key_usage_error,omitempty"`
-	OCSPResponse         *ocsp.Response    `json:"ocsp_response"`
-	OCSPEmbedded         bool              `json:"ocsp_embedded"`
-	CRLRevoked           time.Time         `json:"crl_revoked"`
-	CRLEmbedded          bool              `json:"crl_embedded"`
+	Certificate      *x509.Certificate `json:"certificate"`
+	VerifyError      string            `json:"verify_error"`
+	KeyUsageValid    bool              `json:"key_usage_valid"`
+	KeyUsageError    string            `json:"key_usage_error,omitempty"`
+	ExtKeyUsageValid bool              `json:"ext_key_usage_valid"`
+	ExtKeyUsageError string            `json:"ext_key_usage_error,omitempty"`
+	OCSPResponse     *ocsp.Response    `json:"ocsp_response"`
+	OCSPEmbedded     bool              `json:"ocsp_embedded"`
+	CRLRevoked       time.Time         `json:"crl_revoked"`
+	CRLEmbedded      bool              `json:"crl_embedded"`
 }
 
 // DocumentInfo contains document information.

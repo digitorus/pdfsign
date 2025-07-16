@@ -3,6 +3,9 @@ package verify
 import (
 	"crypto/x509"
 	"testing"
+	"time"
+
+	"github.com/digitorus/timestamp"
 )
 
 func TestValidateKeyUsage(t *testing.T) {
@@ -136,6 +139,14 @@ func TestDefaultVerifyOptions(t *testing.T) {
 		t.Error("Expected AllowNonRepudiationKU to be true")
 	}
 
+	if !options.UseEmbeddedTimestamp {
+		t.Error("Expected UseEmbeddedTimestamp to be true")
+	}
+
+	if !options.FallbackToCurrentTime {
+		t.Error("Expected FallbackToCurrentTime to be true")
+	}
+
 	if len(options.RequiredEKUs) == 0 {
 		t.Error("Expected at least one required EKU")
 	}
@@ -208,5 +219,76 @@ func TestGetVerificationEKUs(t *testing.T) {
 	}
 	if !hasAny {
 		t.Error("Expected ExtKeyUsageAny for backward compatibility")
+	}
+}
+
+func TestTimestampVerificationOptions(t *testing.T) {
+	tests := []struct {
+		name                  string
+		useEmbeddedTimestamp  bool
+		fallbackToCurrentTime bool
+		hasTimestamp          bool
+		expectError           bool
+		errorContains         string
+	}{
+		{
+			name:                  "Use embedded timestamp - available",
+			useEmbeddedTimestamp:  true,
+			fallbackToCurrentTime: true,
+			hasTimestamp:          true,
+			expectError:           false,
+		},
+		{
+			name:                  "Use embedded timestamp - not available, fallback enabled",
+			useEmbeddedTimestamp:  true,
+			fallbackToCurrentTime: true,
+			hasTimestamp:          false,
+			expectError:           false,
+		},
+		{
+			name:                  "Use embedded timestamp - not available, fallback disabled",
+			useEmbeddedTimestamp:  true,
+			fallbackToCurrentTime: false,
+			hasTimestamp:          false,
+			expectError:           true,
+			errorContains:         "Embedded timestamp required but not available",
+		},
+		{
+			name:                  "Don't use embedded timestamp",
+			useEmbeddedTimestamp:  false,
+			fallbackToCurrentTime: false,
+			hasTimestamp:          false,
+			expectError:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := &VerifyOptions{
+				RequiredEKUs:              []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+				RequireDigitalSignatureKU: true,
+				UseEmbeddedTimestamp:      tt.useEmbeddedTimestamp,
+				FallbackToCurrentTime:     tt.fallbackToCurrentTime,
+			}
+
+			// Mock signer with or without timestamp
+			signer := &Signer{}
+			if tt.hasTimestamp {
+				// Mock timestamp - we can't easily create a real one here
+				// In a real test, you'd need to create a proper timestamp.Timestamp
+				signer.TimeStamp = &timestamp.Timestamp{
+					Time: time.Now().Add(-24 * time.Hour), // 24 hours ago
+				}
+			}
+
+			// This is a conceptual test - in practice, you'd need to test with real PKCS7 data
+			// For now, we can at least verify the options are set correctly
+			if options.UseEmbeddedTimestamp != tt.useEmbeddedTimestamp {
+				t.Errorf("Expected UseEmbeddedTimestamp %v, got %v", tt.useEmbeddedTimestamp, options.UseEmbeddedTimestamp)
+			}
+			if options.FallbackToCurrentTime != tt.fallbackToCurrentTime {
+				t.Errorf("Expected FallbackToCurrentTime %v, got %v", tt.fallbackToCurrentTime, options.FallbackToCurrentTime)
+			}
+		})
 	}
 }

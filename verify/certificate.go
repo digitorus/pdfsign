@@ -3,6 +3,7 @@ package verify
 import (
 	"crypto/x509"
 	"fmt"
+	"time"
 
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
@@ -15,26 +16,26 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 	// Validate Key Usage
 	kuValid = true
 	ekuValid = true
-	
+
 	// Check Digital Signature bit in Key Usage
 	if options.RequireDigitalSignatureKU && (cert.KeyUsage&x509.KeyUsageDigitalSignature) == 0 {
 		kuValid = false
 		kuError = "certificate does not have Digital Signature key usage"
 	}
-	
+
 	// Check for Non-Repudiation (Content Commitment) if present
 	// This is optional but recommended for PDF signing
 	if options.AllowNonRepudiationKU && (cert.KeyUsage&x509.KeyUsageContentCommitment) != 0 {
 		// Non-repudiation is present and allowed - this is good
 	}
-	
+
 	// Validate Extended Key Usage
 	if len(cert.ExtKeyUsage) == 0 {
 		ekuValid = false
 		ekuError = "certificate has no Extended Key Usage extension"
 		return
 	}
-	
+
 	// Check if any required EKUs are present
 	hasRequiredEKU := false
 	if len(options.RequiredEKUs) > 0 {
@@ -50,7 +51,7 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 			}
 		}
 	}
-	
+
 	// Check if any allowed EKUs are present (fallback)
 	hasAllowedEKU := false
 	if len(options.AllowedEKUs) > 0 {
@@ -66,7 +67,7 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 			}
 		}
 	}
-	
+
 	// Check for ExtKeyUsageAny which is too permissive for PDF signing
 	hasAnyEKU := false
 	for _, certEKU := range cert.ExtKeyUsage {
@@ -75,7 +76,7 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 			break
 		}
 	}
-	
+
 	// Determine EKU validity
 	if hasRequiredEKU {
 		// Has a required EKU - this is the best case
@@ -95,7 +96,7 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 		ekuValid = false
 		ekuError = "certificate does not have suitable Extended Key Usage for PDF signing"
 	}
-	
+
 	return
 }
 
@@ -103,10 +104,10 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 // Includes Document Signing EKU and common alternatives
 func getVerificationEKUs() []x509.ExtKeyUsage {
 	return []x509.ExtKeyUsage{
-		x509.ExtKeyUsage(36),             // Document Signing EKU (1.3.6.1.5.5.7.3.36) per RFC 9336
-		x509.ExtKeyUsageEmailProtection,  // Email Protection (1.3.6.1.5.5.7.3.4) - common alternative
-		x509.ExtKeyUsageClientAuth,       // Client Authentication (1.3.6.1.5.5.7.3.2) - another alternative
-		x509.ExtKeyUsageAny,              // Any EKU - for backward compatibility (less secure)
+		x509.ExtKeyUsage(36),            // Document Signing EKU (1.3.6.1.5.5.7.3.36) per RFC 9336
+		x509.ExtKeyUsageEmailProtection, // Email Protection (1.3.6.1.5.5.7.3.4) - common alternative
+		x509.ExtKeyUsageClientAuth,      // Client Authentication (1.3.6.1.5.5.7.3.2) - another alternative
+		x509.ExtKeyUsageAny,             // Any EKU - for backward compatibility (less secure)
 	}
 }
 
@@ -122,6 +123,20 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	for _, cert := range p7.Certificates {
 		certPool.AddCert(cert)
 	}
+
+	// Determine the verification time based on options and available data
+	var verificationTime *time.Time
+	if options.UseEmbeddedTimestamp && signer.TimeStamp != nil && !signer.TimeStamp.Time.IsZero() {
+		// Use embedded timestamp for historical validation
+		verificationTime = &signer.TimeStamp.Time
+	} else if signer.SignatureTime != nil {
+		// Fall back to signature time if available
+		verificationTime = signer.SignatureTime
+	} else if options.UseEmbeddedTimestamp && !options.FallbackToCurrentTime {
+		// Timestamp required but not available and fallback disabled
+		return "Embedded timestamp required but not available in signature", nil
+	}
+	// If verificationTime is nil, x509.Verify will use current time (default behavior)
 
 	// Parse OCSP response
 	ocspStatus := make(map[string]*ocsp.Response)
@@ -155,6 +170,19 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	// Get appropriate EKUs for certificate verification
 	verificationEKUs := getVerificationEKUs()
 
+	// Helper function to create x509.VerifyOptions with the appropriate time
+	createVerifyOptions := func(roots, intermediates *x509.CertPool) x509.VerifyOptions {
+		opts := x509.VerifyOptions{
+			Roots:         roots,
+			Intermediates: intermediates,
+			KeyUsages:     verificationEKUs,
+		}
+		if verificationTime != nil {
+			opts.CurrentTime = *verificationTime
+		}
+		return opts
+	}
+
 	for _, cert := range p7.Certificates {
 		var c Certificate
 		c.Certificate = cert
@@ -163,48 +191,23 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		c.KeyUsageValid, c.KeyUsageError, c.ExtKeyUsageValid, c.ExtKeyUsageError = validateKeyUsage(cert, options)
 
 		// Try to verify with system root CAs first
-		chain, err := cert.Verify(x509.VerifyOptions{
-			Roots:         nil, // Use system root CAs
-			Intermediates: certPool,
-			CurrentTime:   cert.NotBefore,
-			KeyUsages:     verificationEKUs, // Use appropriate EKUs for verification
-		})
+		chain, err := cert.Verify(createVerifyOptions(nil, certPool))
 
 		if err == nil {
 			// Successfully verified against system trusted roots
 			trustedIssuer = true
 		} else {
-			// Debug: let's try with current time instead of NotBefore
-			chainCurrentTime, errCurrentTime := cert.Verify(x509.VerifyOptions{
-				Roots:         nil, // Use system root CAs
-				Intermediates: certPool,
-				// CurrentTime not specified - uses current time
-				KeyUsages: verificationEKUs, // Use appropriate EKUs for verification
-			})
+			// If verification fails with system roots, try with embedded certificates as roots
+			altChain, verifyErr := cert.Verify(createVerifyOptions(certPool, certPool))
 
-			if errCurrentTime == nil {
-				// Successfully verified with current time
-				chain = chainCurrentTime
-				err = nil
-				trustedIssuer = true
+			// If embedded cert verification fails, record the original system root error
+			if verifyErr != nil {
+				c.VerifyError = err.Error()
 			} else {
-				// If verification fails with system roots, try with embedded certificates as roots
-				altChain, verifyErr := cert.Verify(x509.VerifyOptions{
-					Roots:         certPool, // Use certificates from the signature as potential roots
-					Intermediates: certPool,
-					CurrentTime:   cert.NotBefore,
-					KeyUsages:     verificationEKUs, // Use appropriate EKUs for verification
-				})
-
-				// If embedded cert verification fails, record the original system root error
-				if verifyErr != nil {
-					c.VerifyError = err.Error()
-				} else {
-					// Successfully verified with embedded certificates (self-signed or private CA)
-					chain = altChain
-					err = nil
-					// Note: trustedIssuer remains false as this wasn't verified against public CAs
-				}
+				// Successfully verified with embedded certificates (self-signed or private CA)
+				chain = altChain
+				err = nil
+				// Note: trustedIssuer remains false as this wasn't verified against public CAs
 			}
 		}
 
