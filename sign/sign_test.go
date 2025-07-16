@@ -147,7 +147,7 @@ func TestSignPDF(t *testing.T) {
 				defer os.Remove(outputFile.Name())
 			}
 
-			err = SignFile("../testfiles/"+f.Name(), outputFile.Name(), SignData{
+			_, err = SignFile("../testfiles/"+f.Name(), outputFile.Name(), SignData{
 				Signature: SignDataSignature{
 					Info: SignDataSignatureInfo{
 						Name:        "John Doe",
@@ -191,7 +191,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        signerName,
@@ -242,7 +242,7 @@ func TestSignPDFVisible(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -299,7 +299,7 @@ func BenchmarkSignPDF(b *testing.B) {
 			b.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
 
-		err = Sign(inputFile, io.Discard, rdr, size, SignData{
+		_, err = Sign(inputFile, io.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "John Doe",
@@ -335,7 +335,7 @@ func TestSignPDFWithTwoApproval(t *testing.T) {
 			defer os.Remove(approvalTMPFile.Name())
 		}
 
-		err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
+		_, err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        fmt.Sprintf("Jane %d Doe", i),
@@ -372,7 +372,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile(tbsFile, tmpfile.Name(), SignData{
+	_, err = SignFile(tbsFile, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -404,7 +404,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 			defer os.Remove(approvalTMPFile.Name())
 		}
 
-		err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
+		_, err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        fmt.Sprintf("Jane %d Doe", i),
@@ -436,7 +436,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		defer os.Remove(timeStampTMPFile.Name())
 	}
 
-	err = SignFile(tbsFile, timeStampTMPFile.Name(), SignData{
+	_, err = SignFile(tbsFile, timeStampTMPFile.Name(), SignData{
 		Signature: SignDataSignature{
 			CertType: TimeStampSignature,
 		},
@@ -460,7 +460,7 @@ func TestTimestampPDFFile(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
+	_, err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			CertType: TimeStampSignature,
 		},
@@ -496,7 +496,7 @@ func TestSignPDFWithImage(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -547,7 +547,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		defer os.Remove(firstSignature.Name())
 	}
 
-	err = SignFile(tbsFile, firstSignature.Name(), SignData{
+	_, err = SignFile(tbsFile, firstSignature.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -586,7 +586,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		defer os.Remove(secondSignature.Name())
 	}
 
-	err = SignFile(firstSignature.Name(), secondSignature.Name(), SignData{
+	_, err = SignFile(firstSignature.Name(), secondSignature.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "Jane Doe",
@@ -637,7 +637,7 @@ func TestSignPDFWithWatermarkImageJPG(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "James SuperSmith",
@@ -689,7 +689,7 @@ func TestSignPDFWithWatermarkImagePNG(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "James SuperSmith",
@@ -751,7 +751,7 @@ func TestVisualSignLastPage(t *testing.T) {
 	}
 	lastPage := rdr.NumPage()
 	t.Logf("pdf total pages: %d", lastPage)
-	err = Sign(input_file, tmpfile, rdr, size, SignData{
+	_, err = Sign(input_file, tmpfile, rdr, size, SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",

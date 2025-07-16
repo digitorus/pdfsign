@@ -125,7 +125,7 @@ func signPDF(input string) {
 
 	cert, pkey, certificateChains := loadCertificatesAndKey(flag.Arg(3), flag.Arg(4), flag.Arg(5))
 
-	err = sign.SignFile(input, output, sign.SignData{
+	result, err := sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{
 			Info: sign.SignDataSignatureInfo{
 				Name:        infoName,
@@ -149,6 +149,27 @@ func signPDF(input string) {
 		log.Println(err)
 	} else {
 		log.Println("Signed PDF written to " + output)
+		if result != nil {
+			log.Printf("Document Hash (SHA256): %s", result.DocumentHash)
+			log.Printf("Signature Hash (SHA256): %s", result.SignatureHash)
+			log.Printf("Certificate Hash (SHA256): %s", result.CertificateHash)
+			if result.Certificate != nil {
+				log.Printf("Certificate Details:")
+				log.Printf("  Subject CN: %s", result.Certificate.Subject.CommonName)
+				log.Printf("  Subject C: %v", result.Certificate.Subject.Country)
+				log.Printf("  Subject O: %v", result.Certificate.Subject.Organization)
+				log.Printf("  Subject OU: %v", result.Certificate.Subject.OrganizationalUnit)
+				log.Printf("  Serial Number: %s", result.Certificate.SerialNumber.String())
+				log.Printf("  Issuer CN: %s", result.Certificate.Issuer.CommonName)
+				log.Printf("  Issuer C: %v", result.Certificate.Issuer.Country)
+				log.Printf("  Issuer O: %v", result.Certificate.Issuer.Organization)
+				log.Printf("  Issuer OU: %v", result.Certificate.Issuer.OrganizationalUnit)
+				log.Printf("  Not Before: %s", result.Certificate.NotBefore.Format(time.RFC3339))
+				log.Printf("  Not After: %s", result.Certificate.NotAfter.Format(time.RFC3339))
+				log.Printf("  Public Key Algorithm: %s", result.Certificate.PublicKeyAlgorithm.String())
+				log.Printf("  Signature Algorithm: %s", result.Certificate.SignatureAlgorithm.String())
+			}
+		}
 	}
 }
 
@@ -213,7 +234,7 @@ func loadCertificateChain(chainPath string, cert *x509.Certificate) [][]*x509.Ce
 }
 
 func timeStampPDF(input, output, tsa string) {
-	err := sign.SignFile(input, output, sign.SignData{
+	result, err := sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{
 			CertType: sign.TimeStampSignature,
 		},
@@ -226,5 +247,12 @@ func timeStampPDF(input, output, tsa string) {
 		log.Println(err)
 	} else {
 		log.Println("Signed PDF written to " + output)
+		if result != nil {
+			log.Printf("Document Hash (SHA256): %s", result.DocumentHash)
+			log.Printf("Signature Hash (SHA256): %s", result.SignatureHash)
+			if result.CertificateHash != "" {
+				log.Printf("Certificate Hash (SHA256): %s", result.CertificateHash)
+			}
+		}
 	}
 }

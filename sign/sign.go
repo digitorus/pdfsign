@@ -2,6 +2,7 @@ package sign
 
 import (
 	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
@@ -28,6 +29,14 @@ type TSA struct {
 }
 
 type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error
+
+// SigningResult contains information about the signing operation
+type SigningResult struct {
+	DocumentHash    string            // SHA256 hash of the original document being signed
+	SignatureHash   string            // SHA256 hash of the actual signature
+	CertificateHash string            // SHA256 hash of the certificate used for signing
+	Certificate     *x509.Certificate // The certificate used for signing
+}
 
 type SignData struct {
 	Signature          SignDataSignature
@@ -117,36 +126,38 @@ type SignContext struct {
 	lastXrefID         uint32
 	newXrefEntries     []xrefEntry
 	updatedXrefEntries []xrefEntry
+
+	Result *SigningResult // Contains hashes and certificate details
 }
 
-func SignFile(input string, output string, sign_data SignData) error {
+func SignFile(input string, output string, sign_data SignData) (*SigningResult, error) {
 	input_file, err := os.Open(input)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer input_file.Close()
 
 	output_file, err := os.Create(output)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer output_file.Close()
 
 	finfo, err := input_file.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	size := finfo.Size()
 
 	rdr, err := pdf.NewReader(input_file, size)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	return Sign(input_file, output_file, rdr, size, sign_data)
 }
 
-func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
+func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) (*SigningResult, error) {
 	sign_data.objectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
 	context := SignContext{
@@ -155,21 +166,22 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 		OutputFile:             output,
 		SignData:               sign_data,
 		SignatureMaxLengthBase: uint32(hex.EncodedLen(512)),
+		Result:                 &SigningResult{},
 	}
 
 	// Fetch existing signatures
 	existingSignatures, err := context.fetchExistingSignatures()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	context.existingSignatures = existingSignatures
 
 	err = context.SignPDF()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return context.Result, nil
 }
 
 func (context *SignContext) SignPDF() error {
@@ -185,6 +197,13 @@ func (context *SignContext) SignPDF() error {
 	}
 	if context.SignData.Appearance.Page == 0 {
 		context.SignData.Appearance.Page = 1
+	}
+
+	// Store certificate and calculate hash if available
+	if context.SignData.Certificate != nil {
+		context.Result.Certificate = context.SignData.Certificate
+		hash := sha256.Sum256(context.SignData.Certificate.Raw)
+		context.Result.CertificateHash = hex.EncodeToString(hash[:])
 	}
 
 	context.OutputBuffer = filebuffer.New([]byte{})
