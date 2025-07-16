@@ -36,6 +36,7 @@ type Signer struct {
 	RevokedCertificate bool                 `json:"revoked_certificate"`
 	Certificates       []Certificate        `json:"certificates"`
 	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
+	SignatureTime      *time.Time           `json:"signature_time,omitempty"`
 }
 
 type Certificate struct {
@@ -89,6 +90,18 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		return nil, fmt.Errorf("Failed to open file: %v", err)
 	}
 
+	// Parse document info from the PDF Info dictionary
+	info := rdr.Trailer().Key("Info")
+	if !info.IsNull() {
+		parseDocumentInfo(info, &documentInfo)
+	}
+
+	// Get page count from the document catalog
+	pages := rdr.Trailer().Key("Root").Key("Pages").Key("Count")
+	if !pages.IsNull() {
+		documentInfo.Pages = int(pages.Int64())
+	}
+
 	// AcroForm will contain a SigFlags value if the form contains a digital signature
 	t := rdr.Trailer().Key("Root").Key("AcroForm").Key("SigFlags")
 	if t.IsNull() {
@@ -100,9 +113,6 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		// Get the xref object Value
 		v := rdr.Resolve(x.Ptr(), x.Ptr())
 
-		// get document info
-		parseDocumentInfo(v, &documentInfo)
-
 		// We must have a Filter Adobe.PPKLite
 		if v.Key("Filter").Name() != "Adobe.PPKLite" {
 			continue
@@ -113,6 +123,14 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 			Reason:      v.Key("Reason").Text(),
 			Location:    v.Key("Location").Text(),
 			ContactInfo: v.Key("ContactInfo").Text(),
+		}
+
+		// Parse signature time if available from the signature object
+		sigTime := v.Key("M")
+		if !sigTime.IsNull() {
+			if t, err := parseDate(sigTime.Text()); err == nil {
+				signer.SignatureTime = &t
+			}
 		}
 
 		// (Required) The signature value. When ByteRange is present, the
