@@ -125,11 +125,15 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 
 	// Parse OCSP response
 	ocspStatus := make(map[string]*ocsp.Response)
+	var ocspParseErrors []string
 	for _, o := range revInfo.OCSP {
 		resp, err := ocsp.ParseResponse(o.FullBytes, nil)
 		if err != nil {
-			ocspStatus[fmt.Sprintf("%x", resp.SerialNumber)] = nil
-			return fmt.Sprintf("Failed to parse or verify OCSP response: %v", err), nil
+			// Continue processing other OCSP responses instead of failing entirely
+			// We can't get the serial number if parsing failed, so we can't store it
+			// But we should track the error for reporting
+			ocspParseErrors = append(ocspParseErrors, fmt.Sprintf("Failed to parse OCSP response: %v", err))
+			continue
 		} else {
 			ocspStatus[fmt.Sprintf("%x", resp.SerialNumber)] = resp
 		}
@@ -138,6 +142,15 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	// Build certificate chains and verify revocation status
 	var errorMsg string
 	trustedIssuer := false
+
+	// If we had OCSP parsing errors, include them in the error message
+	if len(ocspParseErrors) > 0 {
+		if len(ocspParseErrors) == 1 {
+			errorMsg = ocspParseErrors[0]
+		} else {
+			errorMsg = fmt.Sprintf("Multiple OCSP parsing errors: %v", ocspParseErrors)
+		}
+	}
 
 	// Get appropriate EKUs for certificate verification
 	verificationEKUs := getVerificationEKUs()
