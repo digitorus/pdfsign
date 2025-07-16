@@ -22,12 +22,12 @@ var (
 )
 
 func usage() {
-	flag.PrintDefaults()
-	fmt.Println("\nExample usage:")
-	fmt.Printf("\t%s -name \"Jon Doe\" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
-	fmt.Printf("\t%s -certType \"CertificationSignature\" -name \"Jon Doe\" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
-	fmt.Printf("\t%s -certType \"TimeStampSignature\" input.pdf output.pdf\n", os.Args[0])
-	fmt.Printf("\t%s verify input.pdf\n", os.Args[0])
+	fmt.Printf("Usage: %s <command> [options] <args>\n\n", os.Args[0])
+	fmt.Println("Commands:")
+	fmt.Println("  sign    Sign a PDF file")
+	fmt.Println("  verify  Verify a PDF signature")
+	fmt.Println("")
+	fmt.Printf("Use '%s <command> -h' for command-specific help\n", os.Args[0])
 	os.Exit(1)
 }
 
@@ -47,45 +47,116 @@ func parseCertType(s string) (sign.CertType, error) {
 }
 
 func main() {
-	flag.StringVar(&infoName, "name", "", "Name of the signatory")
-	flag.StringVar(&infoLocation, "location", "", "Location of the signatory")
-	flag.StringVar(&infoReason, "reason", "", "Reason for signing")
-	flag.StringVar(&infoContact, "contact", "", "Contact information for signatory")
-	flag.StringVar(&tsa, "tsa", "https://freetsa.org/tsr", "URL for Time-Stamp Authority")
-	flag.StringVar(&certType, "certType", "CertificationSignature", "Type of the certificate (CertificationSignature, ApprovalSignature, UsageRightsSignature, TimeStampSignature)")
-
-	flag.Parse()
-
-	if len(flag.Args()) < 2 {
+	if len(os.Args) < 2 {
 		usage()
 	}
 
-	method := flag.Arg(0)
-	if method != "sign" && method != "verify" {
-		usage()
-	}
-
-	input := flag.Arg(1)
-	if len(input) == 0 {
-		usage()
-	}
-
-	switch method {
-	case "verify":
-		verifyPDF(input)
+	switch os.Args[1] {
 	case "sign":
-		signPDF(input)
+		signCommand()
+	case "verify":
+		verifyCommand()
+	case "-h", "--help", "help":
+		usage()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+		usage()
 	}
 }
 
-func verifyPDF(input string) {
+func signCommand() {
+	signFlags := flag.NewFlagSet("sign", flag.ExitOnError)
+
+	signFlags.StringVar(&infoName, "name", "", "Name of the signatory")
+	signFlags.StringVar(&infoLocation, "location", "", "Location of the signatory")
+	signFlags.StringVar(&infoReason, "reason", "", "Reason for signing")
+	signFlags.StringVar(&infoContact, "contact", "", "Contact information for signatory")
+	signFlags.StringVar(&tsa, "tsa", "https://freetsa.org/tsr", "URL for Time-Stamp Authority")
+	signFlags.StringVar(&certType, "certType", "CertificationSignature", "Type of the certificate (CertificationSignature, ApprovalSignature, UsageRightsSignature, TimeStampSignature)")
+
+	signFlags.Usage = func() {
+		fmt.Printf("Usage: %s sign [options] <input.pdf> <output.pdf> <certificate.crt> <private_key.key> [chain.crt]\n\n", os.Args[0])
+		fmt.Println("Sign a PDF file with a digital signature")
+		fmt.Println("\nOptions:")
+		signFlags.PrintDefaults()
+		fmt.Println("\nExamples:")
+		fmt.Printf("  %s sign -name \"John Doe\" input.pdf output.pdf cert.crt key.key\n", os.Args[0])
+		fmt.Printf("  %s sign -certType \"TimeStampSignature\" input.pdf output.pdf\n", os.Args[0])
+	}
+
+	signFlags.Parse(os.Args[2:])
+
+	if len(signFlags.Args()) < 1 {
+		signFlags.Usage()
+		os.Exit(1)
+	}
+
+	input := signFlags.Arg(0)
+	signPDF(input, signFlags.Args())
+}
+
+func verifyCommand() {
+	verifyFlags := flag.NewFlagSet("verify", flag.ExitOnError)
+
+	// Verification options
+	var enableExternalRevocation bool
+	var requireDigitalSignatureKU bool
+	var allowNonRepudiationKU bool
+	var useEmbeddedTimestamp bool
+	var fallbackToCurrentTime bool
+	var allowEmbeddedCertificatesAsRoots bool
+	var httpTimeout time.Duration
+
+	verifyFlags.BoolVar(&enableExternalRevocation, "external", false, "Enable external OCSP and CRL checking")
+	verifyFlags.BoolVar(&requireDigitalSignatureKU, "require-digital-signature", true, "Require Digital Signature key usage in certificates")
+	verifyFlags.BoolVar(&allowNonRepudiationKU, "allow-non-repudiation", true, "Allow Non-Repudiation key usage in certificates")
+	verifyFlags.BoolVar(&useEmbeddedTimestamp, "use-embedded-timestamp", true, "Use embedded timestamp for historical validation")
+	verifyFlags.BoolVar(&fallbackToCurrentTime, "fallback-current-time", true, "Fall back to current time if embedded timestamp unavailable")
+	verifyFlags.BoolVar(&allowEmbeddedCertificatesAsRoots, "allow-embedded-roots", false, "Allow embedded certificates as trusted roots (use with caution)")
+	verifyFlags.DurationVar(&httpTimeout, "http-timeout", 10*time.Second, "Timeout for external revocation checking requests")
+
+	verifyFlags.Usage = func() {
+		fmt.Printf("Usage: %s verify [options] <input.pdf>\n\n", os.Args[0])
+		fmt.Println("Verify the digital signature of a PDF file")
+		fmt.Println("\nOptions:")
+		verifyFlags.PrintDefaults()
+		fmt.Println("\nExamples:")
+		fmt.Printf("  %s verify document.pdf\n", os.Args[0])
+		fmt.Printf("  %s verify -external -http-timeout=30s document.pdf\n", os.Args[0])
+		fmt.Printf("  %s verify -allow-embedded-roots self-signed.pdf\n", os.Args[0])
+	}
+
+	verifyFlags.Parse(os.Args[2:])
+
+	if len(verifyFlags.Args()) < 1 {
+		verifyFlags.Usage()
+		os.Exit(1)
+	}
+
+	input := verifyFlags.Arg(0)
+	verifyPDF(input, enableExternalRevocation, requireDigitalSignatureKU, allowNonRepudiationKU,
+		useEmbeddedTimestamp, fallbackToCurrentTime, allowEmbeddedCertificatesAsRoots, httpTimeout)
+}
+
+func verifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU, allowNonRepudiationKU,
+	useEmbeddedTimestamp, fallbackToCurrentTime, allowEmbeddedCertificatesAsRoots bool, httpTimeout time.Duration) {
 	inputFile, err := os.Open(input)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer inputFile.Close()
 
-	resp, err := verify.File(inputFile)
+	// Create verification options based on command-line flags
+	options := verify.DefaultVerifyOptions()
+	options.EnableExternalRevocationCheck = enableExternalRevocation
+	options.RequireDigitalSignatureKU = requireDigitalSignatureKU
+	options.AllowNonRepudiationKU = allowNonRepudiationKU
+	options.UseEmbeddedTimestamp = useEmbeddedTimestamp
+	options.FallbackToCurrentTime = fallbackToCurrentTime
+	options.AllowEmbeddedCertificatesAsRoots = allowEmbeddedCertificatesAsRoots
+	options.HTTPTimeout = httpTimeout
+
+	resp, err := verify.FileWithOptions(inputFile, options)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -99,31 +170,36 @@ func verifyPDF(input string) {
 	fmt.Println(string(jsonData))
 }
 
-func signPDF(input string) {
+func signPDF(input string, args []string) {
 	certTypeValue, err := parseCertType(certType)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	if certTypeValue == sign.TimeStampSignature {
-		output := flag.Arg(2)
-		if len(output) == 0 {
-			usage()
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "TimeStamp signing requires: input.pdf output.pdf\n")
+			os.Exit(1)
 		}
+		output := args[1]
 		timeStampPDF(input, output, tsa)
 		return
 	}
 
-	if len(flag.Args()) < 5 {
-		usage()
+	if len(args) < 4 {
+		fmt.Fprintf(os.Stderr, "Signing requires: input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n")
+		os.Exit(1)
 	}
 
-	output := flag.Arg(2)
-	if len(output) == 0 {
-		usage()
+	output := args[1]
+	certPath := args[2]
+	keyPath := args[3]
+	var chainPath string
+	if len(args) > 4 {
+		chainPath = args[4]
 	}
 
-	cert, pkey, certificateChains := loadCertificatesAndKey(flag.Arg(3), flag.Arg(4), flag.Arg(5))
+	cert, pkey, certificateChains := loadCertificatesAndKey(certPath, keyPath, chainPath)
 
 	err = sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{

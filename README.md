@@ -6,125 +6,274 @@
 [![Coverage Status](https://codecov.io/gh/digitorus/pdfsign/branch/main/graph/badge.svg)](https://codecov.io/gh/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/digitorus/pdfsign.svg)](https://pkg.go.dev/github.com/digitorus/pdfsign)
 
-This PDF signing library is written in [Go](https://go.dev). The library is in development, might not work for all PDF files and the API might change, bug reports, contributions and suggestions are welcome.
+A PDF signing and verification library written in [Go](https://go.dev). This library provides both command-line tools and Go APIs for digitally signing and verifying PDF documents.
 
 **See also our [PDFSigner](https://github.com/digitorus/pdfsigner/), a more advanced digital signature server that is using this project.**
 
-## From the command line
+## Quick Start
 
-```
-Usage of ./pdfsign:
-  -certType string
-        Type of the certificate (CertificationSignature, ApprovalSignature, UsageRightsSignature, TimeStampSignature) (default "CertificationSignature")
-  -contact string
-        Contact information for signatory
-  -location string
-        Location of the signatory
-  -name string
-        Name of the signatory
-  -reason string
-        Reason for signing
-  -tsa string
-        URL for Time-Stamp Authority (default "https://freetsa.org/tsr")
+```bash
+# Sign a PDF
+./pdfsign sign -name "John Doe" input.pdf output.pdf certificate.crt private_key.key
 
-Example usage:
-        ./pdfsign -name "Jon Doe" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]
-        ./pdfsign -certType "CertificationSignature" -name "Jon Doe" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]
-        ./pdfsign -certType "TimeStampSignature" input.pdf output.pdf
-        ./pdfsign verify input.pdf
+# Verify a PDF signature
+./pdfsign verify document.pdf
+
+# Get help for specific commands
+./pdfsign sign -h
+./pdfsign verify -h
 ```
 
-## As library
+## PDF Signing
+
+### Command Line Usage
+
+```bash
+./pdfsign sign [options] <input.pdf> <output.pdf> <certificate.crt> <private_key.key> [chain.crt]
+```
+
+### Signing Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-name` | string | | Name of the signatory |
+| `-location` | string | | Location of the signatory |
+| `-reason` | string | | Reason for signing |
+| `-contact` | string | | Contact information for signatory |
+| `-certType` | string | `CertificationSignature` | Certificate type: `CertificationSignature`, `ApprovalSignature`, `UsageRightsSignature`, `TimeStampSignature` |
+| `-tsa` | string | `https://freetsa.org/tsr` | URL for Time-Stamp Authority |
+
+### Signing Examples
+
+```bash
+# Basic signing
+./pdfsign sign -name "John Doe" input.pdf output.pdf cert.crt key.key
+
+# Signing with additional metadata
+./pdfsign sign -name "John Doe" -location "New York" -reason "Document approval" input.pdf output.pdf cert.crt key.key
+
+# Timestamp-only signature
+./pdfsign sign -certType "TimeStampSignature" input.pdf output.pdf
+```
+
+## PDF Verification
+
+### Command Line Usage
+
+```bash
+./pdfsign verify [options] <input.pdf>
+```
+
+### Verification Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-external` | bool | `false` | Enable external OCSP and CRL checking |
+| `-require-digital-signature` | bool | `true` | Require Digital Signature key usage in certificates |
+| `-allow-non-repudiation` | bool | `true` | Allow Non-Repudiation key usage in certificates |
+| `-use-embedded-timestamp` | bool | `true` | Use embedded timestamp for historical validation |
+| `-fallback-current-time` | bool | `true` | Fall back to current time if embedded timestamp unavailable |
+| `-allow-embedded-roots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
+| `-http-timeout` | duration | `10s` | Timeout for external revocation checking requests |
+
+### Verification Examples
+
+```bash
+# Basic verification
+./pdfsign verify document.pdf
+
+# Verification with external revocation checking
+./pdfsign verify -external -http-timeout=30s document.pdf
+
+# Verification allowing self-signed certificates
+./pdfsign verify -allow-embedded-roots self-signed.pdf
+```
+
+### Verification Output
+
+The verification command outputs JSON with the following key fields:
+
+| Field | Description |
+|-------|-------------|
+| `ValidSignature` | Whether the cryptographic signature is mathematically valid |
+| `TrustedIssuer` | Whether the certificate chain is trusted by system root certificates |
+| `RevokedCertificate` | Whether any certificate in the chain has been revoked |
+| `KeyUsageValid` | Whether the certificate has appropriate key usage for PDF signing |
+| `ExtKeyUsageValid` | Whether the certificate has proper Extended Key Usage (EKU) values |
+| `OCSPEmbedded` | Whether OCSP response is embedded in the PDF |
+| `OCSPExternal` | Whether external OCSP checking was performed |
+| `CRLEmbedded` | Whether CRL is embedded in the PDF |
+| `CRLExternal` | Whether external CRL checking was performed |
+| `RevocationWarning` | Human-readable warning about revocation status checking |
+
+## Go Library Usage
+
+### Basic Signing
 
 ```go
-import "github.com/digitorus/pdf"
+package main
 
-input_file, err := os.Open(input)
-if err != nil {
-    return err
-}
-defer input_file.Close()
+import (
+    "crypto"
+    "os"
+    "time"
+    
+    "github.com/digitorus/pdf"
+    "github.com/digitorus/pdfsign/sign"
+)
 
-output_file, err := os.Create(output)
-if err != nil {
-    return err
-}
-defer output_file.Close()
+func main() {
+    inputFile, err := os.Open("input.pdf")
+    if err != nil {
+        panic(err)
+    }
+    defer inputFile.Close()
 
-finfo, err := input_file.Stat()
-if err != nil {
-    return err
-}
-size := finfo.Size()
+    outputFile, err := os.Create("output.pdf")
+    if err != nil {
+        panic(err)
+    }
+    defer outputFile.Close()
 
-rdr, err := pdf.NewReader(input_file, size)
-if err != nil {
-    return err
-}
+    // Load certificate and private key
+    certificate := loadCertificate("cert.crt")
+    privateKey := loadPrivateKey("key.key")
 
-err = sign.Sign(input_file, output_file, rdr, size, sign.SignData{
-    Signature: sign.SignDataSignature{
-        Info: sign.SignDataSignatureInfo{
-            Name:        "John Doe",
-            Location:    "Somewhere on the globe",
-            Reason:      "My season for siging this document",
-            ContactInfo: "How you like",
-            Date:        time.Now().Local(),
+    err = sign.SignFile("input.pdf", "output.pdf", sign.SignData{
+        Signature: sign.SignDataSignature{
+            Info: sign.SignDataSignatureInfo{
+                Name:        "John Doe",
+                Location:    "New York",
+                Reason:      "Document approval",
+                ContactInfo: "john@example.com",
+                Date:        time.Now().Local(),
+            },
+            CertType:   sign.CertificationSignature,
+            DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
         },
-        CertType:   sign.CertificationSignature,
-        DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
-    },
-    Signer:            privateKey,         // crypto.Signer
-    DigestAlgorithm:   crypto.SHA256,      // hash algorithm for the digest creation
-    Certificate:       certificate,        // x509.Certificate
-    CertificateChains: certificate_chains, // x509.Certificate.Verify()
-    TSA: sign.TSA{
-        URL: "https://freetsa.org/tsr",
-        Username: "",
-        Password: "",
-    },
-
-    // The follow options are likely to change in a future release
-    //
-    // cache revocation data when bulk signing
-    RevocationData:     revocation.InfoArchival{}, 
-    // custom revocation lookup
-    RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,
-})
-if err != nil {
-    log.Println(err)
-} else {
-    log.Println("Signed PDF written to " + output)
+        Signer:          privateKey,
+        DigestAlgorithm: crypto.SHA256,
+        Certificate:     certificate,
+        TSA: sign.TSA{
+            URL: "https://freetsa.org/tsr",
+        },
+    })
+    if err != nil {
+        panic(err)
+    }
 }
-
 ```
 
-## Signature Appearance with Text and / or Images
-
-You can add an image (JPG or PNG) to the visible signature appearance. This is useful for including a handwritten signature or a company logo in the signature field.
-
-**Supported image formats:** JPG and PNG.
-
-### Example: Signing a PDF with a visible signature and image
+### Basic Verification
 
 ```go
-// Read the signature image file
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os"
+    
+    "github.com/digitorus/pdfsign/verify"
+)
+
+func main() {
+    file, err := os.Open("document.pdf")
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
+
+    response, err := verify.File(file)
+    if err != nil {
+        panic(err)
+    }
+
+    jsonData, _ := json.MarshalIndent(response, "", "  ")
+    fmt.Println(string(jsonData))
+}
+```
+
+### Advanced Verification with External Checking
+
+```go
+package main
+
+import (
+    "net/http"
+    "time"
+    
+    "github.com/digitorus/pdfsign/verify"
+)
+
+func main() {
+    file, err := os.Open("document.pdf")
+    if err != nil {
+        panic(err)
+    }
+    defer file.Close()
+
+    options := verify.DefaultVerifyOptions()
+    options.EnableExternalRevocationCheck = true
+    options.HTTPTimeout = 15 * time.Second
+    
+    // Optional: Custom HTTP client for proxy support
+    options.HTTPClient = &http.Client{
+        Timeout: 20 * time.Second,
+    }
+
+    response, err := verify.FileWithOptions(file, options)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Process response...
+}
+```
+
+### Library Verification Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `EnableExternalRevocationCheck` | bool | `false` | Perform OCSP and CRL checks via network requests |
+| `HTTPClient` | `*http.Client` | `nil` | Custom HTTP client for external checks (proxy support) |
+| `HTTPTimeout` | `time.Duration` | `10s` | Timeout for external revocation checking requests |
+| `RequireDigitalSignatureKU` | bool | `true` | Require Digital Signature key usage in certificates |
+| `AllowNonRepudiationKU` | bool | `true` | Allow Non-Repudiation key usage (recommended for PDF signing) |
+| `UseEmbeddedTimestamp` | bool | `true` | Use embedded timestamp for historical validation |
+| `FallbackToCurrentTime` | bool | `true` | Fall back to current time if embedded timestamp unavailable |
+| `AllowEmbeddedCertificatesAsRoots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
+
+## Signature Appearance with Images
+
+Add visible signatures with custom images to your PDF documents.
+
+### Supported Features
+
+- **Image formats**: JPG and PNG
+- **Transparency**: PNG alpha channel support
+- **Positioning**: Precise coordinate control
+- **Scaling**: Automatic aspect ratio preservation
+
+### Usage Example
+
+```go
+// Read signature image
 signatureImage, err := os.ReadFile("signature.jpg")
 if err != nil {
-    log.Fatal(err)
+    panic(err)
 }
 
-err := sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
+err = sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
     Signature: sign.SignDataSignature{
         Info: sign.SignDataSignatureInfo{
             Name:        "John Doe",
-            Location:    "Somewhere",
+            Location:    "New York",
             Reason:      "Signed with image",
-            ContactInfo: "None",
+            ContactInfo: "john@example.com",
             Date:        time.Now().Local(),
         },
-        CertType:   sign.ApprovalSignature,
-        DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
+        CertType: sign.ApprovalSignature,
     },
     Appearance: sign.Appearance{
         Visible:     true,
@@ -132,26 +281,30 @@ err := sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
         LowerLeftY:  50,
         UpperRightX: 600,
         UpperRightY: 125,
-        Image:       signatureImage, // JPG or PNG image bytes
-        // ImageAsWatermark: true,   // Optional: set to true to draw text over the image
+        Image:       signatureImage,
+        // ImageAsWatermark: true, // Optional: draw text over image
     },
     DigestAlgorithm: crypto.SHA512,
     Signer:          privateKey,
     Certificate:     certificate,
 })
-if err != nil {
-    log.Fatal(err)
-}
 ```
 
-### Key Features:
+## Limitations
 
-1. **Image Support**: Both JPG and PNG formats are supported
-2. **Flexible Positioning**: Control signature placement with LowerLeftX/Y and UpperRightX/Y coordinates
-3. **Watermark Mode**: Optional ImageAsWatermark setting allows drawing text over the image
-4. **Transparency Support**: PNG images with alpha channel (transparency) are properly handled
+### SHA1 Algorithm Support
 
-### Notes:
-- The image will be scaled to fit the signature rectangle while maintaining its aspect ratio
-- For optimal results, prepare your image with the desired dimensions and transparency before using it
-- Only visible approval signatures can include images
+**Important**: This library does not support SHA1-based cryptographic operations due to Go's security policies. SHA1 has been deprecated and is considered cryptographically insecure.
+
+**Impact on Revocation Checking**:
+- OCSP responders and CRL distribution points that use SHA1 signatures will fail verification
+- External revocation checking (`-external` flag or `EnableExternalRevocationCheck` option) may fail for certificates signed with SHA1
+- Legacy PKI infrastructure still using SHA1 may not be compatible with this library
+
+**Recommendation**: Use certificates and PKI infrastructure that support modern hash algorithms (SHA-256 or higher).
+
+## Development Status
+
+This library is under active development. The API may change and some PDF files might not work correctly. Bug reports, contributions, and suggestions are welcome.
+
+For production use, consider our [PDFSigner](https://github.com/digitorus/pdfsigner/) server solution.

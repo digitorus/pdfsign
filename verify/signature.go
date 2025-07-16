@@ -14,7 +14,7 @@ import (
 )
 
 // processSignature processes a single digital signature found in the PDF.
-func processSignature(v pdf.Value, file io.ReaderAt) (Signer, string, error) {
+func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (Signer, string, error) {
 	signer := Signer{
 		Name:        v.Key("Name").Text(),
 		Reason:      v.Key("Reason").Text(),
@@ -58,7 +58,7 @@ func processSignature(v pdf.Value, file io.ReaderAt) (Signer, string, error) {
 	var revInfo revocation.InfoArchival
 	_ = p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
-	certError, err := buildCertificateChains(p7, &signer, revInfo)
+	certError, err := buildCertificateChainsWithOptions(p7, &signer, revInfo, options)
 	if err != nil {
 		return signer, fmt.Sprintf("Failed to build certificate chains: %v", err), nil
 	}

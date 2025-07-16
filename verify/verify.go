@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -40,6 +41,18 @@ type VerifyOptions struct {
 	// WARNING: This makes signatures appear valid even if they're self-signed or from untrusted CAs
 	// Only enable this for testing or when you explicitly trust the embedded certificates
 	AllowEmbeddedCertificatesAsRoots bool
+
+	// EnableExternalRevocationCheck when true, performs external OCSP and CRL checks
+	// using the URLs found in certificate extensions
+	EnableExternalRevocationCheck bool
+
+	// HTTPClient specifies the HTTP client to use for external revocation checking
+	// If nil, http.DefaultClient will be used
+	HTTPClient *http.Client
+
+	// HTTPTimeout specifies the timeout for HTTP requests during external revocation checking
+	// If zero, a default timeout of 10 seconds will be used
+	HTTPTimeout time.Duration
 }
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -53,11 +66,14 @@ func DefaultVerifyOptions() *VerifyOptions {
 			x509.ExtKeyUsageEmailProtection, // Common alternative
 			x509.ExtKeyUsageClientAuth,      // Another common alternative
 		},
-		RequireDigitalSignatureKU:        true,  // Require Digital Signature key usage
-		AllowNonRepudiationKU:            true,  // Allow Non-Repudiation key usage
-		UseEmbeddedTimestamp:             true,  // Use embedded timestamp for accurate historical validation
-		FallbackToCurrentTime:            true,  // Fall back to current time if timestamp unavailable
-		AllowEmbeddedCertificatesAsRoots: false, // SECURE DEFAULT: Don't trust embedded certificates as roots
+		RequireDigitalSignatureKU:        true,             // Require Digital Signature key usage
+		AllowNonRepudiationKU:            true,             // Allow Non-Repudiation key usage
+		UseEmbeddedTimestamp:             true,             // Use embedded timestamp for accurate historical validation
+		FallbackToCurrentTime:            true,             // Fall back to current time if timestamp unavailable
+		AllowEmbeddedCertificatesAsRoots: false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
+		EnableExternalRevocationCheck:    false,            // SECURE DEFAULT: Don't make external network calls
+		HTTPClient:                       nil,              // Use default HTTP client
+		HTTPTimeout:                      10 * time.Second, // 10 second timeout for external checks
 	}
 }
 
@@ -82,17 +98,19 @@ type Signer struct {
 }
 
 type Certificate struct {
-	Certificate        *x509.Certificate `json:"certificate"`
-	VerifyError        string            `json:"verify_error"`
-	KeyUsageValid      bool              `json:"key_usage_valid"`
-	KeyUsageError      string            `json:"key_usage_error,omitempty"`
-	ExtKeyUsageValid   bool              `json:"ext_key_usage_valid"`
-	ExtKeyUsageError   string            `json:"ext_key_usage_error,omitempty"`
-	OCSPResponse       *ocsp.Response    `json:"ocsp_response"`
-	OCSPEmbedded       bool              `json:"ocsp_embedded"`
-	CRLRevoked         time.Time         `json:"crl_revoked"`
-	CRLEmbedded        bool              `json:"crl_embedded"`
-	RevocationWarning  string            `json:"revocation_warning,omitempty"`
+	Certificate       *x509.Certificate `json:"certificate"`
+	VerifyError       string            `json:"verify_error"`
+	KeyUsageValid     bool              `json:"key_usage_valid"`
+	KeyUsageError     string            `json:"key_usage_error,omitempty"`
+	ExtKeyUsageValid  bool              `json:"ext_key_usage_valid"`
+	ExtKeyUsageError  string            `json:"ext_key_usage_error,omitempty"`
+	OCSPResponse      *ocsp.Response    `json:"ocsp_response"`
+	OCSPEmbedded      bool              `json:"ocsp_embedded"`
+	OCSPExternal      bool              `json:"ocsp_external"`
+	CRLRevoked        time.Time         `json:"crl_revoked"`
+	CRLEmbedded       bool              `json:"crl_embedded"`
+	CRLExternal       bool              `json:"crl_external"`
+	RevocationWarning string            `json:"revocation_warning,omitempty"`
 }
 
 // DocumentInfo contains document information.
@@ -113,15 +131,23 @@ type DocumentInfo struct {
 }
 
 func File(file *os.File) (apiResp *Response, err error) {
+	return FileWithOptions(file, DefaultVerifyOptions())
+}
+
+func FileWithOptions(file *os.File, options *VerifyOptions) (apiResp *Response, err error) {
 	finfo, _ := file.Stat()
 	if _, err := file.Seek(0, 0); err != nil {
 		return nil, err
 	}
 
-	return Reader(file, finfo.Size())
+	return ReaderWithOptions(file, finfo.Size(), options)
 }
 
 func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
+	return ReaderWithOptions(file, size, DefaultVerifyOptions())
+}
+
+func ReaderWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (apiResp *Response, err error) {
 	var documentInfo DocumentInfo
 
 	defer func() {
@@ -166,7 +192,7 @@ func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 		}
 
 		// Use the new modular signature processing function
-		signer, errorMsg, err := processSignature(v, file)
+		signer, errorMsg, err := processSignature(v, file, options)
 		if err != nil {
 			// Skip this signature if there's a critical error
 			continue
