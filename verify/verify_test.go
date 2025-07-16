@@ -8,7 +8,7 @@ import (
 
 func TestFile(t *testing.T) {
 	testFilePath := filepath.Join("..", "testfiles", "testfile30.pdf")
-	
+
 	// Check if test file exists
 	if _, err := os.Stat(testFilePath); os.IsNotExist(err) {
 		t.Skipf("Test file %s does not exist", testFilePath)
@@ -65,18 +65,18 @@ func TestFile(t *testing.T) {
 			if cert.Certificate == nil {
 				t.Errorf("Signer %d, certificate %d is nil", i+1, j+1)
 			} else {
-				t.Logf("  Certificate %d: Subject=%s, Issuer=%s", j+1, 
-					cert.Certificate.Subject.String(), 
+				t.Logf("  Certificate %d: Subject=%s, Issuer=%s", j+1,
+					cert.Certificate.Subject.String(),
 					cert.Certificate.Issuer.String())
-				
+
 				if cert.VerifyError != "" {
 					t.Logf("  Certificate %d verify error: %s", j+1, cert.VerifyError)
 				}
-				
+
 				if cert.OCSPEmbedded {
 					t.Logf("  Certificate %d has embedded OCSP response", j+1)
 				}
-				
+
 				if cert.CRLEmbedded {
 					t.Logf("  Certificate %d has embedded CRL", j+1)
 				}
@@ -98,11 +98,11 @@ func TestFile(t *testing.T) {
 	t.Logf("  Subject: %s", response.DocumentInfo.Subject)
 	t.Logf("  Pages: %d", response.DocumentInfo.Pages)
 	t.Logf("  Keywords: %v", response.DocumentInfo.Keywords)
-	
+
 	if !response.DocumentInfo.CreationDate.IsZero() {
 		t.Logf("  CreationDate: %s", response.DocumentInfo.CreationDate)
 	}
-	
+
 	if !response.DocumentInfo.ModDate.IsZero() {
 		t.Logf("  ModDate: %s", response.DocumentInfo.ModDate)
 	}
@@ -110,7 +110,7 @@ func TestFile(t *testing.T) {
 
 func TestReader(t *testing.T) {
 	testFilePath := filepath.Join("..", "testfiles", "testfile30.pdf")
-	
+
 	// Check if test file exists
 	if _, err := os.Stat(testFilePath); os.IsNotExist(err) {
 		t.Skipf("Test file %s does not exist", testFilePath)
@@ -180,7 +180,7 @@ func TestFileWithInvalidFile(t *testing.T) {
 func TestFileWithUnsignedPDF(t *testing.T) {
 	// Test with a PDF that might not have signatures
 	testFilePath := filepath.Join("..", "testfiles", "testfile12.pdf")
-	
+
 	// Check if test file exists
 	if _, err := os.Stat(testFilePath); os.IsNotExist(err) {
 		t.Skipf("Test file %s does not exist", testFilePath)
