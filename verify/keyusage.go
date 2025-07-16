@@ -7,9 +7,8 @@ import (
 // validateKeyUsage validates certificate Key Usage and Extended Key Usage for PDF signing
 // according to RFC 9336 and common industry practices
 func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid bool, kuError string, ekuValid bool, ekuError string) {
-	// Validate Key Usage
+	// Validate Key Usage - start with valid assumption
 	kuValid = true
-	ekuValid = true
 
 	// Check Digital Signature bit in Key Usage
 	if options.RequireDigitalSignatureKU && (cert.KeyUsage&x509.KeyUsageDigitalSignature) == 0 {
@@ -18,10 +17,9 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 	}
 
 	// Check for Non-Repudiation (Content Commitment) if present
-	// This is optional but recommended for PDF signing
-	if options.AllowNonRepudiationKU && (cert.KeyUsage&x509.KeyUsageContentCommitment) != 0 {
-		// Non-repudiation is present and allowed - this is good
-	}
+	// This is optional but recommended for PDF signing - when present and allowed, it's beneficial
+	// but we don't need to take any specific action here
+	_ = options.AllowNonRepudiationKU && (cert.KeyUsage&x509.KeyUsageContentCommitment) != 0
 
 	// Validate Extended Key Usage
 	if len(cert.ExtKeyUsage) == 0 {
