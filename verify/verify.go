@@ -82,16 +82,17 @@ type Signer struct {
 }
 
 type Certificate struct {
-	Certificate      *x509.Certificate `json:"certificate"`
-	VerifyError      string            `json:"verify_error"`
-	KeyUsageValid    bool              `json:"key_usage_valid"`
-	KeyUsageError    string            `json:"key_usage_error,omitempty"`
-	ExtKeyUsageValid bool              `json:"ext_key_usage_valid"`
-	ExtKeyUsageError string            `json:"ext_key_usage_error,omitempty"`
-	OCSPResponse     *ocsp.Response    `json:"ocsp_response"`
-	OCSPEmbedded     bool              `json:"ocsp_embedded"`
-	CRLRevoked       time.Time         `json:"crl_revoked"`
-	CRLEmbedded      bool              `json:"crl_embedded"`
+	Certificate        *x509.Certificate `json:"certificate"`
+	VerifyError        string            `json:"verify_error"`
+	KeyUsageValid      bool              `json:"key_usage_valid"`
+	KeyUsageError      string            `json:"key_usage_error,omitempty"`
+	ExtKeyUsageValid   bool              `json:"ext_key_usage_valid"`
+	ExtKeyUsageError   string            `json:"ext_key_usage_error,omitempty"`
+	OCSPResponse       *ocsp.Response    `json:"ocsp_response"`
+	OCSPEmbedded       bool              `json:"ocsp_embedded"`
+	CRLRevoked         time.Time         `json:"crl_revoked"`
+	CRLEmbedded        bool              `json:"crl_embedded"`
+	RevocationWarning  string            `json:"revocation_warning,omitempty"`
 }
 
 // DocumentInfo contains document information.

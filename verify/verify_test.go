@@ -242,3 +242,52 @@ func TestFileWithUnsignedPDF(t *testing.T) {
 		t.Logf("Unsigned PDF test: Found %d signer(s)", len(response.Signers))
 	}
 }
+
+func TestRevocationWarnings(t *testing.T) {
+	testFilePath := filepath.Join("..", "testfiles", "testfile30.pdf")
+
+	// Check if test file exists
+	if _, err := os.Stat(testFilePath); os.IsNotExist(err) {
+		t.Skipf("Test file %s does not exist", testFilePath)
+	}
+
+	// Open the test file
+	file, err := os.Open(testFilePath)
+	if err != nil {
+		t.Fatalf("Failed to open test file: %v", err)
+	}
+	defer file.Close()
+
+	// Verify the file
+	response, err := File(file)
+	if err != nil {
+		t.Fatalf("Failed to verify file: %v", err)
+	}
+
+	// Check for revocation warnings
+	if response != nil && len(response.Signers) > 0 {
+		for i, signer := range response.Signers {
+			t.Logf("Signer %d:", i+1)
+			for j, cert := range signer.Certificates {
+				t.Logf("  Certificate %d:", j+1)
+				t.Logf("    OCSP Embedded: %v", cert.OCSPEmbedded)
+				t.Logf("    CRL Embedded: %v", cert.CRLEmbedded)
+				if cert.RevocationWarning != "" {
+					t.Logf("    Revocation Warning: %s", cert.RevocationWarning)
+				}
+				
+				// Check that warning logic is working
+				hasRevocationInfo := cert.OCSPEmbedded || cert.CRLEmbedded
+				hasOCSPUrl := len(cert.Certificate.OCSPServer) > 0
+				hasCRLUrl := len(cert.Certificate.CRLDistributionPoints) > 0
+				canCheckExternally := hasOCSPUrl || hasCRLUrl
+				
+				if !hasRevocationInfo && !canCheckExternally {
+					if cert.RevocationWarning == "" {
+						t.Errorf("Expected revocation warning for certificate %d with no revocation info and no external URLs", j+1)
+					}
+				}
+			}
+		}
+	}
+}

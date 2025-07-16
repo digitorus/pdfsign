@@ -53,16 +53,36 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		}
 	}
 
+	// Parse CRL responses
+	crlStatus := make(map[string]bool) // map[serial]isRevoked
+	var crlParseErrors []string
+	for _, c := range revInfo.CRL {
+		crl, err := x509.ParseRevocationList(c.FullBytes)
+		if err != nil {
+			crlParseErrors = append(crlParseErrors, fmt.Sprintf("Failed to parse CRL: %v", err))
+			continue
+		}
+		
+		// Check all revoked certificates in this CRL
+		for _, revokedCert := range crl.RevokedCertificateEntries {
+			crlStatus[fmt.Sprintf("%x", revokedCert.SerialNumber)] = true
+		}
+	}
+
 	// Build certificate chains and verify revocation status
 	var errorMsg string
 	trustedIssuer := false
 
-	// If we had OCSP parsing errors, include them in the error message
-	if len(ocspParseErrors) > 0 {
-		if len(ocspParseErrors) == 1 {
-			errorMsg = ocspParseErrors[0]
+	// If we had parsing errors, include them in the error message
+	var parseErrors []string
+	parseErrors = append(parseErrors, ocspParseErrors...)
+	parseErrors = append(parseErrors, crlParseErrors...)
+	
+	if len(parseErrors) > 0 {
+		if len(parseErrors) == 1 {
+			errorMsg = parseErrors[0]
 		} else {
-			errorMsg = fmt.Sprintf("Multiple OCSP parsing errors: %v", ocspParseErrors)
+			errorMsg = fmt.Sprintf("Multiple parsing errors: %v", parseErrors)
 		}
 	}
 
@@ -141,6 +161,42 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 						errorMsg = fmt.Sprintf("Failed to verify OCSP response signature: %v", err)
 					}
 				}
+			}
+		}
+
+		// Check CRL status
+		serialStr := fmt.Sprintf("%x", cert.SerialNumber)
+		if isRevoked, ok := crlStatus[serialStr]; ok && isRevoked {
+			c.CRLEmbedded = true
+			signer.RevokedCertificate = true
+		} else if len(revInfo.CRL) > 0 {
+			// CRL is embedded but this certificate is not in it (so it's not revoked via CRL)
+			c.CRLEmbedded = true
+		}
+
+		// Generate revocation warnings
+		hasOCSP := c.OCSPEmbedded
+		hasCRL := c.CRLEmbedded
+		hasRevocationInfo := hasOCSP || hasCRL
+		
+		// Check if certificate has revocation distribution points
+		hasOCSPUrl := len(cert.OCSPServer) > 0
+		hasCRLUrl := len(cert.CRLDistributionPoints) > 0
+		canCheckExternally := hasOCSPUrl || hasCRLUrl
+
+		if !hasRevocationInfo {
+			if canCheckExternally {
+				c.RevocationWarning = "No embedded revocation status found. Certificate has distribution points but external checking is not performed."
+			} else {
+				c.RevocationWarning = "No revocation status available. Certificate has no embedded OCSP/CRL and no distribution points for external checking."
+			}
+		} else if !hasOCSP && hasOCSPUrl {
+			c.RevocationWarning = "No embedded OCSP response found, but certificate has OCSP URL for external checking."
+		} else if !hasCRL && hasCRLUrl {
+			if c.RevocationWarning != "" {
+				c.RevocationWarning += " No embedded CRL found, but certificate has CRL distribution points for external checking."
+			} else {
+				c.RevocationWarning = "No embedded CRL found, but certificate has CRL distribution points for external checking."
 			}
 		}
 
