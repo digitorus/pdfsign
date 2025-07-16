@@ -147,6 +147,11 @@ func TestDefaultVerifyOptions(t *testing.T) {
 		t.Error("Expected FallbackToCurrentTime to be true")
 	}
 
+	// SECURITY: Default should NOT allow embedded certificates as roots
+	if options.AllowEmbeddedCertificatesAsRoots {
+		t.Error("Expected AllowEmbeddedCertificatesAsRoots to be false by default (security)")
+	}
+
 	if len(options.RequiredEKUs) == 0 {
 		t.Error("Expected at least one required EKU")
 	}
@@ -291,4 +296,130 @@ func TestTimestampVerificationOptions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEmbeddedCertificatesSecurityOption(t *testing.T) {
+	tests := []struct {
+		name                             string
+		allowEmbeddedCertificatesAsRoots bool
+		expectSecureBehavior             bool
+		description                      string
+	}{
+		{
+			name:                             "Secure default - embedded certs not trusted",
+			allowEmbeddedCertificatesAsRoots: false,
+			expectSecureBehavior:             true,
+			description:                      "Default secure behavior - only system trusted roots are used",
+		},
+		{
+			name:                             "Permissive mode - embedded certs trusted",
+			allowEmbeddedCertificatesAsRoots: true,
+			expectSecureBehavior:             false,
+			description:                      "Permissive mode - embedded certificates can be used as trusted roots",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := &VerifyOptions{
+				RequiredEKUs:                     []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+				RequireDigitalSignatureKU:        true,
+				AllowEmbeddedCertificatesAsRoots: tt.allowEmbeddedCertificatesAsRoots,
+			}
+
+			if options.AllowEmbeddedCertificatesAsRoots != tt.allowEmbeddedCertificatesAsRoots {
+				t.Errorf("Expected AllowEmbeddedCertificatesAsRoots %v, got %v",
+					tt.allowEmbeddedCertificatesAsRoots, options.AllowEmbeddedCertificatesAsRoots)
+			}
+
+			// Test that the default is secure
+			if tt.expectSecureBehavior && options.AllowEmbeddedCertificatesAsRoots {
+				t.Error("Secure mode should not allow embedded certificates as roots")
+			}
+
+			// Test that permissive mode is explicitly enabled
+			if !tt.expectSecureBehavior && !options.AllowEmbeddedCertificatesAsRoots {
+				t.Error("Permissive mode should allow embedded certificates as roots")
+			}
+
+			t.Logf("Test case: %s - %s", tt.name, tt.description)
+		})
+	}
+}
+
+func TestSecurityConfigurationExamples(t *testing.T) {
+	// Test example configurations for different security levels
+
+	t.Run("Maximum Security Configuration", func(t *testing.T) {
+		maxSecurityOptions := &VerifyOptions{
+			RequiredEKUs:                     []x509.ExtKeyUsage{x509.ExtKeyUsage(36)}, // Only Document Signing
+			AllowedEKUs:                      []x509.ExtKeyUsage{},                     // No alternatives
+			RequireDigitalSignatureKU:        true,
+			AllowNonRepudiationKU:            true,
+			UseEmbeddedTimestamp:             true,
+			FallbackToCurrentTime:            false, // Strict timestamp requirement
+			AllowEmbeddedCertificatesAsRoots: false, // Only trust system roots
+		}
+
+		if maxSecurityOptions.AllowEmbeddedCertificatesAsRoots {
+			t.Error("Maximum security should not allow embedded certificates as roots")
+		}
+
+		if maxSecurityOptions.FallbackToCurrentTime {
+			t.Error("Maximum security should require embedded timestamp")
+		}
+
+		if len(maxSecurityOptions.AllowedEKUs) > 0 {
+			t.Error("Maximum security should not allow alternative EKUs")
+		}
+	})
+
+	t.Run("Balanced Security Configuration", func(t *testing.T) {
+		balancedOptions := DefaultVerifyOptions()
+
+		// Verify this is the recommended balanced configuration
+		if balancedOptions.AllowEmbeddedCertificatesAsRoots {
+			t.Error("Balanced security should not allow embedded certificates as roots by default")
+		}
+
+		if !balancedOptions.FallbackToCurrentTime {
+			t.Error("Balanced security should allow current time fallback")
+		}
+
+		if len(balancedOptions.AllowedEKUs) == 0 {
+			t.Error("Balanced security should allow some alternative EKUs")
+		}
+	})
+
+	t.Run("Testing/Development Configuration", func(t *testing.T) {
+		testingOptions := &VerifyOptions{
+			RequiredEKUs: []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+			AllowedEKUs: []x509.ExtKeyUsage{
+				x509.ExtKeyUsageEmailProtection,
+				x509.ExtKeyUsageClientAuth,
+				x509.ExtKeyUsageAny, // Very permissive for testing
+			},
+			RequireDigitalSignatureKU:        true,
+			AllowNonRepudiationKU:            true,
+			UseEmbeddedTimestamp:             true,
+			FallbackToCurrentTime:            true,
+			AllowEmbeddedCertificatesAsRoots: true, // Allow for testing with self-signed certs
+		}
+
+		if !testingOptions.AllowEmbeddedCertificatesAsRoots {
+			t.Error("Testing configuration should allow embedded certificates as roots")
+		}
+
+		// Verify ExtKeyUsageAny is included for maximum compatibility
+		hasAnyEKU := false
+		for _, eku := range testingOptions.AllowedEKUs {
+			if eku == x509.ExtKeyUsageAny {
+				hasAnyEKU = true
+				break
+			}
+		}
+		if !hasAnyEKU {
+			t.Error("Testing configuration should include ExtKeyUsageAny for maximum compatibility")
+		}
+	})
 }

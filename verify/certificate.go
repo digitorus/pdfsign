@@ -197,17 +197,22 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			// Successfully verified against system trusted roots
 			trustedIssuer = true
 		} else {
-			// If verification fails with system roots, try with embedded certificates as roots
-			altChain, verifyErr := cert.Verify(createVerifyOptions(certPool, certPool))
+			// If verification fails with system roots, only try embedded certificates if explicitly allowed
+			if options.AllowEmbeddedCertificatesAsRoots {
+				altChain, verifyErr := cert.Verify(createVerifyOptions(certPool, certPool))
 
-			// If embedded cert verification fails, record the original system root error
-			if verifyErr != nil {
-				c.VerifyError = err.Error()
+				// If embedded cert verification fails, record the original system root error
+				if verifyErr != nil {
+					c.VerifyError = err.Error()
+				} else {
+					// Successfully verified with embedded certificates (self-signed or private CA)
+					chain = altChain
+					err = nil
+					// Note: trustedIssuer remains false as this wasn't verified against public CAs
+				}
 			} else {
-				// Successfully verified with embedded certificates (self-signed or private CA)
-				chain = altChain
-				err = nil
-				// Note: trustedIssuer remains false as this wasn't verified against public CAs
+				// Don't try embedded certificates - record the system root verification error
+				c.VerifyError = err.Error()
 			}
 		}
 

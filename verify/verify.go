@@ -35,6 +35,11 @@ type VerifyOptions struct {
 	// FallbackToCurrentTime when true, falls back to current time if embedded timestamp
 	// is not available or invalid. If false, validation fails when timestamp is required but missing.
 	FallbackToCurrentTime bool
+
+	// AllowEmbeddedCertificatesAsRoots when true, allows using embedded certificates as trusted roots
+	// WARNING: This makes signatures appear valid even if they're self-signed or from untrusted CAs
+	// Only enable this for testing or when you explicitly trust the embedded certificates
+	AllowEmbeddedCertificatesAsRoots bool
 }
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -48,10 +53,11 @@ func DefaultVerifyOptions() *VerifyOptions {
 			x509.ExtKeyUsageEmailProtection, // Common alternative
 			x509.ExtKeyUsageClientAuth,      // Another common alternative
 		},
-		RequireDigitalSignatureKU: true,
-		AllowNonRepudiationKU:     true,
-		UseEmbeddedTimestamp:      true, // Use embedded timestamp for accurate historical validation
-		FallbackToCurrentTime:     true, // Fall back to current time if timestamp unavailable
+		RequireDigitalSignatureKU:        true,  // Require Digital Signature key usage
+		AllowNonRepudiationKU:            true,  // Allow Non-Repudiation key usage
+		UseEmbeddedTimestamp:             true,  // Use embedded timestamp for accurate historical validation
+		FallbackToCurrentTime:            true,  // Fall back to current time if timestamp unavailable
+		AllowEmbeddedCertificatesAsRoots: false, // SECURE DEFAULT: Don't trust embedded certificates as roots
 	}
 }
 
