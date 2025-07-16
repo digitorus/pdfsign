@@ -70,7 +70,7 @@ func parseDate(v string) (time.Time, error) {
 func parseKeywords(value string) []string {
 	// keywords must be separated by commas or semicolons or could be just separated with spaces, after the semicolon could be a space
 	// https://stackoverflow.com/questions/44608608/the-separator-between-keywords-in-pdf-meta-data
-	separators := []string{", ", ": ", ",", ":", " "}
+	separators := []string{", ", ": ", ",", ":", " ", "; ", ";", " ;"}
 	for _, s := range separators {
 		if strings.Contains(value, s) {
 			return strings.Split(value, s)
