@@ -41,6 +41,43 @@ func TestFile(t *testing.T) {
 		t.Fatal("No signers found in the document")
 	}
 
+	validSignatureFound := false
+	for i, signer := range response.Signers {
+		if signer.ValidSignature {
+			validSignatureFound = true
+		}
+		if signer.SignatureTime == nil {
+			t.Errorf("Signer %d missing signature time", i+1)
+		}
+		if len(signer.Certificates) == 0 {
+			t.Errorf("Signer %d has no certificates", i+1)
+		}
+	}
+	if !validSignatureFound {
+		t.Error("No valid signatures found in signers")
+	}
+
+	// Document info checks
+	info := response.DocumentInfo
+	if info.Author == "" {
+		t.Error("DocumentInfo.Author is empty")
+	}
+	if info.Creator == "" {
+		t.Error("DocumentInfo.Creator is empty")
+	}
+	if info.Producer == "" {
+		t.Error("DocumentInfo.Producer is empty")
+	}
+	if info.Pages <= 0 {
+		t.Error("DocumentInfo.Pages is zero or negative")
+	}
+	if info.CreationDate.IsZero() {
+		t.Error("DocumentInfo.CreationDate is zero")
+	}
+	if info.ModDate.IsZero() {
+		t.Error("DocumentInfo.ModDate is zero")
+	}
+
 	t.Logf("Found %d signer(s)", len(response.Signers))
 
 	// Validate each signer
