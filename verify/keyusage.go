@@ -16,10 +16,15 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 		kuError = "certificate does not have Digital Signature key usage"
 	}
 
-	// Check for Non-Repudiation (Content Commitment) if present
-	// This is optional but recommended for PDF signing - when present and allowed, it's beneficial
-	// but we don't need to take any specific action here
-	_ = options.AllowNonRepudiationKU && (cert.KeyUsage&x509.KeyUsageContentCommitment) != 0
+	// Check for Non-Repudiation (Content Commitment) if required
+	if options.RequireNonRepudiation && (cert.KeyUsage&x509.KeyUsageContentCommitment) == 0 {
+		kuValid = false
+		if kuError != "" {
+			kuError += "; certificate does not have Non-Repudiation key usage"
+		} else {
+			kuError = "certificate does not have Non-Repudiation key usage"
+		}
+	}
 
 	// Validate Extended Key Usage
 	if len(cert.ExtKeyUsage) == 0 {
@@ -60,15 +65,6 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 		}
 	}
 
-	// Check for ExtKeyUsageAny which is too permissive for PDF signing
-	hasAnyEKU := false
-	for _, certEKU := range cert.ExtKeyUsage {
-		if certEKU == x509.ExtKeyUsageAny {
-			hasAnyEKU = true
-			break
-		}
-	}
-
 	// Determine EKU validity
 	if hasRequiredEKU {
 		// Has a required EKU - this is the best case
@@ -79,10 +75,6 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 		if len(options.RequiredEKUs) > 0 {
 			ekuError = "certificate uses acceptable but not preferred Extended Key Usage"
 		}
-	} else if hasAnyEKU {
-		// Has ExtKeyUsageAny - warn but don't fail for backward compatibility
-		ekuValid = true
-		ekuError = "certificate uses ExtKeyUsageAny which is too permissive for PDF signing"
 	} else {
 		// No suitable EKU found
 		ekuValid = false
@@ -93,12 +85,11 @@ func validateKeyUsage(cert *x509.Certificate, options *VerifyOptions) (kuValid b
 }
 
 // getVerificationEKUs returns the appropriate Extended Key Usages for certificate verification
-// Includes Document Signing EKU and common alternatives
+// Includes Document Signing EKU and common alternatives (ExtKeyUsageAny removed as it makes others redundant)
 func getVerificationEKUs() []x509.ExtKeyUsage {
 	return []x509.ExtKeyUsage{
 		x509.ExtKeyUsage(36),            // Document Signing EKU (1.3.6.1.5.5.7.3.36) per RFC 9336
 		x509.ExtKeyUsageEmailProtection, // Email Protection (1.3.6.1.5.5.7.3.4) - common alternative
 		x509.ExtKeyUsageClientAuth,      // Client Authentication (1.3.6.1.5.5.7.3.2) - another alternative
-		x509.ExtKeyUsageAny,             // Any EKU - for backward compatibility (less secure)
 	}
 }

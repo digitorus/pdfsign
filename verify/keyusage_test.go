@@ -54,15 +54,6 @@ func TestValidateKeyUsage(t *testing.T) {
 			ekuError:    "certificate uses acceptable but not preferred Extended Key Usage",
 		},
 		{
-			name:        "ExtKeyUsageAny (too permissive)",
-			keyUsage:    x509.KeyUsageDigitalSignature,
-			extKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-			options:     DefaultVerifyOptions(),
-			expectKU:    true,
-			expectEKU:   true,
-			ekuError:    "certificate uses ExtKeyUsageAny which is too permissive for PDF signing",
-		},
-		{
 			name:        "Missing digital signature KU",
 			keyUsage:    x509.KeyUsageKeyEncipherment,
 			extKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsage(36)}, // Document Signing EKU
@@ -70,6 +61,15 @@ func TestValidateKeyUsage(t *testing.T) {
 			expectKU:    false,
 			expectEKU:   true,
 			kuError:     "certificate does not have Digital Signature key usage",
+		},
+		{
+			name:        "ExtKeyUsageAny (no longer allowed by default)",
+			keyUsage:    x509.KeyUsageDigitalSignature,
+			extKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+			options:     DefaultVerifyOptions(),
+			expectKU:    true,
+			expectEKU:   false,
+			ekuError:    "certificate does not have suitable Extended Key Usage for PDF signing",
 		},
 		{
 			name:        "Invalid EKU",
@@ -88,6 +88,47 @@ func TestValidateKeyUsage(t *testing.T) {
 			expectKU:    true,
 			expectEKU:   false,
 			ekuError:    "certificate has no Extended Key Usage extension",
+		},
+		{
+			name:        "Required non-repudiation - present",
+			keyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment,
+			extKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsage(36)}, // Document Signing EKU
+			options: &VerifyOptions{
+				RequiredEKUs:              []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+				AllowedEKUs:               []x509.ExtKeyUsage{},
+				RequireDigitalSignatureKU: true,
+				RequireNonRepudiation:     true,
+			},
+			expectKU:  true,
+			expectEKU: true,
+		},
+		{
+			name:        "Required non-repudiation - missing",
+			keyUsage:    x509.KeyUsageDigitalSignature,            // Missing ContentCommitment
+			extKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsage(36)}, // Document Signing EKU
+			options: &VerifyOptions{
+				RequiredEKUs:              []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+				AllowedEKUs:               []x509.ExtKeyUsage{},
+				RequireDigitalSignatureKU: true,
+				RequireNonRepudiation:     true,
+			},
+			expectKU:  false,
+			expectEKU: true,
+			kuError:   "certificate does not have Non-Repudiation key usage",
+		},
+		{
+			name:        "Both digital signature and non-repudiation missing",
+			keyUsage:    x509.KeyUsageKeyEncipherment,             // Missing both
+			extKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsage(36)}, // Document Signing EKU
+			options: &VerifyOptions{
+				RequiredEKUs:              []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+				AllowedEKUs:               []x509.ExtKeyUsage{},
+				RequireDigitalSignatureKU: true,
+				RequireNonRepudiation:     true,
+			},
+			expectKU:  false,
+			expectEKU: true,
+			kuError:   "certificate does not have Digital Signature key usage; certificate does not have Non-Repudiation key usage",
 		},
 	}
 
@@ -135,8 +176,8 @@ func TestDefaultVerifyOptions(t *testing.T) {
 		t.Error("Expected RequireDigitalSignatureKU to be true")
 	}
 
-	if !options.AllowNonRepudiationKU {
-		t.Error("Expected AllowNonRepudiationKU to be true")
+	if options.RequireNonRepudiation {
+		t.Error("Expected RequireNonRepudiation to be false by default (optional)")
 	}
 
 	if options.UseSignatureTimeAsFallback {
@@ -198,7 +239,6 @@ func TestGetVerificationEKUs(t *testing.T) {
 	hasDocumentSigning := false
 	hasEmailProtection := false
 	hasClientAuth := false
-	hasAny := false
 
 	for _, eku := range ekus {
 		switch eku {
@@ -209,7 +249,7 @@ func TestGetVerificationEKUs(t *testing.T) {
 		case x509.ExtKeyUsageClientAuth:
 			hasClientAuth = true
 		case x509.ExtKeyUsageAny:
-			hasAny = true
+			t.Error("ExtKeyUsageAny should no longer be included as it makes other EKUs redundant")
 		}
 	}
 
@@ -222,8 +262,10 @@ func TestGetVerificationEKUs(t *testing.T) {
 	if !hasClientAuth {
 		t.Error("Expected Client Auth EKU")
 	}
-	if !hasAny {
-		t.Error("Expected ExtKeyUsageAny for backward compatibility")
+
+	// Verify we have exactly 3 EKUs (no ExtKeyUsageAny)
+	if len(ekus) != 3 {
+		t.Errorf("Expected exactly 3 EKUs, got %d", len(ekus))
 	}
 }
 
@@ -354,7 +396,7 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			RequiredEKUs:                     []x509.ExtKeyUsage{x509.ExtKeyUsage(36)}, // Only Document Signing
 			AllowedEKUs:                      []x509.ExtKeyUsage{},                     // No alternatives
 			RequireDigitalSignatureKU:        true,
-			AllowNonRepudiationKU:            true,
+			RequireNonRepudiation:            true,  // Require highest security
 			UseSignatureTimeAsFallback:       false, // Don't trust signatory-provided time
 			ValidateTimestampCertificates:    true,  // Always validate timestamp certs
 			AllowEmbeddedCertificatesAsRoots: false, // Only trust system roots
@@ -399,8 +441,8 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 				x509.ExtKeyUsageAny, // Very permissive for testing
 			},
 			RequireDigitalSignatureKU:        true,
-			AllowNonRepudiationKU:            true,
-			UseSignatureTimeAsFallback:       true, // Allow fallback for testing
+			RequireNonRepudiation:            false, // Optional for testing
+			UseSignatureTimeAsFallback:       true,  // Allow fallback for testing
 			ValidateTimestampCertificates:    true,
 			AllowEmbeddedCertificatesAsRoots: true, // Allow for testing with self-signed certs
 		}

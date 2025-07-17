@@ -26,8 +26,8 @@ type VerifyOptions struct {
 	// RequireDigitalSignatureKU requires the Digital Signature bit in Key Usage
 	RequireDigitalSignatureKU bool
 
-	// AllowNonRepudiationKU allows the Non-Repudiation bit in Key Usage (optional but recommended)
-	AllowNonRepudiationKU bool
+	// RequireNonRepudiation requires the Non-Repudiation bit in Key Usage (mandatory for highest security)
+	RequireNonRepudiation bool
 
 	// UseSignatureTimeAsFallback when true, allows using the embedded signature time as fallback
 	// if no trusted timestamp is available. This time is provided by the signatory and should
@@ -68,7 +68,7 @@ func DefaultVerifyOptions() *VerifyOptions {
 			x509.ExtKeyUsageClientAuth,      // Another common alternative
 		},
 		RequireDigitalSignatureKU:        true,             // Require Digital Signature key usage
-		AllowNonRepudiationKU:            true,             // Allow Non-Repudiation key usage
+		RequireNonRepudiation:            false,            // Don't require Non-Repudiation by default (optional)
 		UseSignatureTimeAsFallback:       false,            // Don't use untrusted signature time by default
 		ValidateTimestampCertificates:    true,             // Always validate timestamp certificates
 		AllowEmbeddedCertificatesAsRoots: false,            // SECURE DEFAULT: Don't trust embedded certificates as roots

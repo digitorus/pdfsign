@@ -70,7 +70,7 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 |--------|------|---------|-------------|
 | `-external` | bool | `false` | Enable external OCSP and CRL checking |
 | `-require-digital-signature` | bool | `true` | Require Digital Signature key usage in certificates |
-| `-allow-non-repudiation` | bool | `true` | Allow Non-Repudiation key usage in certificates |
+| `-require-non-repudiation` | bool | `false` | Require Non-Repudiation key usage in certificates (for highest security) |
 | `-use-signature-time-fallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted) |
 | `-validate-timestamp-certs` | bool | `true` | Validate timestamp token certificates |
 | `-allow-embedded-roots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
@@ -87,6 +87,9 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 
 # Verification allowing untrusted signature time as fallback
 ./pdfsign verify -use-signature-time-fallback document.pdf
+
+# Highest security verification (requires Non-Repudiation key usage)
+./pdfsign verify -require-non-repudiation -external document.pdf
 
 # Verification allowing self-signed certificates
 ./pdfsign verify -allow-embedded-roots self-signed.pdf

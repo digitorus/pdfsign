@@ -101,7 +101,7 @@ func verifyCommand() {
 	// Verification options
 	var enableExternalRevocation bool
 	var requireDigitalSignatureKU bool
-	var allowNonRepudiationKU bool
+	var requireNonRepudiation bool
 	var useSignatureTimeAsFallback bool
 	var validateTimestampCertificates bool
 	var allowEmbeddedCertificatesAsRoots bool
@@ -109,7 +109,7 @@ func verifyCommand() {
 
 	verifyFlags.BoolVar(&enableExternalRevocation, "external", false, "Enable external OCSP and CRL checking")
 	verifyFlags.BoolVar(&requireDigitalSignatureKU, "require-digital-signature", true, "Require Digital Signature key usage in certificates")
-	verifyFlags.BoolVar(&allowNonRepudiationKU, "allow-non-repudiation", true, "Allow Non-Repudiation key usage in certificates")
+	verifyFlags.BoolVar(&requireNonRepudiation, "require-non-repudiation", false, "Require Non-Repudiation key usage in certificates (for highest security)")
 	verifyFlags.BoolVar(&useSignatureTimeAsFallback, "use-signature-time-fallback", false, "Use signature time as fallback if no timestamp (untrusted)")
 	verifyFlags.BoolVar(&validateTimestampCertificates, "validate-timestamp-certs", true, "Validate timestamp token certificates")
 	verifyFlags.BoolVar(&allowEmbeddedCertificatesAsRoots, "allow-embedded-roots", false, "Allow embedded certificates as trusted roots (use with caution)")
@@ -134,11 +134,11 @@ func verifyCommand() {
 	}
 
 	input := verifyFlags.Arg(0)
-	verifyPDF(input, enableExternalRevocation, requireDigitalSignatureKU, allowNonRepudiationKU,
+	verifyPDF(input, enableExternalRevocation, requireDigitalSignatureKU, requireNonRepudiation,
 		useSignatureTimeAsFallback, validateTimestampCertificates, allowEmbeddedCertificatesAsRoots, httpTimeout)
 }
 
-func verifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU, allowNonRepudiationKU,
+func verifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU, requireNonRepudiation,
 	useSignatureTimeAsFallback, validateTimestampCertificates, allowEmbeddedCertificatesAsRoots bool, httpTimeout time.Duration) {
 	inputFile, err := os.Open(input)
 	if err != nil {
@@ -150,7 +150,7 @@ func verifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU
 	options := verify.DefaultVerifyOptions()
 	options.EnableExternalRevocationCheck = enableExternalRevocation
 	options.RequireDigitalSignatureKU = requireDigitalSignatureKU
-	options.AllowNonRepudiationKU = allowNonRepudiationKU
+	options.RequireNonRepudiation = requireNonRepudiation
 	options.UseSignatureTimeAsFallback = useSignatureTimeAsFallback
 	options.ValidateTimestampCertificates = validateTimestampCertificates
 	options.AllowEmbeddedCertificatesAsRoots = allowEmbeddedCertificatesAsRoots
