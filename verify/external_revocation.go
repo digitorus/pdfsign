@@ -11,36 +11,35 @@ import (
 	"golang.org/x/crypto/ocsp"
 )
 
-
 // OCSPRequestFunc allows mocking OCSP request creation for tests
 type OCSPRequestFunc func(cert, issuer *x509.Certificate) ([]byte, error)
 
 // performExternalOCSPCheck performs an external OCSP check for the given certificate
 func performExternalOCSPCheck(cert, issuer *x509.Certificate, options *VerifyOptions) (*ocsp.Response, error) {
-   return performExternalOCSPCheckWithFunc(cert, issuer, options, nil)
+	return performExternalOCSPCheckWithFunc(cert, issuer, options, nil)
 }
 
 // performExternalOCSPCheckWithFunc allows injecting a custom OCSP request function for testing
 func performExternalOCSPCheckWithFunc(cert, issuer *x509.Certificate, options *VerifyOptions, ocspRequestFunc OCSPRequestFunc) (*ocsp.Response, error) {
-   if !options.EnableExternalRevocationCheck {
-	   return nil, fmt.Errorf("external revocation checking is disabled")
-   }
+	if !options.EnableExternalRevocationCheck {
+		return nil, fmt.Errorf("external revocation checking is disabled")
+	}
 
-   if len(cert.OCSPServer) == 0 {
-	   return nil, fmt.Errorf("certificate has no OCSP server URLs")
-   }
+	if len(cert.OCSPServer) == 0 {
+		return nil, fmt.Errorf("certificate has no OCSP server URLs")
+	}
 
-   // Create OCSP request (use injected func if provided)
-   var ocspReq []byte
-   var err error
-   if ocspRequestFunc != nil {
-	   ocspReq, err = ocspRequestFunc(cert, issuer)
-   } else {
-	   ocspReq, err = ocsp.CreateRequest(cert, issuer, nil)
-   }
-   if err != nil {
-	   return nil, fmt.Errorf("failed to create OCSP request: %v", err)
-   }
+	// Create OCSP request (use injected func if provided)
+	var ocspReq []byte
+	var err error
+	if ocspRequestFunc != nil {
+		ocspReq, err = ocspRequestFunc(cert, issuer)
+	} else {
+		ocspReq, err = ocsp.CreateRequest(cert, issuer, nil)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OCSP request: %v", err)
+	}
 
 	// Get HTTP client with timeout
 	client := options.HTTPClient

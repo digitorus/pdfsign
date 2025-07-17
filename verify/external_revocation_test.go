@@ -132,43 +132,43 @@ func TestPerformExternalOCSPCheck(t *testing.T) {
 		},
 	}
 
-   for _, tt := range tests {
-	   t.Run(tt.name, func(t *testing.T) {
-		   var server *httptest.Server
-		   var serverURL string
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var server *httptest.Server
+			var serverURL string
 
-		   if tt.setupServer != nil {
-			   server = tt.setupServer()
-			   defer server.Close()
-			   serverURL = server.URL
-		   }
+			if tt.setupServer != nil {
+				server = tt.setupServer()
+				defer server.Close()
+				serverURL = server.URL
+			}
 
-		   options := tt.setupOptions(serverURL)
-		   testCert := tt.setupCert(serverURL)
+			options := tt.setupOptions(serverURL)
+			testCert := tt.setupCert(serverURL)
 
-		   // Use a mock OCSP request function for all cases except those that expect error due to disabled/external
-		   var ocspRequestFunc OCSPRequestFunc
-		   if tt.name != "External revocation disabled" && tt.name != "No OCSP server URLs" {
-			   ocspRequestFunc = func(cert, issuer *x509.Certificate) ([]byte, error) {
-				   return []byte("dummy-ocsp-request"), nil
-			   }
-		   }
+			// Use a mock OCSP request function for all cases except those that expect error due to disabled/external
+			var ocspRequestFunc OCSPRequestFunc
+			if tt.name != "External revocation disabled" && tt.name != "No OCSP server URLs" {
+				ocspRequestFunc = func(cert, issuer *x509.Certificate) ([]byte, error) {
+					return []byte("dummy-ocsp-request"), nil
+				}
+			}
 
-		   _, err := performExternalOCSPCheckWithFunc(testCert, issuer, options, ocspRequestFunc)
+			_, err := performExternalOCSPCheckWithFunc(testCert, issuer, options, ocspRequestFunc)
 
-		   if tt.expectError {
-			   if err == nil {
-				   t.Error("Expected error but got none")
-			   } else if tt.errorContains != "" && !containsString(err.Error(), tt.errorContains) {
-				   t.Errorf("Expected error to contain '%s', got: %v", tt.errorContains, err)
-			   }
-		   } else {
-			   if err != nil {
-				   t.Errorf("Unexpected error: %v", err)
-			   }
-		   }
-	   })
-   }
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				} else if tt.errorContains != "" && !containsString(err.Error(), tt.errorContains) {
+					t.Errorf("Expected error to contain '%s', got: %v", tt.errorContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
 }
 
 func TestPerformExternalCRLCheck(t *testing.T) {
