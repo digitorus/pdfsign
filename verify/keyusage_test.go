@@ -139,12 +139,12 @@ func TestDefaultVerifyOptions(t *testing.T) {
 		t.Error("Expected AllowNonRepudiationKU to be true")
 	}
 
-	if !options.UseEmbeddedTimestamp {
-		t.Error("Expected UseEmbeddedTimestamp to be true")
+	if options.UseSignatureTimeAsFallback {
+		t.Error("Expected UseSignatureTimeAsFallback to be false by default (secure)")
 	}
 
-	if !options.FallbackToCurrentTime {
-		t.Error("Expected FallbackToCurrentTime to be true")
+	if !options.ValidateTimestampCertificates {
+		t.Error("Expected ValidateTimestampCertificates to be true")
 	}
 
 	// SECURITY: Default should NOT allow embedded certificates as roots
@@ -229,51 +229,50 @@ func TestGetVerificationEKUs(t *testing.T) {
 
 func TestTimestampVerificationOptions(t *testing.T) {
 	tests := []struct {
-		name                  string
-		useEmbeddedTimestamp  bool
-		fallbackToCurrentTime bool
-		hasTimestamp          bool
-		expectError           bool
-		errorContains         string
+		name                          string
+		useSignatureTimeAsFallback    bool
+		validateTimestampCertificates bool
+		hasTimestamp                  bool
+		expectError                   bool
+		errorContains                 string
 	}{
 		{
-			name:                  "Use embedded timestamp - available",
-			useEmbeddedTimestamp:  true,
-			fallbackToCurrentTime: true,
-			hasTimestamp:          true,
-			expectError:           false,
+			name:                          "Timestamp available - certificates validated",
+			useSignatureTimeAsFallback:    false,
+			validateTimestampCertificates: true,
+			hasTimestamp:                  true,
+			expectError:                   false,
 		},
 		{
-			name:                  "Use embedded timestamp - not available, fallback enabled",
-			useEmbeddedTimestamp:  true,
-			fallbackToCurrentTime: true,
-			hasTimestamp:          false,
-			expectError:           false,
+			name:                          "No timestamp - signature time fallback disabled",
+			useSignatureTimeAsFallback:    false,
+			validateTimestampCertificates: true,
+			hasTimestamp:                  false,
+			expectError:                   false, // Should use current time
 		},
 		{
-			name:                  "Use embedded timestamp - not available, fallback disabled",
-			useEmbeddedTimestamp:  true,
-			fallbackToCurrentTime: false,
-			hasTimestamp:          false,
-			expectError:           true,
-			errorContains:         "Embedded timestamp required but not available",
+			name:                          "No timestamp - signature time fallback enabled",
+			useSignatureTimeAsFallback:    true,
+			validateTimestampCertificates: true,
+			hasTimestamp:                  false,
+			expectError:                   false,
 		},
 		{
-			name:                  "Don't use embedded timestamp",
-			useEmbeddedTimestamp:  false,
-			fallbackToCurrentTime: false,
-			hasTimestamp:          false,
-			expectError:           false,
+			name:                          "Timestamp validation disabled",
+			useSignatureTimeAsFallback:    false,
+			validateTimestampCertificates: false,
+			hasTimestamp:                  true,
+			expectError:                   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			options := &VerifyOptions{
-				RequiredEKUs:              []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
-				RequireDigitalSignatureKU: true,
-				UseEmbeddedTimestamp:      tt.useEmbeddedTimestamp,
-				FallbackToCurrentTime:     tt.fallbackToCurrentTime,
+				RequiredEKUs:                  []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
+				RequireDigitalSignatureKU:     true,
+				UseSignatureTimeAsFallback:    tt.useSignatureTimeAsFallback,
+				ValidateTimestampCertificates: tt.validateTimestampCertificates,
 			}
 
 			// Mock signer with or without timestamp
@@ -288,11 +287,11 @@ func TestTimestampVerificationOptions(t *testing.T) {
 
 			// This is a conceptual test - in practice, you'd need to test with real PKCS7 data
 			// For now, we can at least verify the options are set correctly
-			if options.UseEmbeddedTimestamp != tt.useEmbeddedTimestamp {
-				t.Errorf("Expected UseEmbeddedTimestamp %v, got %v", tt.useEmbeddedTimestamp, options.UseEmbeddedTimestamp)
+			if options.UseSignatureTimeAsFallback != tt.useSignatureTimeAsFallback {
+				t.Errorf("Expected UseSignatureTimeAsFallback %v, got %v", tt.useSignatureTimeAsFallback, options.UseSignatureTimeAsFallback)
 			}
-			if options.FallbackToCurrentTime != tt.fallbackToCurrentTime {
-				t.Errorf("Expected FallbackToCurrentTime %v, got %v", tt.fallbackToCurrentTime, options.FallbackToCurrentTime)
+			if options.ValidateTimestampCertificates != tt.validateTimestampCertificates {
+				t.Errorf("Expected ValidateTimestampCertificates %v, got %v", tt.validateTimestampCertificates, options.ValidateTimestampCertificates)
 			}
 		})
 	}
@@ -356,8 +355,8 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			AllowedEKUs:                      []x509.ExtKeyUsage{},                     // No alternatives
 			RequireDigitalSignatureKU:        true,
 			AllowNonRepudiationKU:            true,
-			UseEmbeddedTimestamp:             true,
-			FallbackToCurrentTime:            false, // Strict timestamp requirement
+			UseSignatureTimeAsFallback:       false, // Don't trust signatory-provided time
+			ValidateTimestampCertificates:    true,  // Always validate timestamp certs
 			AllowEmbeddedCertificatesAsRoots: false, // Only trust system roots
 		}
 
@@ -365,8 +364,8 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			t.Error("Maximum security should not allow embedded certificates as roots")
 		}
 
-		if maxSecurityOptions.FallbackToCurrentTime {
-			t.Error("Maximum security should require embedded timestamp")
+		if maxSecurityOptions.UseSignatureTimeAsFallback {
+			t.Error("Maximum security should not trust signature time fallback")
 		}
 
 		if len(maxSecurityOptions.AllowedEKUs) > 0 {
@@ -382,8 +381,8 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			t.Error("Balanced security should not allow embedded certificates as roots by default")
 		}
 
-		if !balancedOptions.FallbackToCurrentTime {
-			t.Error("Balanced security should allow current time fallback")
+		if balancedOptions.UseSignatureTimeAsFallback {
+			t.Error("Balanced security should not use signature time fallback by default")
 		}
 
 		if len(balancedOptions.AllowedEKUs) == 0 {
@@ -401,8 +400,8 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			},
 			RequireDigitalSignatureKU:        true,
 			AllowNonRepudiationKU:            true,
-			UseEmbeddedTimestamp:             true,
-			FallbackToCurrentTime:            true,
+			UseSignatureTimeAsFallback:       true, // Allow fallback for testing
+			ValidateTimestampCertificates:    true,
 			AllowEmbeddedCertificatesAsRoots: true, // Allow for testing with self-signed certs
 		}
 

@@ -71,19 +71,22 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 | `-external` | bool | `false` | Enable external OCSP and CRL checking |
 | `-require-digital-signature` | bool | `true` | Require Digital Signature key usage in certificates |
 | `-allow-non-repudiation` | bool | `true` | Allow Non-Repudiation key usage in certificates |
-| `-use-embedded-timestamp` | bool | `true` | Use embedded timestamp for historical validation |
-| `-fallback-current-time` | bool | `true` | Fall back to current time if embedded timestamp unavailable |
+| `-use-signature-time-fallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted) |
+| `-validate-timestamp-certs` | bool | `true` | Validate timestamp token certificates |
 | `-allow-embedded-roots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
 | `-http-timeout` | duration | `10s` | Timeout for external revocation checking requests |
 
 ### Verification Examples
 
 ```bash
-# Basic verification
+# Basic verification (always uses embedded timestamps when present)
 ./pdfsign verify document.pdf
 
 # Verification with external revocation checking
 ./pdfsign verify -external -http-timeout=30s document.pdf
+
+# Verification allowing untrusted signature time as fallback
+./pdfsign verify -use-signature-time-fallback document.pdf
 
 # Verification allowing self-signed certificates
 ./pdfsign verify -allow-embedded-roots self-signed.pdf
@@ -100,6 +103,11 @@ The verification command outputs JSON with the following key fields:
 | `RevokedCertificate` | Whether any certificate in the chain has been revoked |
 | `KeyUsageValid` | Whether the certificate has appropriate key usage for PDF signing |
 | `ExtKeyUsageValid` | Whether the certificate has proper Extended Key Usage (EKU) values |
+| `TimestampStatus` | Status of embedded timestamp: "valid", "invalid", or "missing" |
+| `TimestampTrusted` | Whether the timestamp token's certificate chain is trusted |
+| `VerificationTime` | The time used for certificate validation |
+| `TimeSource` | Source of verification time: "embedded_timestamp", "signature_time", or "current_time" |
+| `TimeWarnings` | Warnings about time validation (e.g., using untrusted signature time) |
 | `OCSPEmbedded` | Whether OCSP response is embedded in the PDF |
 | `OCSPExternal` | Whether external OCSP checking was performed |
 | `CRLEmbedded` | Whether CRL is embedded in the PDF |
@@ -194,7 +202,7 @@ func main() {
 }
 ```
 
-### Advanced Verification with External Checking
+### Advanced Verification with Timestamp and External Checking
 
 ```go
 package main
@@ -215,6 +223,8 @@ func main() {
 
     options := verify.DefaultVerifyOptions()
     options.EnableExternalRevocationCheck = true
+    options.UseSignatureTimeAsFallback = true  // Allow fallback to signature time
+    options.ValidateTimestampCertificates = true  // Always validate timestamp certs
     options.HTTPTimeout = 15 * time.Second
     
     // Optional: Custom HTTP client for proxy support
@@ -227,7 +237,19 @@ func main() {
         panic(err)
     }
     
-    // Process response...
+    // Check timestamp validation results
+    for _, signer := range response.Signers {
+        fmt.Printf("Time source: %s\n", signer.TimeSource)
+        fmt.Printf("Timestamp status: %s\n", signer.TimestampStatus)
+        fmt.Printf("Timestamp trusted: %v\n", signer.TimestampTrusted)
+        
+        if len(signer.TimeWarnings) > 0 {
+            fmt.Println("Time warnings:")
+            for _, warning := range signer.TimeWarnings {
+                fmt.Printf("  - %s\n", warning)
+            }
+        }
+    }
 }
 ```
 
@@ -240,8 +262,8 @@ func main() {
 | `HTTPTimeout` | `time.Duration` | `10s` | Timeout for external revocation checking requests |
 | `RequireDigitalSignatureKU` | bool | `true` | Require Digital Signature key usage in certificates |
 | `AllowNonRepudiationKU` | bool | `true` | Allow Non-Repudiation key usage (recommended for PDF signing) |
-| `UseEmbeddedTimestamp` | bool | `true` | Use embedded timestamp for historical validation |
-| `FallbackToCurrentTime` | bool | `true` | Fall back to current time if embedded timestamp unavailable |
+| `UseSignatureTimeAsFallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted by default) |
+| `ValidateTimestampCertificates` | bool | `true` | Validate timestamp token's certificate chain and revocation status |
 | `AllowEmbeddedCertificatesAsRoots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
 
 ## Signature Appearance with Images

@@ -7,13 +7,9 @@ import (
 
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
+	"github.com/digitorus/timestamp"
 	"golang.org/x/crypto/ocsp"
 )
-
-// buildCertificateChains builds certificate chains and verifies revocation status.
-func buildCertificateChains(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival) (string, error) {
-	return buildCertificateChainsWithOptions(p7, signer, revInfo, DefaultVerifyOptions())
-}
 
 // buildCertificateChainsWithOptions builds certificate chains with custom verification options
 func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
@@ -23,19 +19,45 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		certPool.AddCert(cert)
 	}
 
-	// Determine the verification time based on options and available data
+	// Determine the verification time and set up time tracking fields
 	var verificationTime *time.Time
-	if options.UseEmbeddedTimestamp && signer.TimeStamp != nil && !signer.TimeStamp.Time.IsZero() {
-		// Use embedded timestamp for historical validation
+
+	// Initialize time tracking fields
+	signer.TimeSource = "current_time"
+	signer.TimeWarnings = []string{}
+	signer.TimestampStatus = "missing"
+	signer.TimestampTrusted = false
+
+	// Always prioritize embedded timestamp if present
+	if signer.TimeStamp != nil && !signer.TimeStamp.Time.IsZero() {
 		verificationTime = &signer.TimeStamp.Time
-	} else if signer.SignatureTime != nil {
-		// Fall back to signature time if available
+		signer.TimeSource = "embedded_timestamp"
+		signer.TimestampStatus = "valid"
+
+		// Validate timestamp certificate if enabled
+		if options.ValidateTimestampCertificates {
+			timestampTrusted, timestampWarning := validateTimestampCertificate(signer.TimeStamp, options)
+			signer.TimestampTrusted = timestampTrusted
+			if timestampWarning != "" {
+				signer.TimeWarnings = append(signer.TimeWarnings, timestampWarning)
+			}
+		}
+	} else if options.UseSignatureTimeAsFallback && signer.SignatureTime != nil {
+		// Use signature time as fallback with warning about its untrusted nature
 		verificationTime = signer.SignatureTime
-	} else if options.UseEmbeddedTimestamp && !options.FallbackToCurrentTime {
-		// Timestamp required but not available and fallback disabled
-		return "Embedded timestamp required but not available in signature", nil
+		signer.TimeSource = "signature_time"
+		signer.TimeWarnings = append(signer.TimeWarnings,
+			"Using signature time as fallback - this time is provided by the signatory and should be considered untrusted")
 	}
 	// If verificationTime is nil, x509.Verify will use current time (default behavior)
+
+	// Set the verification time used
+	if verificationTime != nil {
+		signer.VerificationTime = verificationTime
+	} else {
+		currentTime := time.Now()
+		signer.VerificationTime = &currentTime
+	}
 
 	// Parse OCSP response
 	ocspStatus := make(map[string]*ocsp.Response)
@@ -249,4 +271,61 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	signer.TrustedIssuer = trustedIssuer
 
 	return errorMsg, nil
+}
+
+// validateTimestampCertificate validates the timestamp token's signing certificate
+func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOptions) (bool, string) {
+	if ts == nil {
+		return false, "No timestamp to validate"
+	}
+
+	// Parse the timestamp token to get the PKCS7 structure
+	p7, err := pkcs7.Parse(ts.RawToken)
+	if err != nil {
+		return false, fmt.Sprintf("Failed to parse timestamp token: %v", err)
+	}
+
+	// Create certificate pool from timestamp certificates
+	certPool := x509.NewCertPool()
+	for _, cert := range p7.Certificates {
+		certPool.AddCert(cert)
+	}
+
+	// Find the timestamp signing certificate
+	var timestampCert *x509.Certificate
+	for _, cert := range p7.Certificates {
+		// Look for the certificate that signed the timestamp
+		// Usually this will be the first one, but we should verify
+		if cert.KeyUsage&x509.KeyUsageDigitalSignature != 0 {
+			timestampCert = cert
+			break
+		}
+	}
+
+	if timestampCert == nil {
+		return false, "No timestamp signing certificate found"
+	}
+
+	// Verify the timestamp certificate chain against system trusted roots
+	opts := x509.VerifyOptions{
+		Intermediates: certPool,
+		CurrentTime:   ts.Time, // Use timestamp time for validation
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping},
+	}
+
+	_, err = timestampCert.Verify(opts)
+	if err != nil {
+		// Try with embedded certificates as roots if allowed
+		if options.AllowEmbeddedCertificatesAsRoots {
+			opts.Roots = certPool
+			_, err = timestampCert.Verify(opts)
+			if err != nil {
+				return false, fmt.Sprintf("Timestamp certificate chain validation failed: %v", err)
+			}
+			return true, "Timestamp certificate validated using embedded certificates (not system trusted)"
+		}
+		return false, fmt.Sprintf("Timestamp certificate chain validation failed: %v", err)
+	}
+
+	return true, ""
 }

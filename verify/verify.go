@@ -29,13 +29,14 @@ type VerifyOptions struct {
 	// AllowNonRepudiationKU allows the Non-Repudiation bit in Key Usage (optional but recommended)
 	AllowNonRepudiationKU bool
 
-	// UseEmbeddedTimestamp when true, uses the embedded timestamp for certificate validation
-	// instead of the current time. This provides more accurate historical validation.
-	UseEmbeddedTimestamp bool
+	// UseSignatureTimeAsFallback when true, allows using the embedded signature time as fallback
+	// if no trusted timestamp is available. This time is provided by the signatory and should
+	// be treated as untrusted for security-critical applications.
+	UseSignatureTimeAsFallback bool
 
-	// FallbackToCurrentTime when true, falls back to current time if embedded timestamp
-	// is not available or invalid. If false, validation fails when timestamp is required but missing.
-	FallbackToCurrentTime bool
+	// ValidateTimestampCertificates when true, validates the timestamp token's signing certificate
+	// including building a proper certification path and checking revocation status.
+	ValidateTimestampCertificates bool
 
 	// AllowEmbeddedCertificatesAsRoots when true, allows using embedded certificates as trusted roots
 	// WARNING: This makes signatures appear valid even if they're self-signed or from untrusted CAs
@@ -68,8 +69,8 @@ func DefaultVerifyOptions() *VerifyOptions {
 		},
 		RequireDigitalSignatureKU:        true,             // Require Digital Signature key usage
 		AllowNonRepudiationKU:            true,             // Allow Non-Repudiation key usage
-		UseEmbeddedTimestamp:             true,             // Use embedded timestamp for accurate historical validation
-		FallbackToCurrentTime:            true,             // Fall back to current time if timestamp unavailable
+		UseSignatureTimeAsFallback:       false,            // Don't use untrusted signature time by default
+		ValidateTimestampCertificates:    true,             // Always validate timestamp certificates
 		AllowEmbeddedCertificatesAsRoots: false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
 		EnableExternalRevocationCheck:    false,            // SECURE DEFAULT: Don't make external network calls
 		HTTPClient:                       nil,              // Use default HTTP client
@@ -94,7 +95,12 @@ type Signer struct {
 	RevokedCertificate bool                 `json:"revoked_certificate"`
 	Certificates       []Certificate        `json:"certificates"`
 	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
-	SignatureTime      *time.Time           `json:"signature_time,omitempty"`
+	SignatureTime      *time.Time           `json:"signature_time,omitempty"`   // Time from the signature object, may be untrusted
+	TimestampStatus    string               `json:"timestamp_status,omitempty"` // "valid", "invalid", "missing"
+	TimestampTrusted   bool                 `json:"timestamp_trusted"`          // Whether timestamp certificate chain is trusted
+	VerificationTime   *time.Time           `json:"verification_time"`          // Time used for certificate validation
+	TimeSource         string               `json:"time_source"`                // "embedded_timestamp", "signature_time", "current_time"
+	TimeWarnings       []string             `json:"time_warnings,omitempty"`    // Warnings about time validation
 }
 
 type Certificate struct {
