@@ -19,7 +19,11 @@ func TestFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			t.Logf("Warning: failed to close file: %v", err)
+		}
+	}()
 
 	// Verify the file
 	response, err := VerifyFile(file)
@@ -158,7 +162,11 @@ func TestReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			t.Logf("Warning: failed to close file: %v", err)
+		}
+	}()
 
 	// Get file size
 	fileInfo, err := file.Stat()
@@ -190,8 +198,16 @@ func TestFileWithInvalidFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Logf("Warning: failed to remove temp file: %v", err)
+		}
+	}()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			t.Logf("Warning: failed to close temp file: %v", err)
+		}
+	}()
 
 	// Write some invalid content
 	_, err = tmpFile.WriteString("This is not a valid PDF file")
@@ -227,7 +243,11 @@ func TestFileWithUnsignedPDF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			t.Logf("Warning: failed to close file: %v", err)
+		}
+	}()
 
 	// This might fail if the file is unsigned
 	response, err := VerifyFile(file)
@@ -256,7 +276,11 @@ func TestRevocationWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			t.Errorf("Failed to close file: %v", closeErr)
+		}
+	}()
 
 	// Verify the file
 	response, err := VerifyFile(file)
@@ -305,7 +329,11 @@ func TestExternalRevocationChecking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			t.Errorf("Failed to close file: %v", closeErr)
+		}
+	}()
 
 	// Test with external checking disabled (default)
 	response, err := VerifyFile(file)
@@ -333,7 +361,9 @@ func TestExternalRevocationChecking(t *testing.T) {
 	}
 
 	// Test with external checking enabled
-	file.Seek(0, 0) // Reset file position
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Logf("Warning: failed to reset file position: %v", err)
+	}
 
 	// Create custom options with external checking enabled
 	options := DefaultVerifyOptions()

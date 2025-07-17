@@ -40,12 +40,17 @@ func performExternalOCSPCheck(cert, issuer *x509.Certificate, options *VerifyOpt
 	// Try each OCSP server URL
 	var lastErr error
 	for _, serverURL := range cert.OCSPServer {
-		resp, err := http.Post(serverURL, "application/ocsp-request", bytes.NewReader(ocspReq))
+		resp, err := client.Post(serverURL, "application/ocsp-request", bytes.NewReader(ocspReq))
 		if err != nil {
 			lastErr = fmt.Errorf("failed to contact OCSP server %s: %v", serverURL, err)
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				// Log error but don't fail the operation
+				lastErr = fmt.Errorf("failed to close response body: %v", err)
+			}
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("OCSP server %s returned status %d", serverURL, resp.StatusCode)
@@ -100,7 +105,12 @@ func performExternalCRLCheck(cert *x509.Certificate, options *VerifyOptions) (*t
 			lastErr = fmt.Errorf("failed to download CRL from %s: %v", crlURL, err)
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				// Log error but don't fail the operation
+				lastErr = fmt.Errorf("failed to close response body: %v", err)
+			}
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("CRL server %s returned status %d", crlURL, resp.StatusCode)

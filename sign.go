@@ -84,7 +84,9 @@ func signCommand() {
 		fmt.Printf("  %s sign -certType \"TimeStampSignature\" input.pdf output.pdf\n", os.Args[0])
 	}
 
-	signFlags.Parse(os.Args[2:])
+	if err := signFlags.Parse(os.Args[2:]); err != nil {
+		log.Fatalf("Failed to parse sign flags: %v", err)
+	}
 
 	if len(signFlags.Args()) < 1 {
 		signFlags.Usage()
@@ -126,7 +128,9 @@ func verifyCommand() {
 		fmt.Printf("  %s verify -allow-embedded-roots self-signed.pdf\n", os.Args[0])
 	}
 
-	verifyFlags.Parse(os.Args[2:])
+	if err := verifyFlags.Parse(os.Args[2:]); err != nil {
+		log.Fatalf("Failed to parse verify flags: %v", err)
+	}
 
 	if len(verifyFlags.Args()) < 1 {
 		verifyFlags.Usage()
@@ -144,7 +148,11 @@ func verifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer inputFile.Close()
+	defer func() {
+		if err := inputFile.Close(); err != nil {
+			log.Printf("Warning: failed to close input file: %v", err)
+		}
+	}()
 
 	// Create verification options based on command-line flags
 	options := verify.DefaultVerifyOptions()
