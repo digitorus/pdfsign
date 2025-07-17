@@ -76,7 +76,7 @@ func loadCertificateAndKey(t *testing.T) (*x509.Certificate, *rsa.PrivateKey) {
 }
 
 func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
-	_, err := verify.File(tmpfile)
+	_, err := verify.VerifyFile(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
 
@@ -211,7 +211,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		t.Fatalf("%s: %s", originalFileName, err.Error())
 	}
 
-	info, err := verify.File(tmpfile)
+	info, err := verify.VerifyFile(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
 		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
@@ -268,7 +268,7 @@ func TestSignPDFVisible(t *testing.T) {
 		t.Fatalf("%s: %s", originalFileName, err.Error())
 	}
 
-	_, err = verify.File(tmpfile)
+	_, err = verify.VerifyFile(tmpfile)
 	if err != nil {
 		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
 		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
