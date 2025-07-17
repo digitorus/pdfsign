@@ -100,7 +100,7 @@ The verification command outputs JSON with the following key fields:
 |-------|-------------|
 | `ValidSignature` | Whether the cryptographic signature is mathematically valid |
 | `TrustedIssuer` | Whether the certificate chain is trusted by system root certificates |
-| `RevokedCertificate` | Whether any certificate in the chain has been revoked |
+| `RevokedCertificate` | Whether any certificate in the chain has been revoked before signing |
 | `KeyUsageValid` | Whether the certificate has appropriate key usage for PDF signing |
 | `ExtKeyUsageValid` | Whether the certificate has proper Extended Key Usage (EKU) values |
 | `TimestampStatus` | Status of embedded timestamp: "valid", "invalid", or "missing" |
@@ -112,6 +112,8 @@ The verification command outputs JSON with the following key fields:
 | `OCSPExternal` | Whether external OCSP checking was performed |
 | `CRLEmbedded` | Whether CRL is embedded in the PDF |
 | `CRLExternal` | Whether external CRL checking was performed |
+| `RevocationTime` | When the certificate was revoked (if applicable) |
+| `RevokedBeforeSigning` | Whether revocation occurred before the signing time |
 | `RevocationWarning` | Human-readable warning about revocation status checking |
 
 ## Go Library Usage

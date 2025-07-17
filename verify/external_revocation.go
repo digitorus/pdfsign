@@ -72,13 +72,14 @@ func performExternalOCSPCheck(cert, issuer *x509.Certificate, options *VerifyOpt
 }
 
 // performExternalCRLCheck performs an external CRL check for the given certificate
-func performExternalCRLCheck(cert *x509.Certificate, options *VerifyOptions) (bool, error) {
+// Returns (revocationTime, isRevoked, error)
+func performExternalCRLCheck(cert *x509.Certificate, options *VerifyOptions) (*time.Time, bool, error) {
 	if !options.EnableExternalRevocationCheck {
-		return false, fmt.Errorf("external revocation checking is disabled")
+		return nil, false, fmt.Errorf("external revocation checking is disabled")
 	}
 
 	if len(cert.CRLDistributionPoints) == 0 {
-		return false, fmt.Errorf("certificate has no CRL distribution points")
+		return nil, false, fmt.Errorf("certificate has no CRL distribution points")
 	}
 
 	// Get HTTP client with timeout
@@ -121,13 +122,13 @@ func performExternalCRLCheck(cert *x509.Certificate, options *VerifyOptions) (bo
 		// Check if certificate is revoked
 		for _, revokedCert := range crl.RevokedCertificateEntries {
 			if revokedCert.SerialNumber.Cmp(cert.SerialNumber) == 0 {
-				return true, nil // Certificate is revoked
+				return &revokedCert.RevocationTime, true, nil // Certificate is revoked
 			}
 		}
 
 		// Successfully checked CRL, certificate not revoked
-		return false, nil
+		return nil, false, nil
 	}
 
-	return false, lastErr
+	return nil, false, lastErr
 }
