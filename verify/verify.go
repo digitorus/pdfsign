@@ -138,24 +138,24 @@ type DocumentInfo struct {
 	CreationDate time.Time `json:"creation_date"`
 }
 
-func File(file *os.File) (apiResp *Response, err error) {
-	return FileWithOptions(file, DefaultVerifyOptions())
+func VerifyFile(file *os.File) (apiResp *Response, err error) {
+	return VerifyFileWithOptions(file, DefaultVerifyOptions())
 }
 
-func FileWithOptions(file *os.File, options *VerifyOptions) (apiResp *Response, err error) {
+func VerifyFileWithOptions(file *os.File, options *VerifyOptions) (apiResp *Response, err error) {
 	finfo, _ := file.Stat()
 	if _, err := file.Seek(0, 0); err != nil {
 		return nil, err
 	}
 
-	return ReaderWithOptions(file, finfo.Size(), options)
+	return VerifyWithOptions(file, finfo.Size(), options)
 }
 
-func Reader(file io.ReaderAt, size int64) (apiResp *Response, err error) {
-	return ReaderWithOptions(file, size, DefaultVerifyOptions())
+func Verify(file io.ReaderAt, size int64) (apiResp *Response, err error) {
+	return VerifyWithOptions(file, size, DefaultVerifyOptions())
 }
 
-func ReaderWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (apiResp *Response, err error) {
+func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (apiResp *Response, err error) {
 	var documentInfo DocumentInfo
 
 	defer func() {

@@ -22,7 +22,7 @@ func TestFile(t *testing.T) {
 	defer file.Close()
 
 	// Verify the file
-	response, err := File(file)
+	response, err := VerifyFile(file)
 	if err != nil {
 		t.Fatalf("Failed to verify file: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestReader(t *testing.T) {
 	}
 
 	// Verify using Reader
-	response, err := Reader(file, fileInfo.Size())
+	response, err := Verify(file, fileInfo.Size())
 	if err != nil {
 		t.Fatalf("Failed to verify file with Reader: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestFileWithInvalidFile(t *testing.T) {
 	}
 
 	// This should fail
-	_, err = File(tmpFile)
+	_, err = VerifyFile(tmpFile)
 	if err == nil {
 		t.Fatal("Expected error for invalid PDF file, but got none")
 	}
@@ -230,7 +230,7 @@ func TestFileWithUnsignedPDF(t *testing.T) {
 	defer file.Close()
 
 	// This might fail if the file is unsigned
-	response, err := File(file)
+	response, err := VerifyFile(file)
 	if err != nil {
 		// This is expected for unsigned PDFs
 		t.Logf("Expected error for unsigned PDF: %v", err)
@@ -259,7 +259,7 @@ func TestRevocationWarnings(t *testing.T) {
 	defer file.Close()
 
 	// Verify the file
-	response, err := File(file)
+	response, err := VerifyFile(file)
 	if err != nil {
 		t.Fatalf("Failed to verify file: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestExternalRevocationChecking(t *testing.T) {
 	defer file.Close()
 
 	// Test with external checking disabled (default)
-	response, err := File(file)
+	response, err := VerifyFile(file)
 	if err != nil {
 		t.Fatalf("Failed to verify file: %v", err)
 	}

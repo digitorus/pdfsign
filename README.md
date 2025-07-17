@@ -197,7 +197,7 @@ func main() {
     }
     defer file.Close()
 
-    response, err := verify.File(file)
+    response, err := verify.VerifyFile(file)
     if err != nil {
         panic(err)
     }
@@ -237,7 +237,7 @@ func main() {
         Timeout: 20 * time.Second,
     }
 
-    response, err := verify.FileWithOptions(file, options)
+    response, err := verify.VerifyFileWithOptions(file, options)
     if err != nil {
         panic(err)
     }

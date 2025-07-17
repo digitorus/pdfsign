@@ -16,7 +16,7 @@ func TestDocumentInfoParsing(t *testing.T) {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
 	defer file.Close()
-	response, err := File(file)
+	response, err := VerifyFile(file)
 	if err != nil {
 		t.Fatalf("Failed to verify file: %v", err)
 	}

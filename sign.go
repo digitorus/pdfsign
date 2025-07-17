@@ -156,7 +156,7 @@ func verifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU
 	options.AllowEmbeddedCertificatesAsRoots = allowEmbeddedCertificatesAsRoots
 	options.HTTPTimeout = httpTimeout
 
-	resp, err := verify.FileWithOptions(inputFile, options)
+	resp, err := verify.VerifyFileWithOptions(inputFile, options)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
