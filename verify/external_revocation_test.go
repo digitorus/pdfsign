@@ -69,7 +69,7 @@ func TestPerformExternalOCSPCheck(t *testing.T) {
 					// In a real implementation, you'd need proper OCSP response signing
 					w.Header().Set("Content-Type", "application/ocsp-response")
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("mock-ocsp-response"))
+					_, _ = w.Write([]byte("mock-ocsp-response"))
 				}))
 			},
 			setupOptions: func(serverURL string) *VerifyOptions {
@@ -111,7 +111,7 @@ func TestPerformExternalOCSPCheck(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("custom-client-response"))
+					_, _ = w.Write([]byte("custom-client-response"))
 				}))
 			},
 			setupOptions: func(serverURL string) *VerifyOptions {
@@ -239,7 +239,7 @@ func TestPerformExternalCRLCheck(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("invalid-crl-data"))
+					_, _ = w.Write([]byte("invalid-crl-data"))
 				}))
 			},
 			setupOptions: func(serverURL string) *VerifyOptions {
@@ -261,7 +261,7 @@ func TestPerformExternalCRLCheck(t *testing.T) {
 				// Create two servers - first fails, second works
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("invalid-crl-data"))
+					_, _ = w.Write([]byte("invalid-crl-data"))
 				}))
 			},
 			setupOptions: func(serverURL string) *VerifyOptions {
@@ -285,7 +285,7 @@ func TestPerformExternalCRLCheck(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("invalid-crl-data"))
+					_, _ = w.Write([]byte("invalid-crl-data"))
 				}))
 			},
 			setupOptions: func(serverURL string) *VerifyOptions {
