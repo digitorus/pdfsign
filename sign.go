@@ -19,14 +19,28 @@ import (
 var (
 	infoName, infoLocation, infoReason, infoContact, tsa string
 	certType                                             string
+	signFlags                                            *flag.FlagSet
 )
 
+func setupSignFlags() *flag.FlagSet {
+	flags := flag.NewFlagSet("sign", flag.ExitOnError)
+	flags.StringVar(&infoName, "name", "", "Name of the signatory")
+	flags.StringVar(&infoLocation, "location", "", "Location of the signatory")
+	flags.StringVar(&infoReason, "reason", "", "Reason for signing")
+	flags.StringVar(&infoContact, "contact", "", "Contact information for signatory")
+	flags.StringVar(&tsa, "tsa", "https://freetsa.org/tsr", "URL for Time-Stamp Authority")
+	flags.StringVar(&certType, "certType", "CertificationSignature", "Type of the certificate (CertificationSignature, ApprovalSignature, UsageRightsSignature, TimeStampSignature)")
+	return flags
+}
+
 func usage() {
-	flag.PrintDefaults()
+	signFlags := setupSignFlags()
+	signFlags.PrintDefaults()
 	fmt.Println("\nExample usage:")
-	fmt.Printf("\t%s -name \"Jon Doe\" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
-	fmt.Printf("\t%s -certType \"CertificationSignature\" -name \"Jon Doe\" sign input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
-	fmt.Printf("\t%s -certType \"TimeStampSignature\" input.pdf output.pdf\n", os.Args[0])
+	fmt.Printf("\t%s sign -name \"Jon Doe\" input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
+	fmt.Printf("\t%s sign -certType \"CertificationSignature\" -name \"Jon Doe\" input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n", os.Args[0])
+	fmt.Printf("\t%s sign -certType \"TimeStampSignature\" input.pdf output.pdf\n", os.Args[0])
+	fmt.Printf("\t%s sign -certType \"TimeStampSignature\" -tsa \"https://custom-tsa.example.com/tsr\" input.pdf output.pdf\n", os.Args[0])
 	fmt.Printf("\t%s verify input.pdf\n", os.Args[0])
 	os.Exit(1)
 }
@@ -47,34 +61,38 @@ func parseCertType(s string) (sign.CertType, error) {
 }
 
 func main() {
-	flag.StringVar(&infoName, "name", "", "Name of the signatory")
-	flag.StringVar(&infoLocation, "location", "", "Location of the signatory")
-	flag.StringVar(&infoReason, "reason", "", "Reason for signing")
-	flag.StringVar(&infoContact, "contact", "", "Contact information for signatory")
-	flag.StringVar(&tsa, "tsa", "https://freetsa.org/tsr", "URL for Time-Stamp Authority")
-	flag.StringVar(&certType, "certType", "CertificationSignature", "Type of the certificate (CertificationSignature, ApprovalSignature, UsageRightsSignature, TimeStampSignature)")
-
-	flag.Parse()
-
-	if len(flag.Args()) < 2 {
+	// Get the subcommand
+	if len(os.Args) < 2 {
 		usage()
 	}
 
-	method := flag.Arg(0)
+	method := os.Args[1]
 	if method != "sign" && method != "verify" {
 		usage()
 	}
 
-	input := flag.Arg(1)
-	if len(input) == 0 {
-		usage()
-	}
+	// Now parse flags for the specific subcommand
+	if method == "sign" {
+		signFlags = setupSignFlags()
+		signFlags.Parse(os.Args[2:])
 
-	switch method {
-	case "verify":
-		verifyPDF(input)
-	case "sign":
+		if len(signFlags.Args()) < 2 {
+			usage()
+		}
+
+		input := signFlags.Arg(0)
+		if len(input) == 0 {
+			usage()
+		}
+
 		signPDF(input)
+	} else {
+		// For verify, we don't need flags, just the input file
+		if len(os.Args) < 3 {
+			usage()
+		}
+		input := os.Args[2]
+		verifyPDF(input)
 	}
 }
 
@@ -106,7 +124,11 @@ func signPDF(input string) {
 	}
 
 	if certTypeValue == sign.TimeStampSignature {
-		output := flag.Arg(2)
+		if len(signFlags.Args()) < 2 {
+			usage()
+		}
+
+		output := signFlags.Arg(1)
 		if len(output) == 0 {
 			usage()
 		}
@@ -114,16 +136,17 @@ func signPDF(input string) {
 		return
 	}
 
-	if len(flag.Args()) < 5 {
+	// For other signature types, we need certificate and key files
+	if len(signFlags.Args()) < 5 {
 		usage()
 	}
 
-	output := flag.Arg(2)
+	output := signFlags.Arg(1)
 	if len(output) == 0 {
 		usage()
 	}
 
-	cert, pkey, certificateChains := loadCertificatesAndKey(flag.Arg(3), flag.Arg(4), flag.Arg(5))
+	cert, pkey, certificateChains := loadCertificatesAndKey(signFlags.Arg(2), signFlags.Arg(3), signFlags.Arg(4))
 
 	err = sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{
