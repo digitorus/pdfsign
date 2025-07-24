@@ -315,9 +315,7 @@ func TestTimestampVerificationOptions(t *testing.T) {
 			}
 
 			// Mock signature validation (minimal)
-			if tt.hasTimestamp {
-				// Mock timestamp - not used in this test
-			}
+			// Note: timestamp handling is not tested here
 
 			// This is a conceptual test - in practice, you'd need to test with real PKCS7 data
 			// For now, we can at least verify the options are set correctly

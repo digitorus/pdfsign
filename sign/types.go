@@ -8,6 +8,7 @@ import (
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
+	"github.com/digitorus/timestamp"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -132,4 +133,9 @@ type SignContext struct {
 	lastXrefID         uint32
 	newXrefEntries     []xrefEntry
 	updatedXrefEntries []xrefEntry
+
+	// Computed signature information
+	computedDocumentHash  string
+	computedSignatureHash string
+	computedTimeStamp     *timestamp.Timestamp
 }

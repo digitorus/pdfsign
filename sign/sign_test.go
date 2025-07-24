@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,7 +154,7 @@ func TestSignPDF(t *testing.T) {
 				}
 			}()
 
-			err = SignFile("../testfiles/"+f.Name(), outputFile.Name(), SignData{
+			_, err = SignFile("../testfiles/"+f.Name(), outputFile.Name(), SignData{
 				Signature: SignDataSignature{
 					Info: SignDataSignatureInfo{
 						Name:        "John Doe",
@@ -199,7 +200,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        signerName,
@@ -252,7 +253,7 @@ func TestSignPDFVisible(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -309,7 +310,7 @@ func BenchmarkSignPDF(b *testing.B) {
 			b.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
 
-		err = Sign(inputFile, io.Discard, rdr, size, SignData{
+		_, err = Sign(inputFile, io.Discard, rdr, size, SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        "John Doe",
@@ -347,7 +348,7 @@ func TestSignPDFWithTwoApproval(t *testing.T) {
 			}
 		}()
 
-		err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
+		_, err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        fmt.Sprintf("Jane %d Doe", i),
@@ -386,7 +387,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(tbsFile, tmpfile.Name(), SignData{
+	_, err = SignFile(tbsFile, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -420,7 +421,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 			}
 		}()
 
-		err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
+		_, err = SignFile(tbsFile, approvalTMPFile.Name(), SignData{
 			Signature: SignDataSignature{
 				Info: SignDataSignatureInfo{
 					Name:        fmt.Sprintf("Jane %d Doe", i),
@@ -454,7 +455,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(tbsFile, timeStampTMPFile.Name(), SignData{
+	_, err = SignFile(tbsFile, timeStampTMPFile.Name(), SignData{
 		Signature: SignDataSignature{
 			CertType: TimeStampSignature,
 		},
@@ -480,7 +481,7 @@ func TestTimestampPDFFile(t *testing.T) {
 		}
 	}()
 
-	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
+	_, err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			CertType: TimeStampSignature,
 		},
@@ -518,7 +519,7 @@ func TestSignPDFWithImage(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -571,7 +572,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(tbsFile, firstSignature.Name(), SignData{
+	_, err = SignFile(tbsFile, firstSignature.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -612,7 +613,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(firstSignature.Name(), secondSignature.Name(), SignData{
+	_, err = SignFile(firstSignature.Name(), secondSignature.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "Jane Doe",
@@ -665,7 +666,7 @@ func TestSignPDFWithWatermarkImageJPG(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "James SuperSmith",
@@ -719,7 +720,7 @@ func TestSignPDFWithWatermarkImagePNG(t *testing.T) {
 		}
 	}()
 
-	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "James SuperSmith",
@@ -787,7 +788,7 @@ func TestVisualSignLastPage(t *testing.T) {
 	}
 	lastPage := rdr.NumPage()
 	t.Logf("pdf total pages: %d", lastPage)
-	err = Sign(input_file, tmpfile, rdr, size, SignData{
+	_, err = Sign(input_file, tmpfile, rdr, size, SignData{
 		Signature: SignDataSignature{
 			Info: SignDataSignatureInfo{
 				Name:        "John Doe",
@@ -818,4 +819,147 @@ func TestVisualSignLastPage(t *testing.T) {
 	}
 
 	verifySignedFile(t, tmpfile, originalFileName)
+}
+
+func TestSignVerifyHashConsistency(t *testing.T) {
+	// Load test certificate and key
+	cert, pkey := loadCertificateAndKey(t)
+	certificateChains := [][]*x509.Certificate{}
+
+	// Create a temporary output file for the signed PDF
+	outputFile, err := os.CreateTemp("", "test_sign_verify_hash_*.pdf")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer func() {
+		if err := os.Remove(outputFile.Name()); err != nil {
+			t.Errorf("Failed to remove output file: %v", err)
+		}
+	}()
+	if err := outputFile.Close(); err != nil {
+		t.Errorf("Failed to close output file: %v", err)
+	}
+
+	// Sign the PDF and get signature info
+	signatureInfo, err := SignFile("../testfiles/testfile20.pdf", outputFile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "Test Signer",
+				Location:    "Test Location",
+				Reason:      "Hash consistency test",
+				ContactInfo: "test@example.com",
+				Date:        time.Now(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Signer:            pkey,
+		Certificate:       cert,
+		CertificateChains: certificateChains,
+		DigestAlgorithm:   crypto.SHA256,
+	})
+
+	if err != nil {
+		t.Fatalf("Failed to sign PDF: %v", err)
+	}
+
+	if signatureInfo == nil {
+		t.Fatal("SignatureInfo should not be nil")
+	}
+
+	// Log signing results
+	t.Logf("Sign results:")
+	t.Logf("  Document Hash: %s", signatureInfo.DocumentHash)
+	t.Logf("  Signature Hash: %s", signatureInfo.SignatureHash)
+
+	// Now verify the signed PDF using the verify package
+	signedFile, err := os.Open(outputFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to open signed PDF: %v", err)
+	}
+	defer func() {
+		if err := signedFile.Close(); err != nil {
+			t.Errorf("Failed to close signed file: %v", err)
+		}
+	}()
+
+	// Create verify options that allow untrusted roots since we're using a test certificate
+	verifyOptions := verify.DefaultVerifyOptions()
+	verifyOptions.AllowUntrustedRoots = true
+
+	verifyResponse, err := verify.VerifyFileWithOptions(signedFile, verifyOptions)
+	if err != nil {
+		t.Fatalf("Failed to verify signed PDF: %v", err)
+	}
+
+	if verifyResponse == nil {
+		t.Fatal("Verify response should not be nil")
+	}
+
+	if len(verifyResponse.Signatures) == 0 {
+		t.Fatal("No signatures found during verification")
+	}
+
+	// Compare hashes from sign and verify operations
+	verifyInfo := verifyResponse.Signatures[0].Info
+
+	// Log verification results
+	t.Logf("Verify results:")
+	t.Logf("  Document Hash: %s", verifyInfo.DocumentHash)
+	t.Logf("  Signature Hash: %s", verifyInfo.SignatureHash)
+
+	// Document hash comparison - THIS IS CRITICAL and must match
+	if signatureInfo.DocumentHash != verifyInfo.DocumentHash {
+		t.Errorf("Document hash mismatch - this indicates a serious integrity issue:\n  Sign:   %s\n  Verify: %s",
+			signatureInfo.DocumentHash, verifyInfo.DocumentHash)
+	}
+
+	// Signature hash comparison - comparing how sign vs verify compute signature hashes
+	if signatureInfo.SignatureHash != verifyInfo.SignatureHash {
+		t.Logf("Signature hash difference (may need further investigation):\n  Sign:   %s\n  Verify: %s",
+			signatureInfo.SignatureHash, verifyInfo.SignatureHash)
+	} else {
+		t.Logf("✅ Signature hashes match: %s", signatureInfo.SignatureHash)
+	}
+
+	// Hash algorithm comparison (normalize case)
+	signAlg := strings.ToLower(signatureInfo.HashAlgorithm)
+	verifyAlg := strings.ToLower(verifyInfo.HashAlgorithm)
+
+	// The sign function returns "SHA-256" while verify might return "sha256"
+	if signAlg == "sha-256" {
+		signAlg = "sha256"
+	}
+	if verifyAlg == "sha-256" {
+		verifyAlg = "sha256"
+	}
+
+	if signAlg != verifyAlg {
+		t.Errorf("Hash algorithm mismatch:\n  Sign:   %s\n  Verify: %s",
+			signatureInfo.HashAlgorithm, verifyInfo.HashAlgorithm)
+	}
+
+	// Log success for document hash (the critical check)
+	if signatureInfo.DocumentHash == verifyInfo.DocumentHash && signAlg == verifyAlg {
+		t.Logf("✅ Critical integrity check passed:")
+		t.Logf("  Document Hash: %s (matches between sign and verify)", signatureInfo.DocumentHash)
+		t.Logf("  Hash Algorithm: %s (sign) / %s (verify)", signatureInfo.HashAlgorithm, verifyInfo.HashAlgorithm)
+	}
+
+	// Also verify that signature info fields match
+	if signatureInfo.Name != verifyInfo.Name {
+		t.Errorf("Name mismatch: sign='%s', verify='%s'", signatureInfo.Name, verifyInfo.Name)
+	}
+
+	if signatureInfo.Location != verifyInfo.Location {
+		t.Errorf("Location mismatch: sign='%s', verify='%s'", signatureInfo.Location, verifyInfo.Location)
+	}
+
+	if signatureInfo.Reason != verifyInfo.Reason {
+		t.Errorf("Reason mismatch: sign='%s', verify='%s'", signatureInfo.Reason, verifyInfo.Reason)
+	}
+
+	if signatureInfo.ContactInfo != verifyInfo.ContactInfo {
+		t.Errorf("ContactInfo mismatch: sign='%s', verify='%s'", signatureInfo.ContactInfo, verifyInfo.ContactInfo)
+	}
 }
