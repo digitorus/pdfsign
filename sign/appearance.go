@@ -18,7 +18,7 @@ func writeAppearanceHeader(buffer *bytes.Buffer, rectWidth, rectHeight float64) 
 	buffer.WriteString("<<\n")
 	buffer.WriteString("  /Type /XObject\n")
 	buffer.WriteString("  /Subtype /Form\n")
-	buffer.WriteString(fmt.Sprintf("  /BBox [0 0 %f %f]\n", rectWidth, rectHeight))
+	fmt.Fprintf(buffer, "  /BBox [0 0 %f %f]\n", rectWidth, rectHeight)
 	buffer.WriteString("  /Matrix [1 0 0 1 0 0]\n") // No scaling or translation
 }
 
@@ -48,13 +48,13 @@ func createFontResource(buffer *bytes.Buffer) {
 
 func createImageResource(buffer *bytes.Buffer, imageObjectId uint32) {
 	buffer.WriteString("   /XObject <<\n")
-	buffer.WriteString(fmt.Sprintf("     /Im1 %d 0 R\n", imageObjectId))
+	fmt.Fprintf(buffer, "     /Im1 %d 0 R\n", imageObjectId)
 	buffer.WriteString("   >>\n")
 }
 
 func writeFormTypeAndLength(buffer *bytes.Buffer, streamLength int) {
 	buffer.WriteString("  /FormType 1\n")
-	buffer.WriteString(fmt.Sprintf("  /Length %d\n", streamLength))
+	fmt.Fprintf(buffer, "  /Length %d\n", streamLength)
 	buffer.WriteString(">>\n")
 }
 
@@ -148,12 +148,13 @@ func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 func compressData(data []byte) []byte {
 	var compressedData bytes.Buffer
 	writer := zlib.NewWriter(&compressedData)
-	defer writer.Close()
+	defer func() {
+		_ = writer.Close()
+	}()
 	_, err := writer.Write(data)
 	if err != nil {
 		return nil
 	}
-	writer.Close()
 	return compressedData.Bytes()
 }
 
@@ -207,21 +208,21 @@ func computeTextSizeAndPosition(text string, rectWidth, rectHeight float64) (flo
 }
 
 func drawText(buffer *bytes.Buffer, text string, fontSize float64, x, y float64) {
-	buffer.WriteString("q\n")                                   // Save graphics state
-	buffer.WriteString("BT\n")                                  // Begin text
-	buffer.WriteString(fmt.Sprintf("/F1 %.2f Tf\n", fontSize))  // Set font and size
-	buffer.WriteString(fmt.Sprintf("%.2f %.2f Td\n", x, y))     // Set text position
-	buffer.WriteString("0.2 0.2 0.6 rg\n")                      // Set font color to ballpoint-like color (RGB)
-	buffer.WriteString(fmt.Sprintf("%s Tj\n", pdfString(text))) // Show text
-	buffer.WriteString("ET\n")                                  // End text
-	buffer.WriteString("Q\n")                                   // Restore graphics state
+	buffer.WriteString("q\n")                       // Save graphics state
+	buffer.WriteString("BT\n")                      // Begin text
+	fmt.Fprintf(buffer, "/F1 %.2f Tf\n", fontSize)  // Set font and size
+	fmt.Fprintf(buffer, "%.2f %.2f Td\n", x, y)     // Set text position
+	buffer.WriteString("0.2 0.2 0.6 rg\n")          // Set font color to ballpoint-like color (RGB)
+	fmt.Fprintf(buffer, "%s Tj\n", pdfString(text)) // Show text
+	buffer.WriteString("ET\n")                      // End text
+	buffer.WriteString("Q\n")                       // Restore graphics state
 }
 
 func drawImage(buffer *bytes.Buffer, rectWidth, rectHeight float64) {
 	// We save state twice on purpose due to the cm operation
 	buffer.WriteString("q\n") // Save graphics state
 	buffer.WriteString("q\n") // Save before image transformation
-	buffer.WriteString(fmt.Sprintf("%.2f 0 0 %.2f 0 0 cm\n", rectWidth, rectHeight))
+	fmt.Fprintf(buffer, "%.2f 0 0 %.2f 0 0 cm\n", rectWidth, rectHeight)
 	buffer.WriteString("/Im1 Do\n") // Draw image
 	buffer.WriteString("Q\n")       // Restore after transformation
 	buffer.WriteString("Q\n")       // Restore graphics state

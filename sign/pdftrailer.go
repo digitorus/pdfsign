@@ -6,7 +6,8 @@ import (
 )
 
 func (context *SignContext) writeTrailer() error {
-	if context.PDFReader.XrefInformation.Type == "table" {
+	switch context.PDFReader.XrefInformation.Type {
+	case "table":
 		trailer_length := context.PDFReader.XrefInformation.IncludingTrailerEndPos - context.PDFReader.XrefInformation.EndPos
 
 		// Read the trailer so we can replace the size.
@@ -28,12 +29,12 @@ func (context *SignContext) writeTrailer() error {
 		new_prev := "Prev " + strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10)
 
 		trailer_string := string(trailer_buf)
-		trailer_string = strings.Replace(trailer_string, root_string, new_root, -1)
-		trailer_string = strings.Replace(trailer_string, size_string, new_size, -1)
+		trailer_string = strings.ReplaceAll(trailer_string, root_string, new_root)
+		trailer_string = strings.ReplaceAll(trailer_string, size_string, new_size)
 		if strings.Contains(trailer_string, prev_string) {
-			trailer_string = strings.Replace(trailer_string, prev_string, new_prev, -1)
+			trailer_string = strings.ReplaceAll(trailer_string, prev_string, new_prev)
 		} else {
-			trailer_string = strings.Replace(trailer_string, new_root, new_root+"\n  /"+new_prev, -1)
+			trailer_string = strings.ReplaceAll(trailer_string, new_root, new_root+"\n  /"+new_prev)
 		}
 
 		// Ensure the same amount of padding (two spaces) for each line, except when the line does not start with a whitespace already.
@@ -49,7 +50,7 @@ func (context *SignContext) writeTrailer() error {
 		if _, err := context.OutputBuffer.Write([]byte(trailer_string)); err != nil {
 			return err
 		}
-	} else if context.PDFReader.XrefInformation.Type == "stream" {
+	case "stream":
 		if _, err := context.OutputBuffer.Write([]byte("startxref\n")); err != nil {
 			return err
 		}

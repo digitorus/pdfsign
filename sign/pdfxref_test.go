@@ -30,7 +30,11 @@ func TestGetLastObjectIDFromXref(t *testing.T) {
 			if err != nil {
 				st.Fatalf("%s: %s", tc.fileName, err.Error())
 			}
-			defer input_file.Close()
+			defer func() {
+				if err := input_file.Close(); err != nil {
+					st.Errorf("Failed to close input_file: %v", err)
+				}
+			}()
 
 			finfo, err := input_file.Stat()
 			if err != nil {

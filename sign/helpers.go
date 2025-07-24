@@ -26,14 +26,14 @@ func findFirstPage(parent pdf.Value) (pdf.Value, error) {
 			}
 		}
 
-		return parent, errors.New("Could not find first page.")
+		return parent, errors.New("could not find first page")
 	}
 
 	if value_type == "/Page" {
 		return parent, nil
 	}
 
-	return parent, errors.New("Could not find first page.")
+	return parent, errors.New("could not find first page")
 }
 
 func pdfString(text string) string {
@@ -55,10 +55,10 @@ func pdfString(text string) string {
 	// text = "<" + text + ">"
 
 	// PDFDocEncoded
-	text = strings.Replace(text, "\\", "\\\\", -1)
-	text = strings.Replace(text, ")", "\\)", -1)
-	text = strings.Replace(text, "(", "\\(", -1)
-	text = strings.Replace(text, "\r", "\\r", -1)
+	text = strings.ReplaceAll(text, "\\", "\\\\")
+	text = strings.ReplaceAll(text, ")", "\\)")
+	text = strings.ReplaceAll(text, "(", "\\(")
+	text = strings.ReplaceAll(text, "\r", "\\r")
 	text = "(" + text + ")"
 
 	return text
