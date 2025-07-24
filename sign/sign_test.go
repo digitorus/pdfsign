@@ -225,14 +225,14 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		if err := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName); err != nil {
 			t.Error(err)
 		}
-	} else if len(info.Signers) == 0 {
-		t.Fatalf("no signers found in %s", tmpfile.Name())
+	} else if len(info.Signatures) == 0 {
+		t.Fatalf("no signatures found in %s", tmpfile.Name())
 	} else {
-		if info.Signers[0].Name != signerName {
-			t.Fatalf("expected %q, got %q", signerName, info.Signers[0].Name)
+		if info.Signatures[0].Info.Name != signerName {
+			t.Fatalf("expected %q, got %q", signerName, info.Signatures[0].Info.Name)
 		}
-		if info.Signers[0].Location != signerLocation {
-			t.Fatalf("expected %q, got %q", signerLocation, info.Signers[0].Location)
+		if info.Signatures[0].Info.Location != signerLocation {
+			t.Fatalf("expected %q, got %q", signerLocation, info.Signatures[0].Info.Location)
 		}
 	}
 }

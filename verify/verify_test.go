@@ -41,24 +41,33 @@ func TestFile(t *testing.T) {
 	}
 
 	// Check if we have signers
-	if len(response.Signers) == 0 {
-		t.Fatal("No signers found in the document")
+	if len(response.Signatures) == 0 {
+		t.Fatal("No signatures found in the document")
 	}
 
 	validSignatureFound := false
-	for i, signer := range response.Signers {
-		if signer.ValidSignature {
+	for i, sig := range response.Signatures {
+		if sig.Validation.ValidSignature {
 			validSignatureFound = true
 		}
-		if signer.SignatureTime == nil {
-			t.Errorf("Signer %d missing signature time", i+1)
+		if sig.Info.SignatureTime == nil {
+			t.Errorf("Signature %d missing signature time", i+1)
 		}
-		if len(signer.Certificates) == 0 {
-			t.Errorf("Signer %d has no certificates", i+1)
+		if len(sig.Validation.Certificates) == 0 {
+			t.Errorf("Signature %d has no certificates", i+1)
+		}
+		if sig.Info.DocumentHash == "" {
+			t.Errorf("Signature %d missing document hash", i+1)
+		}
+		if sig.Info.SignatureHash == "" {
+			t.Errorf("Signature %d missing signature hash", i+1)
+		}
+		if sig.Info.HashAlgorithm != "sha256" {
+			t.Errorf("Signature %d hash algorithm is not sha256 (got %s)", i+1, sig.Info.HashAlgorithm)
 		}
 	}
 	if !validSignatureFound {
-		t.Error("No valid signatures found in signers")
+		t.Error("No valid signatures found in signatures")
 	}
 
 	// Document info checks
@@ -82,29 +91,31 @@ func TestFile(t *testing.T) {
 		t.Error("DocumentInfo.ModDate is zero")
 	}
 
-	t.Logf("Found %d signer(s)", len(response.Signers))
+	t.Logf("Found %d signer(s)", len(response.Signatures))
 
 	// Validate each signer
-	for i, signer := range response.Signers {
-		t.Logf("Signer %d:", i+1)
-		t.Logf("  Name: %s", signer.Name)
-		t.Logf("  Reason: %s", signer.Reason)
-		t.Logf("  Location: %s", signer.Location)
-		t.Logf("  ContactInfo: %s", signer.ContactInfo)
-		t.Logf("  ValidSignature: %t", signer.ValidSignature)
-		t.Logf("  TrustedIssuer: %t", signer.TrustedIssuer)
-		t.Logf("  RevokedCertificate: %t", signer.RevokedCertificate)
-		t.Logf("  Certificates count: %d", len(signer.Certificates))
+	for i, sig := range response.Signatures {
+		t.Logf("Signature %d:", i+1)
+		t.Logf("  Name: %s", sig.Info.Name)
+		t.Logf("  Reason: %s", sig.Info.Reason)
+		t.Logf("  Location: %s", sig.Info.Location)
+		t.Logf("  ContactInfo: %s", sig.Info.ContactInfo)
+		t.Logf("  ValidSignature: %t", sig.Validation.ValidSignature)
+		t.Logf("  TrustedIssuer: %t", sig.Validation.TrustedIssuer)
+		t.Logf("  DocumentHash: %s", sig.Info.DocumentHash)
+		t.Logf("  SignatureHash: %s", sig.Info.SignatureHash)
+		t.Logf("  HashAlgorithm: %s", sig.Info.HashAlgorithm)
+		t.Logf("  Certificates count: %d", len(sig.Validation.Certificates))
 
 		// Check if we have certificates
-		if len(signer.Certificates) == 0 {
-			t.Errorf("Signer %d has no certificates", i+1)
+		if len(sig.Validation.Certificates) == 0 {
+			t.Errorf("Signature %d has no certificates", i+1)
 		}
 
 		// Validate certificates
-		for j, cert := range signer.Certificates {
+		for j, cert := range sig.Validation.Certificates {
 			if cert.Certificate == nil {
-				t.Errorf("Signer %d, certificate %d is nil", i+1, j+1)
+				t.Errorf("Signature %d, certificate %d is nil", i+1, j+1)
 			} else {
 				t.Logf("  Certificate %d: Subject=%s, Issuer=%s", j+1,
 					cert.Certificate.Subject.String(),
@@ -125,8 +136,8 @@ func TestFile(t *testing.T) {
 		}
 
 		// Check timestamp if present
-		if signer.TimeStamp != nil {
-			t.Logf("  Timestamp: %s", signer.TimeStamp.Time)
+		if sig.Info.TimeStamp != nil {
+			t.Logf("  Timestamp: %s", sig.Info.TimeStamp.Time)
 		}
 	}
 
@@ -185,11 +196,11 @@ func TestReader(t *testing.T) {
 		t.Fatal("Response is nil")
 	}
 
-	if len(response.Signers) == 0 {
-		t.Fatal("No signers found in the document")
+	if len(response.Signatures) == 0 {
+		t.Fatal("No signatures found in the document")
 	}
 
-	t.Logf("Reader test: Found %d signer(s)", len(response.Signers))
+	t.Logf("Reader test: Found %d signer(s)", len(response.Signatures))
 }
 
 func TestFileWithInvalidFile(t *testing.T) {
@@ -259,7 +270,7 @@ func TestFileWithUnsignedPDF(t *testing.T) {
 
 	// If it succeeds, log the results
 	if response != nil {
-		t.Logf("Unsigned PDF test: Found %d signer(s)", len(response.Signers))
+		t.Logf("Unsigned PDF test: Found %d signer(s)", len(response.Signatures))
 	}
 }
 
@@ -289,10 +300,10 @@ func TestRevocationWarnings(t *testing.T) {
 	}
 
 	// Check for revocation warnings
-	if response != nil && len(response.Signers) > 0 {
-		for i, signer := range response.Signers {
-			t.Logf("Signer %d:", i+1)
-			for j, cert := range signer.Certificates {
+	if response != nil && len(response.Signatures) > 0 {
+		for i, sig := range response.Signatures {
+			t.Logf("Signature %d:", i+1)
+			for j, cert := range sig.Validation.Certificates {
 				t.Logf("  Certificate %d:", j+1)
 				t.Logf("    OCSP Embedded: %v", cert.OCSPEmbedded)
 				t.Logf("    CRL Embedded: %v", cert.CRLEmbedded)
@@ -341,10 +352,10 @@ func TestExternalRevocationChecking(t *testing.T) {
 		t.Fatalf("Failed to verify file: %v", err)
 	}
 
-	if response != nil && len(response.Signers) > 0 {
-		for i, signer := range response.Signers {
-			t.Logf("Signer %d (external checking disabled):", i+1)
-			for j, cert := range signer.Certificates {
+	if response != nil && len(response.Signatures) > 0 {
+		for i, sig := range response.Signatures {
+			t.Logf("Signature %d (external checking disabled):", i+1)
+			for j, cert := range sig.Validation.Certificates {
 				t.Logf("  Certificate %d:", j+1)
 				t.Logf("    OCSP Embedded: %v, External: %v", cert.OCSPEmbedded, cert.OCSPExternal)
 				t.Logf("    CRL Embedded: %v, External: %v", cert.CRLEmbedded, cert.CRLExternal)

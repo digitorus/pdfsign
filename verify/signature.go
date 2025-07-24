@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 
+	"crypto/sha256"
+
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
@@ -14,8 +16,8 @@ import (
 )
 
 // processSignature processes a single digital signature found in the PDF.
-func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (Signer, string, error) {
-	signer := Signer{
+func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (SignatureInfo, SignatureValidation, string, error) {
+	info := SignatureInfo{
 		Name:        v.Key("Name").Text(),
 		Reason:      v.Key("Reason").Text(),
 		Location:    v.Key("Location").Text(),
@@ -26,44 +28,59 @@ func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (Si
 	sigTime := v.Key("M")
 	if !sigTime.IsNull() {
 		if t, err := parseDate(sigTime.Text()); err == nil {
-			signer.SignatureTime = &t
+			info.SignatureTime = &t
 		}
 	}
+
+	info.HashAlgorithm = "sha256" // default
 
 	// Parse PKCS#7 signature
 	p7, err := pkcs7.Parse([]byte(v.Key("Contents").RawString()))
 	if err != nil {
-		return signer, "", fmt.Errorf("failed to parse PKCS#7: %v", err)
+		return info, SignatureValidation{}, "", fmt.Errorf("failed to parse PKCS#7: %v", err)
 	}
 
 	// Process byte range for signature verification
 	err = processByteRange(v, file, p7)
 	if err != nil {
-		return signer, fmt.Sprintf("Failed to process ByteRange: %v", err), nil
+		return info, SignatureValidation{}, fmt.Sprintf("Failed to process ByteRange: %v", err), nil
 	}
 
+	// Calculate document hash (SHA256 by default)
+	// (Assume the byte range covers the signed content)
+	// You may want to expose the hash algorithm in options for flexibility
+	h := sha256.New()
+	h.Write(p7.Content)
+	info.DocumentHash = fmt.Sprintf("%x", h.Sum(nil))
+
+	// Calculate signature hash (SHA256 by default)
+	h.Reset()
+	h.Write([]byte(v.Key("Contents").RawString()))
+	info.SignatureHash = fmt.Sprintf("%x", h.Sum(nil))
+
 	// Process timestamp if present
-	err = processTimestamp(p7, &signer)
+	err = processTimestamp(p7, &info)
 	if err != nil {
-		return signer, fmt.Sprintf("Failed to process timestamp: %v", err), nil
+		return info, SignatureValidation{}, fmt.Sprintf("Failed to process timestamp: %v", err), nil
 	}
 
 	// Verify the digital signature
-	err = verifySignature(p7, &signer)
+	var validation SignatureValidation
+	err = verifySignature(p7, &validation)
 	if err != nil {
-		return signer, fmt.Sprintf("Failed to verify signature: %v", err), nil
+		return info, validation, fmt.Sprintf("Failed to verify signature: %v", err), nil
 	}
 
 	// Process certificate chains and revocation
 	var revInfo revocation.InfoArchival
 	_ = p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
-	certError, err := buildCertificateChainsWithOptions(p7, &signer, revInfo, options)
+	certError, err := buildCertificateChainsWithOptions(p7, &info, &validation, revInfo, options)
 	if err != nil {
-		return signer, fmt.Sprintf("Failed to build certificate chains: %v", err), nil
+		return info, validation, fmt.Sprintf("Failed to build certificate chains: %v", err), nil
 	}
 
-	return signer, certError, nil
+	return info, validation, certError, nil
 }
 
 // processByteRange processes the byte range for signature verification.
@@ -86,7 +103,7 @@ func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
 }
 
 // processTimestamp processes timestamp information from the signature.
-func processTimestamp(p7 *pkcs7.PKCS7, signer *Signer) error {
+func processTimestamp(p7 *pkcs7.PKCS7, signer *SignatureInfo) error {
 	for _, s := range p7.Signers {
 		// Timestamp - RFC 3161 id-aa-timeStampToken
 		for _, attr := range s.UnauthenticatedAttributes {
@@ -121,7 +138,7 @@ func processTimestamp(p7 *pkcs7.PKCS7, signer *Signer) error {
 }
 
 // verifySignature verifies the digital signature.
-func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
+func verifySignature(p7 *pkcs7.PKCS7, validation *SignatureValidation) error {
 	// Directory of certificates, including OCSP
 	certPool := x509.NewCertPool()
 	for _, cert := range p7.Certificates {
@@ -133,14 +150,14 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 	if err != nil {
 		err = p7.Verify()
 		if err == nil {
-			signer.ValidSignature = true
-			signer.TrustedIssuer = false
+			validation.ValidSignature = true
+			validation.TrustedIssuer = false
 		} else {
 			return fmt.Errorf("signature verification failed: %v", err)
 		}
 	} else {
-		signer.ValidSignature = true
-		signer.TrustedIssuer = true
+		validation.ValidSignature = true
+		validation.TrustedIssuer = true
 	}
 
 	return nil

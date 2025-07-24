@@ -94,7 +94,7 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 		}
 
 		// Use the new modular signature processing function
-		signer, errorMsg, err := processSignature(v, file, options)
+		info, validation, errorMsg, err := processSignature(v, file, options)
 		if err != nil {
 			// Skip this signature if there's a critical error
 			continue
@@ -105,7 +105,13 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 			apiResp.Error = errorMsg
 		}
 
-		apiResp.Signers = append(apiResp.Signers, signer)
+		apiResp.Signatures = append(apiResp.Signatures, struct {
+			Info       SignatureInfo       `json:"info"`
+			Validation SignatureValidation `json:"validation"`
+		}{
+			Info:       info,
+			Validation: validation,
+		})
 	}
 
 	if apiResp == nil {
