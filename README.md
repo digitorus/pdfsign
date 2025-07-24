@@ -73,7 +73,7 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 | `-require-non-repudiation` | bool | `false` | Require Non-Repudiation key usage in certificates (for highest security) |
 | `-use-signature-time-fallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted) |
 | `-validate-timestamp-certs` | bool | `true` | Validate timestamp token certificates |
-| `-allow-embedded-roots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
+| `-allow-untrusted-roots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
 | `-http-timeout` | duration | `10s` | Timeout for external revocation checking requests |
 
 ### Verification Examples
@@ -92,7 +92,7 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 ./pdfsign verify -require-non-repudiation -external document.pdf
 
 # Verification allowing self-signed certificates
-./pdfsign verify -allow-embedded-roots self-signed.pdf
+./pdfsign verify -allow-untrusted-roots self-signed.pdf
 ```
 
 ### Verification Output
@@ -269,7 +269,7 @@ func main() {
 | `AllowNonRepudiationKU` | bool | `true` | Allow Non-Repudiation key usage (recommended for PDF signing) |
 | `UseSignatureTimeAsFallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted by default) |
 | `ValidateTimestampCertificates` | bool | `true` | Validate timestamp token's certificate chain and revocation status |
-| `AllowEmbeddedCertificatesAsRoots` | bool | `false` | Allow embedded certificates as trusted roots (use with caution) |
+| `AllowEmbeddedCertificatesAsRoots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
 
 ## Signature Appearance with Images
 

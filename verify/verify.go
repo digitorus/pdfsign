@@ -38,10 +38,10 @@ type VerifyOptions struct {
 	// including building a proper certification path and checking revocation status.
 	ValidateTimestampCertificates bool
 
-	// AllowEmbeddedCertificatesAsRoots when true, allows using embedded certificates as trusted roots
+	// AllowUntrustedRoots when true, allows using certificates embedded in the PDF as trusted roots
 	// WARNING: This makes signatures appear valid even if they're self-signed or from untrusted CAs
 	// Only enable this for testing or when you explicitly trust the embedded certificates
-	AllowEmbeddedCertificatesAsRoots bool
+	AllowUntrustedRoots bool
 
 	// EnableExternalRevocationCheck when true, performs external OCSP and CRL checks
 	// using the URLs found in certificate extensions
@@ -67,14 +67,14 @@ func DefaultVerifyOptions() *VerifyOptions {
 			x509.ExtKeyUsageEmailProtection, // Common alternative
 			x509.ExtKeyUsageClientAuth,      // Another common alternative
 		},
-		RequireDigitalSignatureKU:        true,             // Require Digital Signature key usage
-		RequireNonRepudiation:            false,            // Don't require Non-Repudiation by default (optional)
-		UseSignatureTimeAsFallback:       false,            // Don't use untrusted signature time by default
-		ValidateTimestampCertificates:    true,             // Always validate timestamp certificates
-		AllowEmbeddedCertificatesAsRoots: false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
-		EnableExternalRevocationCheck:    false,            // SECURE DEFAULT: Don't make external network calls
-		HTTPClient:                       nil,              // Use default HTTP client
-		HTTPTimeout:                      10 * time.Second, // 10 second timeout for external checks
+		RequireDigitalSignatureKU:     true,             // Require Digital Signature key usage
+		RequireNonRepudiation:         false,            // Don't require Non-Repudiation by default (optional)
+		UseSignatureTimeAsFallback:    false,            // Don't use untrusted signature time by default
+		ValidateTimestampCertificates: true,             // Always validate timestamp certificates
+		AllowUntrustedRoots:           false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
+		EnableExternalRevocationCheck: false,            // SECURE DEFAULT: Don't make external network calls
+		HTTPClient:                    nil,              // Use default HTTP client
+		HTTPTimeout:                   10 * time.Second, // 10 second timeout for external checks
 	}
 }
 

@@ -140,7 +140,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			trustedIssuer = true
 		} else {
 			// If verification fails with system roots, only try embedded certificates if explicitly allowed
-			if options.AllowEmbeddedCertificatesAsRoots {
+			if options.AllowUntrustedRoots {
 				altChain, verifyErr := cert.Verify(createVerifyOptions(certPool, certPool))
 
 				// If embedded cert verification fails, record the original system root error
@@ -394,7 +394,7 @@ func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOption
 	_, err = timestampCert.Verify(opts)
 	if err != nil {
 		// Try with embedded certificates as roots if allowed
-		if options.AllowEmbeddedCertificatesAsRoots {
+		if options.AllowUntrustedRoots {
 			opts.Roots = certPool
 			_, err = timestampCert.Verify(opts)
 			if err != nil {

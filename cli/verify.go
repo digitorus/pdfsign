@@ -19,7 +19,7 @@ func VerifyCommand() {
 	var requireNonRepudiation bool
 	var useSignatureTimeAsFallback bool
 	var validateTimestampCertificates bool
-	var allowEmbeddedCertificatesAsRoots bool
+	var allowUntrustedRoots bool
 	var httpTimeout time.Duration
 
 	verifyFlags.BoolVar(&enableExternalRevocation, "external", false, "Enable external OCSP and CRL checking")
@@ -27,7 +27,7 @@ func VerifyCommand() {
 	verifyFlags.BoolVar(&requireNonRepudiation, "require-non-repudiation", false, "Require Non-Repudiation key usage in certificates (for highest security)")
 	verifyFlags.BoolVar(&useSignatureTimeAsFallback, "use-signature-time-fallback", false, "Use signature time as fallback if no timestamp (untrusted)")
 	verifyFlags.BoolVar(&validateTimestampCertificates, "validate-timestamp-certs", true, "Validate timestamp token certificates")
-	verifyFlags.BoolVar(&allowEmbeddedCertificatesAsRoots, "allow-embedded-roots", false, "Allow embedded certificates as trusted roots (use with caution)")
+	verifyFlags.BoolVar(&allowUntrustedRoots, "allow-untrusted-roots", false, "Allow certificates embedded in the PDF to be used as trusted roots (use with caution)")
 	verifyFlags.DurationVar(&httpTimeout, "http-timeout", 10*time.Second, "Timeout for external revocation checking requests")
 
 	verifyFlags.Usage = func() {
@@ -38,7 +38,7 @@ func VerifyCommand() {
 		fmt.Println("\nExamples:")
 		fmt.Printf("  %s verify document.pdf\n", os.Args[0])
 		fmt.Printf("  %s verify -external -http-timeout=30s document.pdf\n", os.Args[0])
-		fmt.Printf("  %s verify -allow-embedded-roots self-signed.pdf\n", os.Args[0])
+		fmt.Printf("  %s verify -allow-untrusted-roots self-signed.pdf\n", os.Args[0])
 	}
 
 	if err := verifyFlags.Parse(os.Args[2:]); err != nil {
@@ -52,11 +52,11 @@ func VerifyCommand() {
 
 	input := verifyFlags.Arg(0)
 	VerifyPDF(input, enableExternalRevocation, requireDigitalSignatureKU, requireNonRepudiation,
-		useSignatureTimeAsFallback, validateTimestampCertificates, allowEmbeddedCertificatesAsRoots, httpTimeout)
+		useSignatureTimeAsFallback, validateTimestampCertificates, allowUntrustedRoots, httpTimeout)
 }
 
 func VerifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU, requireNonRepudiation,
-	useSignatureTimeAsFallback, validateTimestampCertificates, allowEmbeddedCertificatesAsRoots bool, httpTimeout time.Duration) {
+	useSignatureTimeAsFallback, validateTimestampCertificates, allowUntrustedRoots bool, httpTimeout time.Duration) {
 	inputFile, err := os.Open(input)
 	if err != nil {
 		log.Fatal(err)
@@ -73,7 +73,7 @@ func VerifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU
 	options.RequireNonRepudiation = requireNonRepudiation
 	options.UseSignatureTimeAsFallback = useSignatureTimeAsFallback
 	options.ValidateTimestampCertificates = validateTimestampCertificates
-	options.AllowEmbeddedCertificatesAsRoots = allowEmbeddedCertificatesAsRoots
+	options.AllowUntrustedRoots = allowUntrustedRoots
 	options.HTTPTimeout = httpTimeout
 
 	resp, err := verify.VerifyFileWithOptions(inputFile, options)
