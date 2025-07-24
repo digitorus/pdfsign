@@ -132,13 +132,20 @@ func LoadCertificatesAndKey(certPath, keyPath, chainPath string) (*x509.Certific
 	}
 
 	certBlock, _ := pem.Decode(certData)
-	if certBlock == nil {
-		log.Fatal(errors.New("failed to parse PEM block containing the certificate"))
-	}
-
-	cert, err := x509.ParseCertificate(certBlock.Bytes)
-	if err != nil {
-		log.Fatal(err)
+	var cert *x509.Certificate
+	if certBlock != nil {
+		cert, err = x509.ParseCertificate(certBlock.Bytes)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else if len(certData) > 0 {
+		// Try DER
+		cert, err = x509.ParseCertificate(certData)
+		if err != nil {
+			log.Fatal(errors.New("failed to parse certificate as PEM or DER"))
+		}
+	} else {
+		log.Fatal(errors.New("certificate data is empty"))
 	}
 
 	keyData, err := os.ReadFile(keyPath)
