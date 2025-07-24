@@ -54,29 +54,42 @@ type VerifyOptions struct {
 	HTTPTimeout time.Duration
 }
 
+// SignatureInfo contains information about the signer and signature
+// (not related to validation)
+type SignatureInfo struct {
+	Name          string               `json:"name"`
+	Reason        string               `json:"reason"`
+	Location      string               `json:"location"`
+	ContactInfo   string               `json:"contact_info"`
+	SignatureTime *time.Time           `json:"signature_time,omitempty"`
+	TimeStamp     *timestamp.Timestamp `json:"time_stamp"`
+	DocumentHash  string               `json:"document_hash"`
+	SignatureHash string               `json:"signature_hash"`
+	HashAlgorithm string               `json:"hash_algorithm"`
+}
+
+// SignatureValidation contains validation results and technical details
+// (not about the signer's intent)
+type SignatureValidation struct {
+	ValidSignature     bool          `json:"valid_signature"`
+	TrustedIssuer      bool          `json:"trusted_issuer"`
+	RevokedCertificate bool          `json:"revoked_certificate"`
+	Certificates       []Certificate `json:"certificates"`
+	TimestampStatus    string        `json:"timestamp_status,omitempty"`
+	TimestampTrusted   bool          `json:"timestamp_trusted"`
+	VerificationTime   *time.Time    `json:"verification_time"`
+	TimeSource         string        `json:"time_source"`
+	TimeWarnings       []string      `json:"time_warnings,omitempty"`
+}
+
 type Response struct {
 	Error string
 
 	DocumentInfo DocumentInfo
-	Signers      []Signer
-}
-
-type Signer struct {
-	Name               string               `json:"name"`
-	Reason             string               `json:"reason"`
-	Location           string               `json:"location"`
-	ContactInfo        string               `json:"contact_info"`
-	ValidSignature     bool                 `json:"valid_signature"`
-	TrustedIssuer      bool                 `json:"trusted_issuer"`
-	RevokedCertificate bool                 `json:"revoked_certificate"`
-	Certificates       []Certificate        `json:"certificates"`
-	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
-	SignatureTime      *time.Time           `json:"signature_time,omitempty"`   // Time from the signature object, may be untrusted
-	TimestampStatus    string               `json:"timestamp_status,omitempty"` // "valid", "invalid", "missing"
-	TimestampTrusted   bool                 `json:"timestamp_trusted"`          // Whether timestamp certificate chain is trusted
-	VerificationTime   *time.Time           `json:"verification_time"`          // Time used for certificate validation
-	TimeSource         string               `json:"time_source"`                // "embedded_timestamp", "signature_time", "current_time"
-	TimeWarnings       []string             `json:"time_warnings,omitempty"`    // Warnings about time validation
+	Signatures   []struct {
+		Info       SignatureInfo       `json:"info"`
+		Validation SignatureValidation `json:"validation"`
+	}
 }
 
 type Certificate struct {

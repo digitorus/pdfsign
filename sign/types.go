@@ -8,6 +8,7 @@ import (
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
+	"github.com/digitorus/timestamp"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -94,6 +95,26 @@ type SignDataSignatureInfo struct {
 	Date        time.Time
 }
 
+// SignatureInfo contains information about the signer and signature
+// (not related to validation)
+type SignatureInfo struct {
+	Name        string    `json:"name"`
+	Reason      string    `json:"reason"`
+	Location    string    `json:"location"`
+	ContactInfo string    `json:"contact_info"`
+	Date        time.Time `json:"date"`
+}
+
+// SignatureValidation contains validation results and technical details
+// (not about the signer's intent)
+type SignatureValidation struct {
+	ValidSignature bool   `json:"valid_signature"`
+	TrustedIssuer  bool   `json:"trusted_issuer"`
+	DocumentHash   string `json:"document_hash"`
+	SignatureHash  string `json:"signature_hash"`
+	HashAlgorithm  string `json:"hash_algorithm"`
+}
+
 type SignContext struct {
 	InputFile              io.ReadSeeker
 	OutputFile             io.Writer
@@ -112,4 +133,9 @@ type SignContext struct {
 	lastXrefID         uint32
 	newXrefEntries     []xrefEntry
 	updatedXrefEntries []xrefEntry
+
+	// Computed signature information
+	computedDocumentHash  string
+	computedSignatureHash string
+	computedTimeStamp     *timestamp.Timestamp
 }

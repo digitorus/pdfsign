@@ -97,27 +97,34 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 
 ### Verification Output
 
-The verification command outputs JSON with the following key fields:
 
-| Field | Description |
-|-------|-------------|
-| `ValidSignature` | Whether the cryptographic signature is mathematically valid |
-| `TrustedIssuer` | Whether the certificate chain is trusted by system root certificates |
-| `RevokedCertificate` | Whether any certificate in the chain has been revoked before signing |
-| `KeyUsageValid` | Whether the certificate has appropriate key usage for PDF signing |
-| `ExtKeyUsageValid` | Whether the certificate has proper Extended Key Usage (EKU) values |
-| `TimestampStatus` | Status of embedded timestamp: "valid", "invalid", or "missing" |
-| `TimestampTrusted` | Whether the timestamp token's certificate chain is trusted |
-| `VerificationTime` | The time used for certificate validation |
-| `TimeSource` | Source of verification time: "embedded_timestamp", "signature_time", or "current_time" |
-| `TimeWarnings` | Warnings about time validation (e.g., using untrusted signature time) |
-| `OCSPEmbedded` | Whether OCSP response is embedded in the PDF |
-| `OCSPExternal` | Whether external OCSP checking was performed |
-| `CRLEmbedded` | Whether CRL is embedded in the PDF |
-| `CRLExternal` | Whether external CRL checking was performed |
-| `RevocationTime` | When the certificate was revoked (if applicable) |
-| `RevokedBeforeSigning` | Whether revocation occurred before the signing time |
-| `RevocationWarning` | Human-readable warning about revocation status checking |
+#### Key Fields
+
+| Field | Location | Description |
+|-------|----------|-------------|
+| `Error` | top-level | Error message if verification failed |
+| `DocumentInfo` | top-level | PDF document metadata |
+| `Signatures` | top-level | Array of signature results |
+| `Info` | Signatures[] | Signer and signature metadata |
+| `Validation` | Signatures[] | Validation results for the signature |
+| `valid_signature` | Signatures[].Validation | Whether the cryptographic signature is mathematically valid |
+| `trusted_issuer` | Signatures[].Validation | Whether the certificate chain is trusted by system root certificates |
+| `revoked_certificate` | Signatures[].Validation | Whether any certificate in the chain has been revoked before signing |
+| `certificates` | Signatures[].Validation | Array of certificate validation results |
+| `timestamp_status` | Signatures[].Validation | Status of embedded timestamp: "valid", "invalid", or "missing" |
+| `timestamp_trusted` | Signatures[].Validation | Whether the timestamp token's certificate chain is trusted |
+| `verification_time` | Signatures[].Validation | The time used for certificate validation |
+| `time_source` | Signatures[].Validation | Source of verification time: "embedded_timestamp", "signature_time", or "current_time" |
+| `time_warnings` | Signatures[].Validation | Warnings about time validation (e.g., using untrusted signature time) |
+| `key_usage_valid` | Signatures[].Validation.Certificates[] | Whether the certificate has appropriate key usage for PDF signing |
+| `ext_key_usage_valid` | Signatures[].Validation.Certificates[] | Whether the certificate has proper Extended Key Usage (EKU) values |
+| `ocsp_embedded` | Signatures[].Validation.Certificates[] | Whether OCSP response is embedded in the PDF |
+| `ocsp_external` | Signatures[].Validation.Certificates[] | Whether external OCSP checking was performed |
+| `crl_embedded` | Signatures[].Validation.Certificates[] | Whether CRL is embedded in the PDF |
+| `crl_external` | Signatures[].Validation.Certificates[] | Whether external CRL checking was performed |
+| `revocation_time` | Signatures[].Validation.Certificates[] | When the certificate was revoked (if applicable) |
+| `revoked_before_signing` | Signatures[].Validation.Certificates[] | Whether revocation occurred before the signing time |
+| `revocation_warning` | Signatures[].Validation.Certificates[] | Human-readable warning about revocation status checking |
 
 ## Go Library Usage
 

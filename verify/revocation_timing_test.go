@@ -91,7 +91,7 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 
 	tests := []struct {
 		name                  string
-		setupSigner           func() *Signer
+		setupValidation       func() (*SignatureInfo, *SignatureValidation)
 		mockRevocationTime    time.Time
 		expectedRevokedBefore bool
 		expectedTimeWarnings  int
@@ -100,15 +100,18 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 	}{
 		{
 			name: "Embedded timestamp - revoked before signing",
-			setupSigner: func() *Signer {
-				return &Signer{
+			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
+				info := &SignatureInfo{
 					TimeStamp: &timestamp.Timestamp{
 						Time: baseTime,
 					},
+				}
+				validation := &SignatureValidation{
 					VerificationTime: &baseTime,
 					TimeSource:       "embedded_timestamp",
 					TimeWarnings:     []string{},
 				}
+				return info, validation
 			},
 			mockRevocationTime:    baseTime.Add(-24 * time.Hour), // 1 day before
 			expectedRevokedBefore: true,
@@ -118,15 +121,18 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		},
 		{
 			name: "Embedded timestamp - revoked after signing",
-			setupSigner: func() *Signer {
-				return &Signer{
+			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
+				info := &SignatureInfo{
 					TimeStamp: &timestamp.Timestamp{
 						Time: baseTime,
 					},
+				}
+				validation := &SignatureValidation{
 					VerificationTime: &baseTime,
 					TimeSource:       "embedded_timestamp",
 					TimeWarnings:     []string{},
 				}
+				return info, validation
 			},
 			mockRevocationTime:    baseTime.Add(24 * time.Hour), // 1 day after
 			expectedRevokedBefore: false,
@@ -136,13 +142,16 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		},
 		{
 			name: "Signature time fallback - revoked after",
-			setupSigner: func() *Signer {
-				return &Signer{
-					SignatureTime:    &baseTime,
+			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
+				info := &SignatureInfo{
+					SignatureTime: &baseTime,
+				}
+				validation := &SignatureValidation{
 					VerificationTime: &baseTime,
 					TimeSource:       "signature_time",
 					TimeWarnings:     []string{},
 				}
+				return info, validation
 			},
 			mockRevocationTime:    baseTime.Add(24 * time.Hour), // 1 day after
 			expectedRevokedBefore: true,                         // Conservative - don't trust signature time
@@ -152,13 +161,14 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		},
 		{
 			name: "No timestamp - current time",
-			setupSigner: func() *Signer {
-				currentTime := time.Now()
-				return &Signer{
-					VerificationTime: &currentTime,
+			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
+				info := &SignatureInfo{}
+				validation := &SignatureValidation{
+					VerificationTime: &time.Time{}, // Zero time for current_time
 					TimeSource:       "current_time",
 					TimeWarnings:     []string{},
 				}
+				return info, validation
 			},
 			mockRevocationTime:    baseTime, // Any revocation time
 			expectedRevokedBefore: true,     // Conservative - can't determine timing
@@ -170,8 +180,8 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			signer := tt.setupSigner()
-			initialWarnings := len(signer.TimeWarnings)
+			_, validation := tt.setupValidation()
+			initialWarnings := len(validation.TimeWarnings)
 
 			// Create a mock certificate for testing
 			cert := &Certificate{
@@ -180,21 +190,21 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 			}
 
 			// Simulate the revocation checking logic
-			revokedBeforeSigning := isRevokedBeforeSigning(tt.mockRevocationTime, signer.VerificationTime, signer.TimeSource)
+			revokedBeforeSigning := isRevokedBeforeSigning(tt.mockRevocationTime, validation.VerificationTime, validation.TimeSource)
 			cert.RevokedBeforeSigning = revokedBeforeSigning
 
 			// Simulate the actual logic that would be used in certificate validation
 			if revokedBeforeSigning {
-				signer.RevokedCertificate = true
+				validation.RevokedCertificate = true
 			} else {
 				// Certificate was revoked after signing - only add warning for trusted timestamps
-				if signer.TimeSource == "embedded_timestamp" {
+				if validation.TimeSource == "embedded_timestamp" {
 					// With trusted timestamp, signature remains valid but add informational warning
-					signer.TimeWarnings = append(signer.TimeWarnings,
+					validation.TimeWarnings = append(validation.TimeWarnings,
 						"Certificate was revoked after signing time (test)")
 				} else {
 					// Without trusted timestamp, be conservative and mark as revoked
-					signer.RevokedCertificate = true
+					validation.RevokedCertificate = true
 				}
 			}
 
@@ -203,24 +213,24 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 				t.Errorf("RevokedBeforeSigning = %v, want %v", cert.RevokedBeforeSigning, tt.expectedRevokedBefore)
 			}
 
-			newWarnings := len(signer.TimeWarnings) - initialWarnings
+			newWarnings := len(validation.TimeWarnings) - initialWarnings
 			if newWarnings != tt.expectedTimeWarnings {
 				t.Errorf("Expected %d new warnings, got %d. Warnings: %v",
-					tt.expectedTimeWarnings, newWarnings, signer.TimeWarnings)
+					tt.expectedTimeWarnings, newWarnings, validation.TimeWarnings)
 			}
 
-			if signer.RevokedCertificate != tt.expectedSignerRevoked {
-				t.Errorf("RevokedCertificate = %v, want %v", signer.RevokedCertificate, tt.expectedSignerRevoked)
+			if validation.RevokedCertificate != tt.expectedSignerRevoked {
+				t.Errorf("RevokedCertificate = %v, want %v", validation.RevokedCertificate, tt.expectedSignerRevoked)
 			}
 
 			t.Logf("✓ %s", tt.description)
 			t.Logf("  RevocationTime: %v", tt.mockRevocationTime)
-			t.Logf("  VerificationTime: %v", signer.VerificationTime)
-			t.Logf("  TimeSource: %s", signer.TimeSource)
+			t.Logf("  VerificationTime: %v", validation.VerificationTime)
+			t.Logf("  TimeSource: %s", validation.TimeSource)
 			t.Logf("  RevokedBeforeSigning: %v", cert.RevokedBeforeSigning)
-			t.Logf("  SignerRevoked: %v", signer.RevokedCertificate)
-			if len(signer.TimeWarnings) > 0 {
-				t.Logf("  Warnings: %v", signer.TimeWarnings)
+			t.Logf("  SignerRevoked: %v", validation.RevokedCertificate)
+			if len(validation.TimeWarnings) > 0 {
+				t.Logf("  Warnings: %v", validation.TimeWarnings)
 			}
 		})
 	}
@@ -298,10 +308,8 @@ func TestOCSPRevocationTiming(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			signer := &Signer{
-				TimeStamp: &timestamp.Timestamp{
-					Time: baseTime,
-				},
+			// info is not used
+			validation := &SignatureValidation{
 				VerificationTime: &baseTime,
 				TimeSource:       tt.timeSource,
 				TimeWarnings:     []string{},
@@ -315,7 +323,7 @@ func TestOCSPRevocationTiming(t *testing.T) {
 
 			// Test the revocation timing logic
 			if resp.Status != ocsp.Good {
-				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, validation.VerificationTime, validation.TimeSource)
 
 				if revokedBeforeSigning != tt.expectRevoked {
 					t.Errorf("Expected revokedBeforeSigning=%v, got %v", tt.expectRevoked, revokedBeforeSigning)
@@ -364,10 +372,8 @@ func TestCRLRevocationTiming(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			signer := &Signer{
-				TimeStamp: &timestamp.Timestamp{
-					Time: baseTime,
-				},
+			// info is not used
+			validation := &SignatureValidation{
 				VerificationTime: &baseTime,
 				TimeSource:       tt.timeSource,
 				TimeWarnings:     []string{},
@@ -375,7 +381,7 @@ func TestCRLRevocationTiming(t *testing.T) {
 
 			var revokedBeforeSigning bool
 			if tt.revocationTime != nil {
-				revokedBeforeSigning = isRevokedBeforeSigning(*tt.revocationTime, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning = isRevokedBeforeSigning(*tt.revocationTime, validation.VerificationTime, validation.TimeSource)
 			}
 
 			if revokedBeforeSigning != tt.expectRevoked {

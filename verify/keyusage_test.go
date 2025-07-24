@@ -3,9 +3,6 @@ package verify
 import (
 	"crypto/x509"
 	"testing"
-	"time"
-
-	"github.com/digitorus/timestamp"
 )
 
 func TestValidateKeyUsage(t *testing.T) {
@@ -317,15 +314,8 @@ func TestTimestampVerificationOptions(t *testing.T) {
 				ValidateTimestampCertificates: tt.validateTimestampCertificates,
 			}
 
-			// Mock signer with or without timestamp
-			signer := &Signer{}
-			if tt.hasTimestamp {
-				// Mock timestamp - we can't easily create a real one here
-				// In a real test, you'd need to create a proper timestamp.Timestamp
-				signer.TimeStamp = &timestamp.Timestamp{
-					Time: time.Now().Add(-24 * time.Hour), // 24 hours ago
-				}
-			}
+			// Mock signature validation (minimal)
+			// Note: timestamp handling is not tested here
 
 			// This is a conceptual test - in practice, you'd need to test with real PKCS7 data
 			// For now, we can at least verify the options are set correctly

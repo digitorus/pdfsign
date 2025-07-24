@@ -12,7 +12,7 @@ import (
 )
 
 // buildCertificateChainsWithOptions builds certificate chains with custom verification options
-func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
+func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, info *SignatureInfo, validation *SignatureValidation, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
 	// Directory of certificates, including OCSP
 	certPool := x509.NewCertPool()
 	for _, cert := range p7.Certificates {
@@ -23,40 +23,40 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	var verificationTime *time.Time
 
 	// Initialize time tracking fields
-	signer.TimeSource = "current_time"
-	signer.TimeWarnings = []string{}
-	signer.TimestampStatus = "missing"
-	signer.TimestampTrusted = false
+	validation.TimeSource = "current_time"
+	validation.TimeWarnings = []string{}
+	validation.TimestampStatus = "missing"
+	validation.TimestampTrusted = false
 
 	// Always prioritize embedded timestamp if present
-	if signer.TimeStamp != nil && !signer.TimeStamp.Time.IsZero() {
-		verificationTime = &signer.TimeStamp.Time
-		signer.TimeSource = "embedded_timestamp"
-		signer.TimestampStatus = "valid"
+	if info.TimeStamp != nil && !info.TimeStamp.Time.IsZero() {
+		verificationTime = &info.TimeStamp.Time
+		validation.TimeSource = "embedded_timestamp"
+		validation.TimestampStatus = "valid"
 
 		// Validate timestamp certificate if enabled
 		if options.ValidateTimestampCertificates {
-			timestampTrusted, timestampWarning := validateTimestampCertificate(signer.TimeStamp, options)
-			signer.TimestampTrusted = timestampTrusted
+			timestampTrusted, timestampWarning := validateTimestampCertificate(info.TimeStamp, options)
+			validation.TimestampTrusted = timestampTrusted
 			if timestampWarning != "" {
-				signer.TimeWarnings = append(signer.TimeWarnings, timestampWarning)
+				validation.TimeWarnings = append(validation.TimeWarnings, timestampWarning)
 			}
 		}
-	} else if options.TrustSignatureTime && signer.SignatureTime != nil {
+	} else if options.TrustSignatureTime && info.SignatureTime != nil {
 		// Use signature time as fallback with warning about its untrusted nature
-		verificationTime = signer.SignatureTime
-		signer.TimeSource = "signature_time"
-		signer.TimeWarnings = append(signer.TimeWarnings,
+		verificationTime = info.SignatureTime
+		validation.TimeSource = "signature_time"
+		validation.TimeWarnings = append(validation.TimeWarnings,
 			"Using signature time as fallback - this time is provided by the signatory and should be considered untrusted")
 	}
 	// If verificationTime is nil, x509.Verify will use current time (default behavior)
 
 	// Set the verification time used
 	if verificationTime != nil {
-		signer.VerificationTime = verificationTime
+		validation.VerificationTime = verificationTime
 	} else {
 		currentTime := time.Now()
-		signer.VerificationTime = &currentTime
+		validation.VerificationTime = &currentTime
 	}
 
 	// Parse OCSP response
@@ -169,21 +169,21 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			if resp.Status != ocsp.Good {
 				c.RevocationTime = &resp.RevokedAt
 				// Check if revocation occurred before signing
-				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, validation.VerificationTime, validation.TimeSource)
 				c.RevokedBeforeSigning = revokedBeforeSigning
 
 				if revokedBeforeSigning {
-					signer.RevokedCertificate = true
+					validation.RevokedCertificate = true
 				} else {
 					// Add warning that certificate was revoked after signing
-					if signer.TimeSource == "embedded_timestamp" {
-						signer.TimeWarnings = append(signer.TimeWarnings,
+					if validation.TimeSource == "embedded_timestamp" {
+						validation.TimeWarnings = append(validation.TimeWarnings,
 							fmt.Sprintf("Certificate was revoked after signing time (revoked: %v, signed: %v)",
-								resp.RevokedAt, signer.VerificationTime))
+								resp.RevokedAt, validation.VerificationTime))
 					} else {
 						// Without trusted timestamp, we must assume revocation invalidates signature
-						signer.RevokedCertificate = true
-						signer.TimeWarnings = append(signer.TimeWarnings,
+						validation.RevokedCertificate = true
+						validation.TimeWarnings = append(validation.TimeWarnings,
 							"Certificate revoked, but cannot determine if revocation occurred before or after signing without trusted timestamp")
 					}
 				}
@@ -213,21 +213,21 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			c.RevocationTime = revocationTime
 
 			// Check if revocation occurred before signing
-			revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, signer.VerificationTime, signer.TimeSource)
+			revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, validation.VerificationTime, validation.TimeSource)
 			c.RevokedBeforeSigning = revokedBeforeSigning
 
 			if revokedBeforeSigning {
-				signer.RevokedCertificate = true
+				validation.RevokedCertificate = true
 			} else {
 				// Add warning that certificate was revoked after signing
-				if signer.TimeSource == "embedded_timestamp" {
-					signer.TimeWarnings = append(signer.TimeWarnings,
+				if validation.TimeSource == "embedded_timestamp" {
+					validation.TimeWarnings = append(validation.TimeWarnings,
 						fmt.Sprintf("Certificate was revoked after signing time (revoked: %v, signed: %v)",
-							revocationTime, signer.VerificationTime))
+							revocationTime, validation.VerificationTime))
 				} else {
 					// Without trusted timestamp, we must assume revocation invalidates signature
-					signer.RevokedCertificate = true
-					signer.TimeWarnings = append(signer.TimeWarnings,
+					validation.RevokedCertificate = true
+					validation.TimeWarnings = append(validation.TimeWarnings,
 						"Certificate revoked, but cannot determine if revocation occurred before or after signing without trusted timestamp")
 				}
 			}
@@ -248,21 +248,21 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 					if externalOCSPResp.Status != ocsp.Good {
 						c.RevocationTime = &externalOCSPResp.RevokedAt
 						// Check if revocation occurred before signing
-						revokedBeforeSigning := isRevokedBeforeSigning(externalOCSPResp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+						revokedBeforeSigning := isRevokedBeforeSigning(externalOCSPResp.RevokedAt, validation.VerificationTime, validation.TimeSource)
 						c.RevokedBeforeSigning = revokedBeforeSigning
 
 						if revokedBeforeSigning {
-							signer.RevokedCertificate = true
+							validation.RevokedCertificate = true
 						} else {
 							// Add warning that certificate was revoked after signing
-							if signer.TimeSource == "embedded_timestamp" {
-								signer.TimeWarnings = append(signer.TimeWarnings,
+							if validation.TimeSource == "embedded_timestamp" {
+								validation.TimeWarnings = append(validation.TimeWarnings,
 									fmt.Sprintf("Certificate was revoked after signing time (external OCSP - revoked: %v, signed: %v)",
-										externalOCSPResp.RevokedAt, signer.VerificationTime))
+										externalOCSPResp.RevokedAt, validation.VerificationTime))
 							} else {
 								// Without trusted timestamp, we must assume revocation invalidates signature
-								signer.RevokedCertificate = true
-								signer.TimeWarnings = append(signer.TimeWarnings,
+								validation.RevokedCertificate = true
+								validation.TimeWarnings = append(validation.TimeWarnings,
 									"Certificate revoked (external OCSP), but cannot determine if revocation occurred before or after signing without trusted timestamp")
 							}
 						}
@@ -277,21 +277,21 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 					if isRevoked {
 						c.RevocationTime = revocationTime
 						// Check if revocation occurred before signing
-						revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, signer.VerificationTime, signer.TimeSource)
+						revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, validation.VerificationTime, validation.TimeSource)
 						c.RevokedBeforeSigning = revokedBeforeSigning
 
 						if revokedBeforeSigning {
-							signer.RevokedCertificate = true
+							validation.RevokedCertificate = true
 						} else {
 							// Add warning that certificate was revoked after signing
-							if signer.TimeSource == "embedded_timestamp" {
-								signer.TimeWarnings = append(signer.TimeWarnings,
+							if validation.TimeSource == "embedded_timestamp" {
+								validation.TimeWarnings = append(validation.TimeWarnings,
 									fmt.Sprintf("Certificate was revoked after signing time (external CRL - revoked: %v, signed: %v)",
-										revocationTime, signer.VerificationTime))
+										revocationTime, validation.VerificationTime))
 							} else {
 								// Without trusted timestamp, we must assume revocation invalidates signature
-								signer.RevokedCertificate = true
-								signer.TimeWarnings = append(signer.TimeWarnings,
+								validation.RevokedCertificate = true
+								validation.TimeWarnings = append(validation.TimeWarnings,
 									"Certificate revoked (external CRL), but cannot determine if revocation occurred before or after signing without trusted timestamp")
 							}
 						}
@@ -342,11 +342,11 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		}
 
 		// Add certificate to result
-		signer.Certificates = append(signer.Certificates, c)
+		validation.Certificates = append(validation.Certificates, c)
 	}
 
 	// Set trusted issuer flag based on whether any certificate was verified against system roots
-	signer.TrustedIssuer = trustedIssuer
+	validation.TrustedIssuer = trustedIssuer
 
 	return errorMsg, nil
 }
