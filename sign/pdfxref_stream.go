@@ -77,7 +77,9 @@ func encodeXrefStream(data []byte, predictor int64) ([]byte, error) {
 	if _, err := w.Write(data); err != nil {
 		return nil, err
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 	return b.Bytes(), nil
 }
 
@@ -103,28 +105,28 @@ func writeXrefStreamHeader(buffer *bytes.Buffer, context *SignContext, streamLen
 	}
 
 	buffer.WriteString("<< /Type /XRef\n")
-	buffer.WriteString(fmt.Sprintf("  /Length %d\n", streamLength))
+	fmt.Fprintf(buffer, "  /Length %d\n", streamLength)
 	buffer.WriteString("  /Filter /FlateDecode\n")
 	// Change W array to [1 4 1] to accommodate larger offsets
 	buffer.WriteString("  /W [ 1 4 1 ]\n")
-	buffer.WriteString(fmt.Sprintf("  /Prev %d\n", context.PDFReader.XrefInformation.StartPos))
-	buffer.WriteString(fmt.Sprintf("  /Size %d\n", totalEntries+1))
+	fmt.Fprintf(buffer, "  /Prev %d\n", context.PDFReader.XrefInformation.StartPos)
+	fmt.Fprintf(buffer, "  /Size %d\n", totalEntries+1)
 
 	// Write index array if we have entries
 	if len(indexArray) > 0 {
 		buffer.WriteString("  /Index [")
 		for _, idx := range indexArray {
-			buffer.WriteString(fmt.Sprintf(" %d", idx))
+			fmt.Fprintf(buffer, " %d", idx)
 		}
 		buffer.WriteString(" ]\n")
 	}
 
-	buffer.WriteString(fmt.Sprintf("  /Root %d 0 R\n", context.CatalogData.ObjectId))
+	fmt.Fprintf(buffer, "  /Root %d 0 R\n", context.CatalogData.ObjectId)
 
 	if !id.IsNull() {
 		id0 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 		id1 := hex.EncodeToString([]byte(id.Index(1).RawString()))
-		buffer.WriteString(fmt.Sprintf("  /ID [<%s><%s>]\n", id0, id1))
+		fmt.Fprintf(buffer, "  /ID [<%s><%s>]\n", id0, id1)
 	}
 
 	buffer.WriteString(">>\n")
@@ -189,7 +191,9 @@ func EncodePNGSUBBytes(columns int, data []byte) ([]byte, error) {
 	if _, err := w.Write(data); err != nil {
 		return nil, err
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 
 	return b.Bytes(), nil
 }
@@ -230,7 +234,9 @@ func EncodePNGUPBytes(columns int, data []byte) ([]byte, error) {
 	if _, err := w.Write(data); err != nil {
 		return nil, err
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 
 	return b.Bytes(), nil
 }

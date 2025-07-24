@@ -25,7 +25,9 @@ func embedOCSPRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Inf
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -47,7 +49,9 @@ func embedCRLRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Info
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err

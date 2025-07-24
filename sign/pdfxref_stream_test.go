@@ -98,7 +98,11 @@ func TestEncodePNGSUBBytes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Failed to create zlib reader: %v", err)
 				}
-				defer r.Close()
+				defer func() {
+					if cerr := r.Close(); cerr != nil {
+						t.Errorf("Failed to close zlib reader: %v", cerr)
+					}
+				}()
 
 				decompressed, err := io.ReadAll(r)
 				if err != nil {
@@ -152,7 +156,11 @@ func TestEncodePNGUPBytes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Failed to create zlib reader: %v", err)
 				}
-				defer r.Close()
+				defer func() {
+					if cerr := r.Close(); cerr != nil {
+						t.Errorf("Failed to close zlib reader: %v", cerr)
+					}
+				}()
 
 				decompressed, err := io.ReadAll(r)
 				if err != nil {
@@ -172,7 +180,11 @@ func TestWriteXrefStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open test file: %v", err)
 	}
-	defer input_file.Close()
+	defer func() {
+		if err := input_file.Close(); err != nil {
+			t.Errorf("Failed to close input_file: %v", err)
+		}
+	}()
 
 	finfo, err := input_file.Stat()
 	if err != nil {

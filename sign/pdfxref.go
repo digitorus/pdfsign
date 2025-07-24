@@ -68,7 +68,7 @@ func (context *SignContext) updateObject(id uint32, object []byte) error {
 
 func (context *SignContext) writeObject(id uint32, object []byte) error {
 	// Write the object header
-	if _, err := context.OutputBuffer.Write([]byte(fmt.Sprintf("\n%d 0 obj\n", id))); err != nil {
+	if _, err := fmt.Fprintf(context.OutputBuffer, "\n%d 0 obj\n", id); err != nil {
 		return fmt.Errorf("failed to write object header: %w", err)
 	}
 

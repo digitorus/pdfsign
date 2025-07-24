@@ -412,7 +412,9 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 
 	if err != nil || (code < 200 || code > 299) {
 		if err == nil {
-			defer resp.Body.Close()
+			defer func() {
+				_ = resp.Body.Close()
+			}()
 			body, _ := io.ReadAll(resp.Body)
 			return nil, errors.New("non success response (" + strconv.Itoa(code) + "): " + string(body))
 		}
@@ -420,7 +422,9 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 		return nil, errors.New("non success response (" + strconv.Itoa(code) + ")")
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	timestamp_response_body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
