@@ -60,14 +60,17 @@ func SignCommand() {
 
 	if len(signFlags.Args()) < 1 {
 		signFlags.Usage()
-		os.Exit(1)
+		osExit(1)
 	}
 
 	input := signFlags.Arg(0)
 	SignPDF(input, signFlags.Args())
 }
 
-func SignPDF(input string, args []string) {
+// SignPDFFuncType defines the function signature for SignPDF
+var SignPDF = signPDFImpl
+
+func signPDFImpl(input string, args []string) {
 	certTypeValue, err := ParseCertType(CertType)
 	if err != nil {
 		log.Fatal(err)
@@ -76,7 +79,7 @@ func SignPDF(input string, args []string) {
 	if certTypeValue == sign.TimeStampSignature {
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "TimeStamp signing requires: input.pdf output.pdf\n")
-			os.Exit(1)
+			osExit(1)
 		}
 		output := args[1]
 		TimeStampPDF(input, output, TSA)
@@ -85,7 +88,7 @@ func SignPDF(input string, args []string) {
 
 	if len(args) < 4 {
 		fmt.Fprintf(os.Stderr, "Signing requires: input.pdf output.pdf certificate.crt private_key.key [chain.crt]\n")
-		os.Exit(1)
+		osExit(1)
 	}
 
 	output := args[1]

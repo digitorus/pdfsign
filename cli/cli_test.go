@@ -81,3 +81,51 @@ func TestSignCommandValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestSignCommand_FlagParsing(t *testing.T) {
+	// Save and restore os.Args and original SignPDF
+	origArgs := os.Args
+	origSignPDF := SignPDF
+	defer func() {
+		os.Args = origArgs
+		SignPDF = origSignPDF
+	}()
+
+	called := false
+	SignPDF = func(input string, args []string) {
+		called = true
+		if input != "input.pdf" {
+			t.Errorf("expected input.pdf, got %s", input)
+		}
+		if len(args) != 4 || args[0] != "input.pdf" || args[1] != "output.pdf" || args[2] != "cert.crt" || args[3] != "key.key" {
+			t.Errorf("unexpected args: %v", args)
+		}
+	}
+
+	os.Args = []string{"cmd", "sign", "input.pdf", "output.pdf", "cert.crt", "key.key"}
+	SignCommand()
+	if !called {
+		t.Error("SignPDF was not called for valid args")
+	}
+
+	// Test with insufficient args (should call Usage and exit)
+	called = false
+	os.Args = []string{"cmd", "sign"}
+	// Patch os.Exit to panic so we can catch it
+	origExit := osExit
+	defer func() { osExit = origExit }()
+	osExit = func(code int) { panic("exit called") }
+	defer func() {
+		if r := recover(); r == nil {
+			t.Log("os.Exit was not called as expected")
+			t.FailNow()
+		} else {
+			t.Logf("Recovered panic: %v", r)
+		}
+	}()
+	SignCommand()
+	t.FailNow() // If we reach here, os.Exit was not called and the test should fail
+	if called {
+		t.Error("SignPDF should not be called for insufficient args")
+	}
+}

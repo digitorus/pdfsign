@@ -47,7 +47,7 @@ func VerifyCommand() {
 
 	if len(verifyFlags.Args()) < 1 {
 		verifyFlags.Usage()
-		os.Exit(1)
+		osExit(1)
 	}
 
 	input := verifyFlags.Arg(0)
@@ -79,13 +79,13 @@ func VerifyPDF(input string, enableExternalRevocation, requireDigitalSignatureKU
 	resp, err := verify.VerifyFileWithOptions(inputFile, options)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		osExit(1)
 	}
 
 	jsonData, err := json.Marshal(resp)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		osExit(1)
 	}
 	fmt.Println(string(jsonData))
 }

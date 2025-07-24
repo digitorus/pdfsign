@@ -12,5 +12,5 @@ func Usage() {
 	fmt.Println("  verify  Verify a PDF signature")
 	fmt.Println("")
 	fmt.Printf("Use '%s <command> -h' for command-specific help\n", os.Args[0])
-	os.Exit(1)
+	osExit(1)
 }
