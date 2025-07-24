@@ -180,8 +180,8 @@ func TestDefaultVerifyOptions(t *testing.T) {
 		t.Error("Expected RequireNonRepudiation to be false by default (optional)")
 	}
 
-	if options.UseSignatureTimeAsFallback {
-		t.Error("Expected UseSignatureTimeAsFallback to be false by default (secure)")
+	if options.TrustSignatureTime {
+		t.Error("Expected TrustSignatureTime to be false by default (secure)")
 	}
 
 	if !options.ValidateTimestampCertificates {
@@ -272,7 +272,7 @@ func TestGetVerificationEKUs(t *testing.T) {
 func TestTimestampVerificationOptions(t *testing.T) {
 	tests := []struct {
 		name                          string
-		useSignatureTimeAsFallback    bool
+		trustSignatureTime            bool
 		validateTimestampCertificates bool
 		hasTimestamp                  bool
 		expectError                   bool
@@ -280,28 +280,28 @@ func TestTimestampVerificationOptions(t *testing.T) {
 	}{
 		{
 			name:                          "Timestamp available - certificates validated",
-			useSignatureTimeAsFallback:    false,
+			trustSignatureTime:            false,
 			validateTimestampCertificates: true,
 			hasTimestamp:                  true,
 			expectError:                   false,
 		},
 		{
 			name:                          "No timestamp - signature time fallback disabled",
-			useSignatureTimeAsFallback:    false,
+			trustSignatureTime:            false,
 			validateTimestampCertificates: true,
 			hasTimestamp:                  false,
 			expectError:                   false, // Should use current time
 		},
 		{
 			name:                          "No timestamp - signature time fallback enabled",
-			useSignatureTimeAsFallback:    true,
+			trustSignatureTime:            true,
 			validateTimestampCertificates: true,
 			hasTimestamp:                  false,
 			expectError:                   false,
 		},
 		{
 			name:                          "Timestamp validation disabled",
-			useSignatureTimeAsFallback:    false,
+			trustSignatureTime:            false,
 			validateTimestampCertificates: false,
 			hasTimestamp:                  true,
 			expectError:                   false,
@@ -313,7 +313,7 @@ func TestTimestampVerificationOptions(t *testing.T) {
 			options := &VerifyOptions{
 				RequiredEKUs:                  []x509.ExtKeyUsage{x509.ExtKeyUsage(36)},
 				RequireDigitalSignatureKU:     true,
-				UseSignatureTimeAsFallback:    tt.useSignatureTimeAsFallback,
+				TrustSignatureTime:            tt.trustSignatureTime,
 				ValidateTimestampCertificates: tt.validateTimestampCertificates,
 			}
 
@@ -329,8 +329,8 @@ func TestTimestampVerificationOptions(t *testing.T) {
 
 			// This is a conceptual test - in practice, you'd need to test with real PKCS7 data
 			// For now, we can at least verify the options are set correctly
-			if options.UseSignatureTimeAsFallback != tt.useSignatureTimeAsFallback {
-				t.Errorf("Expected UseSignatureTimeAsFallback %v, got %v", tt.useSignatureTimeAsFallback, options.UseSignatureTimeAsFallback)
+			if options.TrustSignatureTime != tt.trustSignatureTime {
+				t.Errorf("Expected TrustSignatureTime %v, got %v", tt.trustSignatureTime, options.TrustSignatureTime)
 			}
 			if options.ValidateTimestampCertificates != tt.validateTimestampCertificates {
 				t.Errorf("Expected ValidateTimestampCertificates %v, got %v", tt.validateTimestampCertificates, options.ValidateTimestampCertificates)
@@ -397,7 +397,7 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			AllowedEKUs:                   []x509.ExtKeyUsage{},                     // No alternatives
 			RequireDigitalSignatureKU:     true,
 			RequireNonRepudiation:         true,  // Require highest security
-			UseSignatureTimeAsFallback:    false, // Don't trust signatory-provided time
+			TrustSignatureTime:            false, // Don't trust signatory-provided time
 			ValidateTimestampCertificates: true,  // Always validate timestamp certs
 			AllowUntrustedRoots:           false, // Only trust system roots
 		}
@@ -406,7 +406,7 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			t.Error("Maximum security should not allow untrusted roots")
 		}
 
-		if maxSecurityOptions.UseSignatureTimeAsFallback {
+		if maxSecurityOptions.TrustSignatureTime {
 			t.Error("Maximum security should not trust signature time fallback")
 		}
 
@@ -423,8 +423,8 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			t.Error("Balanced security should not allow untrusted roots by default")
 		}
 
-		if balancedOptions.UseSignatureTimeAsFallback {
-			t.Error("Balanced security should not use signature time fallback by default")
+		if balancedOptions.TrustSignatureTime {
+			t.Error("Balanced security should not trust signature time by default")
 		}
 
 		if len(balancedOptions.AllowedEKUs) == 0 {
@@ -442,7 +442,7 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 			},
 			RequireDigitalSignatureKU:     true,
 			RequireNonRepudiation:         false, // Optional for testing
-			UseSignatureTimeAsFallback:    true,  // Allow fallback for testing
+			TrustSignatureTime:            true,  // Allow fallback for testing
 			ValidateTimestampCertificates: true,
 			AllowUntrustedRoots:           true, // Allow for testing with self-signed certs
 		}
@@ -461,6 +461,10 @@ func TestSecurityConfigurationExamples(t *testing.T) {
 		}
 		if !hasAnyEKU {
 			t.Error("Testing configuration should include ExtKeyUsageAny for maximum compatibility")
+		}
+
+		if !testingOptions.TrustSignatureTime {
+			t.Error("Testing configuration should allow trusting signature time")
 		}
 	})
 }

@@ -29,10 +29,9 @@ type VerifyOptions struct {
 	// RequireNonRepudiation requires the Non-Repudiation bit in Key Usage (mandatory for highest security)
 	RequireNonRepudiation bool
 
-	// UseSignatureTimeAsFallback when true, allows using the embedded signature time as fallback
-	// if no trusted timestamp is available. This time is provided by the signatory and should
-	// be treated as untrusted for security-critical applications.
-	UseSignatureTimeAsFallback bool
+	// TrustSignatureTime when true, trusts the signature time embedded in the PDF if no timestamp is present
+	// WARNING: This time is provided by the signatory and should be considered untrusted for security-critical applications.
+	TrustSignatureTime bool
 
 	// ValidateTimestampCertificates when true, validates the timestamp token's signing certificate
 	// including building a proper certification path and checking revocation status.
@@ -69,7 +68,7 @@ func DefaultVerifyOptions() *VerifyOptions {
 		},
 		RequireDigitalSignatureKU:     true,             // Require Digital Signature key usage
 		RequireNonRepudiation:         false,            // Don't require Non-Repudiation by default (optional)
-		UseSignatureTimeAsFallback:    false,            // Don't use untrusted signature time by default
+		TrustSignatureTime:            false,            // Don't trust signatory-provided time by default
 		ValidateTimestampCertificates: true,             // Always validate timestamp certificates
 		AllowUntrustedRoots:           false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
 		EnableExternalRevocationCheck: false,            // SECURE DEFAULT: Don't make external network calls

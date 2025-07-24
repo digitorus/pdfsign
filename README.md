@@ -71,7 +71,7 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 | `-external` | bool | `false` | Enable external OCSP and CRL checking |
 | `-require-digital-signature` | bool | `true` | Require Digital Signature key usage in certificates |
 | `-require-non-repudiation` | bool | `false` | Require Non-Repudiation key usage in certificates (for highest security) |
-| `-use-signature-time-fallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted) |
+| `-trust-signature-time` | bool | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
 | `-validate-timestamp-certs` | bool | `true` | Validate timestamp token certificates |
 | `-allow-untrusted-roots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
 | `-http-timeout` | duration | `10s` | Timeout for external revocation checking requests |
@@ -85,8 +85,8 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 # Verification with external revocation checking
 ./pdfsign verify -external -http-timeout=30s document.pdf
 
-# Verification allowing untrusted signature time as fallback
-./pdfsign verify -use-signature-time-fallback document.pdf
+# Verification trusting signature time as fallback
+./pdfsign verify -trust-signature-time document.pdf
 
 # Highest security verification (requires Non-Repudiation key usage)
 ./pdfsign verify -require-non-repudiation -external document.pdf
@@ -228,7 +228,7 @@ func main() {
 
     options := verify.DefaultVerifyOptions()
     options.EnableExternalRevocationCheck = true
-    options.UseSignatureTimeAsFallback = true  // Allow fallback to signature time
+    options.TrustSignatureTime = true  // Allow fallback to signature time
     options.ValidateTimestampCertificates = true  // Always validate timestamp certs
     options.HTTPTimeout = 15 * time.Second
     
@@ -267,9 +267,9 @@ func main() {
 | `HTTPTimeout` | `time.Duration` | `10s` | Timeout for external revocation checking requests |
 | `RequireDigitalSignatureKU` | bool | `true` | Require Digital Signature key usage in certificates |
 | `AllowNonRepudiationKU` | bool | `true` | Allow Non-Repudiation key usage (recommended for PDF signing) |
-| `UseSignatureTimeAsFallback` | bool | `false` | Use signature time as fallback if no timestamp (untrusted by default) |
+| `TrustSignatureTime` | bool | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
 | `ValidateTimestampCertificates` | bool | `true` | Validate timestamp token's certificate chain and revocation status |
-| `AllowEmbeddedCertificatesAsRoots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
+| `AllowUntrustedRoots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
 
 ## Signature Appearance with Images
 

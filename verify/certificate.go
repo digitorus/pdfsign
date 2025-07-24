@@ -42,7 +42,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 				signer.TimeWarnings = append(signer.TimeWarnings, timestampWarning)
 			}
 		}
-	} else if options.UseSignatureTimeAsFallback && signer.SignatureTime != nil {
+	} else if options.TrustSignatureTime && signer.SignatureTime != nil {
 		// Use signature time as fallback with warning about its untrusted nature
 		verificationTime = signer.SignatureTime
 		signer.TimeSource = "signature_time"
