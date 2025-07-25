@@ -1,0 +1,279 @@
+name: PDF Validation
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build & Test"]
+    types:
+      - completed 
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write  # For PR comments
+  checks: write         # For check runs
+
+jobs:
+  pdfcpu-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Install pdfcpu
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+
+      - name: Download test PDF files
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: test-pdf-artifacts
+          path: test_pdf_files
+
+      - name: Run pdfcpu validation
+        id: pdfcpu-validate
+        run: |
+          echo "::group::PDF pdfcpu Validation Results"
+          # Create a temporary file to store validation results
+          PDFCPU_RESULT_FILE=$(mktemp)
+
+          {
+            echo "## pdfcpu Validation Results"
+            echo ""
+            
+            # Check if directory exists and is not empty
+            if [ ! -d "test_pdf_files" ] || [ -z "$(ls -A test_pdf_files 2>/dev/null)" ]; then
+              echo "No PDF files found for validation."
+              echo "pdfcpu_validation_passed=true" >> $GITHUB_OUTPUT
+              echo "### ✅ No PDF files to validate"
+            else
+              for file in test_pdf_files/*; do
+                echo "### Validating $file with pdfcpu"
+                echo '```'
+                
+                # pdfcpu validation
+                pdfcpu validate -mode strict "$file" 2>&1 | tee -a $PDFCPU_RESULT_FILE
+                PDFCPU_STATUS=$?
+                
+                if [ $PDFCPU_STATUS -eq 0 ]; then
+                  echo "✅ pdfcpu validation passed for $file" | tee -a $PDFCPU_RESULT_FILE
+                else
+                  echo "❌ pdfcpu validation failed for $file" | tee -a $PDFCPU_RESULT_FILE
+                fi
+                echo '```'
+                echo "" | tee -a $PDFCPU_RESULT_FILE
+              done
+              
+              # Determine pdfcpu status
+              if grep -q "❌" $PDFCPU_RESULT_FILE; then
+                echo "### ❌ Some pdfcpu validations failed"
+                echo "See details above for specific failures."
+                PDFCPU_VALIDATION_PASSED="false"
+              else
+                echo "### ✅ All pdfcpu validations passed"
+                PDFCPU_VALIDATION_PASSED="true"  
+              fi
+              echo "pdfcpu_validation_passed=$PDFCPU_VALIDATION_PASSED" >> $GITHUB_OUTPUT
+            fi
+          } > pdfcpu_validation_results.md
+
+          cat pdfcpu_validation_results.md
+          echo "::endgroup::"
+
+      - name: Upload pdfcpu results
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfcpu-validation-results
+          path: pdfcpu_validation_results.md
+          retention-days: 7
+
+  dss-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Set up DSS validation service
+        env:
+          MAX_WAIT: 60 # seconds
+          INTERVAL: 5 # seconds
+        run: |
+          # Use the official European Commission DSS Docker image
+          docker pull ec-europa/dss-standalone-server:latest
+          docker run -d -p 8080:8080 --name dss-service ec-europa/dss-standalone-server:latest
+          # Wait for service to initialize
+          echo "Waiting for DSS service to start..."
+          ELAPSED=0
+
+          until curl -s http://localhost:8080/services/rest/validation/validateDocument > /dev/null; do
+              if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+                  echo "❌ DSS service failed to start within $MAX_WAIT seconds"
+                  exit 1
+              fi
+              echo "Still waiting... ($ELAPSED/$MAX_WAIT)s"
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "✅ DSS service is up"
+
+      - name: Download test PDF files
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: test-pdf-artifacts
+          path: test_pdf_files
+
+      - name: Run DSS validation
+        id: dss-validate
+        run: |
+          echo "::group::PDF DSS Validation Results"
+          # Create a temporary file to store validation results
+          DSS_RESULT_FILE=$(mktemp)
+
+          {
+            echo "## DSS Validation Results"
+            echo ""
+            
+            # Check if directory exists and is not empty
+            if [ ! -d "test_pdf_files" ] || [ -z "$(ls -A test_pdf_files 2>/dev/null)" ]; then
+              echo "No PDF files found for validation."
+              echo "dss_validation_passed=true" >> $GITHUB_OUTPUT
+              echo "### ✅ No PDF files to validate"
+            else
+              for file in test_pdf_files/*; do
+                echo "### Validating $file with DSS"
+                
+                # DSS validation
+                echo "DSS validation for $file..."
+                echo '```json'
+                curl -s -X POST -F "file=@$file" http://localhost:8080/services/rest/validation/validateDocument > /tmp/dss_result.json
+                cat /tmp/dss_result.json | jq '.' | tee -a $DSS_RESULT_FILE
+                echo '```'
+                
+                if grep -q "\"indication\":\"TOTAL_PASSED\"" /tmp/dss_result.json; then
+                  echo "✅ DSS validation passed for $file" | tee -a $DSS_RESULT_FILE
+                else
+                  echo "❌ DSS validation failed for $file" | tee -a $DSS_RESULT_FILE
+                fi
+                echo "" | tee -a $DSS_RESULT_FILE
+              done
+              
+              # Determine DSS status
+              if grep -q "❌" $DSS_RESULT_FILE; then
+                echo "### ❌ Some DSS validations failed"
+                echo "See details above for specific failures."
+                DSS_VALIDATION_PASSED="false"
+              else
+                echo "### ✅ All DSS validations passed"
+                DSS_VALIDATION_PASSED="true"  
+              fi
+              echo "dss_validation_passed=$DSS_VALIDATION_PASSED" >> $GITHUB_OUTPUT
+            fi
+          } > dss_validation_results.md
+
+          cat dss_validation_results.md
+          echo "::endgroup::"
+
+      - name: Upload DSS results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dss-validation-results
+          path: dss_validation_results.md
+          retention-days: 7
+
+  combine-results:
+    needs: [pdfcpu-validation, dss-validation]
+    runs-on: ubuntu-latest
+    outputs:
+      validation_passed: ${{ steps.combine-results.outputs.validation_passed }}
+    steps:
+      - name: Download pdfcpu results
+        uses: actions/download-artifact@v4
+        with:
+          name: pdfcpu-validation-results
+          path: ./
+
+      - name: Download DSS results
+        uses: actions/download-artifact@v4
+        with:
+          name: dss-validation-results
+          path: ./
+
+      - name: Combine validation results
+        id: combine-results
+        run: |
+          {
+            echo "## PDF Validation Summary"
+            echo ""
+            
+            # Get status from validation files
+            PDFCPU_PASSED=$(grep -q "❌ Some pdfcpu validations failed" pdfcpu_validation_results.md || echo "true")
+            DSS_PASSED=$(grep -q "❌ Some DSS validations failed" dss_validation_results.md || echo "true")
+            
+            if [ "$PDFCPU_PASSED" == "true" ]; then
+              echo "### pdfcpu Validation: ✅ Passed"
+            else
+              echo "### pdfcpu Validation: ❌ Failed"
+            fi
+            
+            if [ "$DSS_PASSED" == "true" ]; then
+              echo "### DSS Validation: ✅ Passed"
+            else
+              echo "### DSS Validation: ❌ Failed"
+            fi
+            
+            echo ""
+            echo "<details><summary>View pdfcpu validation details</summary>"
+            echo ""
+            cat pdfcpu_validation_results.md
+            echo "</details>"
+            echo ""
+            echo "<details><summary>View DSS validation details</summary>"
+            echo ""
+            cat dss_validation_results.md
+            echo "</details>"
+            
+            # Determine overall status
+            if [ "$PDFCPU_PASSED" == "true" ] && [ "$DSS_PASSED" == "true" ]; then
+              VALIDATION_PASSED="true"
+            else
+              VALIDATION_PASSED="false"
+            fi
+            echo "validation_passed=$VALIDATION_PASSED" >> $GITHUB_OUTPUT
+            
+          } > validation_results.md
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: validation_results.md
+          retention-days: 7
+
+      - name: Find PR comment
+        if: github.event_name == 'pull_request'
+        id: find-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "## PDF Validation"
+
+      - name: Create or update comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-file: validation_results.md
+          edit-mode: replace
+
+      - name: Check validation status
+        run: |
+          if [[ "${{ steps.combine-results.outputs.validation_passed }}" == "false" ]]; then
+            echo "Validation failed! Check the PR comment for details."
+            exit 1
+          fi
