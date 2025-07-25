@@ -50,6 +50,12 @@ jobs:
               echo "### ✅ No PDF files to validate"
             else
               for file in test_pdf_files/*; do
+                # Skip empty files
+                if [ ! -s "$file" ]; then
+                  echo "### Skipping empty file: $file"
+                  continue
+                fi
+                
                 echo "### Validating $file with pdfcpu"
                 echo '```'
                 
@@ -144,6 +150,12 @@ jobs:
               echo "### ✅ No PDF files to validate"
             else
               for file in test_pdf_files/*; do
+                # Skip empty files
+                if [ ! -s "$file" ]; then
+                  echo "### Skipping empty file: $file"
+                  continue
+                fi
+                
                 echo "### Validating $file with DSS"
                 
                 # DSS validation

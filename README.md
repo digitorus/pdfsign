@@ -1,6 +1,7 @@
 # Signing PDF files with Go
 
 [![Build & Test](https://github.com/digitorus/pdfsign/workflows/Build%20&%20Test/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Abuild-and-test)
+[![PDF Validation](https://github.com/digitorus/pdfsign/workflows/PDF%20Validation/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Apdf-validation)
 [![golangci-lint](https://github.com/digitorus/pdfsign/workflows/golangci-lint/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Agolangci-lint)
 [![Go Report Card](https://goreportcard.com/badge/github.com/digitorus/pdfsign)](https://goreportcard.com/report/github.com/digitorus/pdfsign)
 [![Coverage Status](https://codecov.io/gh/digitorus/pdfsign/branch/main/graph/badge.svg)](https://codecov.io/gh/)
@@ -316,6 +317,33 @@ err = sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
     Certificate:     certificate,
 })
 ```
+
+## Third-Party PDF Validation
+
+This project includes automated third-party PDF validation using two complementary tools:
+
+### pdfcpu Validation
+
+- **Tool**: [pdfcpu](https://github.com/pdfcpu/pdfcpu) - A Go-based PDF processor
+- **Purpose**: Validates PDF structure, syntax, and ISO compliance
+- **Mode**: Strict validation for comprehensive checking
+
+### DSS Validation
+
+- **Tool**: [DSS (Digital Signature Service)](https://ec.europa.eu/digital-building-blocks/DSS/webapp-demo/) - European Commission's official validation service
+- **Purpose**: Validates digital signatures according to European standards
+- **Standards**: eIDAS regulation compliance, PAdES validation
+
+### Automated Validation
+
+The validation system runs automatically through GitHub Actions:
+
+1. **Test Execution**: PDF files are generated during testing
+2. **Artifact Collection**: Test PDFs are collected and uploaded
+3. **Validation Pipeline**: Both pdfcpu and DSS validation are performed
+4. **Results Reporting**: Detailed validation reports are generated
+
+For more details, see [PDF Validation Documentation](docs/PDF_VALIDATION.md).
 
 ## Limitations
 
