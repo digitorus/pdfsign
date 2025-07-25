@@ -2,6 +2,8 @@ name: PDF Validation
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ main ]
   workflow_run:
     workflows: ["Build & Test"]
     types:
@@ -25,7 +27,43 @@ jobs:
       - name: Install pdfcpu
         run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
 
-      - name: Download test PDF files
+      - name: Check out code (for PR triggers)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+
+      - name: Build and test (for PR triggers)
+        if: github.event_name == 'pull_request'
+        env:
+          TMPDIR: ${{ github.workspace }}/tmp
+        run: |
+          mkdir -p $TMPDIR
+          go build -v ./...
+          go test -v ./...
+
+      - name: Collect test PDF files (for PR triggers)
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p test_pdf_files
+          
+          # Copy any test PDF files to the artifact directory
+          if [ -d "${{ github.workspace }}/tmp" ]; then
+            # First copy files that already have .pdf extension
+            find ${{ github.workspace }}/tmp -name "Test*.pdf" -exec cp {} test_pdf_files/ \; 2>/dev/null || true
+            
+            # Then check for Test files without extension and add .pdf extension
+            for file in ${{ github.workspace }}/tmp/Test*; do
+              if [ -f "$file" ] && [[ "$file" != *.pdf ]] && [ -s "$file" ]; then
+                cp "$file" "test_pdf_files/$(basename "$file").pdf"
+              fi
+            done
+          fi
+          
+          # List the files we found for debugging
+          echo "Found test files:"
+          ls -la test_pdf_files/ || echo "No test files found"
+
+      - name: Download test PDF files (for workflow_run triggers)
+        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -101,6 +139,47 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
+      - name: Set up Go 1.x (for PR triggers)
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Check out code (for PR triggers)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+
+      - name: Build and test (for PR triggers)
+        if: github.event_name == 'pull_request'
+        env:
+          TMPDIR: ${{ github.workspace }}/tmp
+        run: |
+          mkdir -p $TMPDIR
+          go build -v ./...
+          go test -v ./...
+
+      - name: Collect test PDF files (for PR triggers)
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p test_pdf_files
+          
+          # Copy any test PDF files to the artifact directory
+          if [ -d "${{ github.workspace }}/tmp" ]; then
+            # First copy files that already have .pdf extension
+            find ${{ github.workspace }}/tmp -name "Test*.pdf" -exec cp {} test_pdf_files/ \; 2>/dev/null || true
+            
+            # Then check for Test files without extension and add .pdf extension
+            for file in ${{ github.workspace }}/tmp/Test*; do
+              if [ -f "$file" ] && [[ "$file" != *.pdf ]] && [ -s "$file" ]; then
+                cp "$file" "test_pdf_files/$(basename "$file").pdf"
+              fi
+            done
+          fi
+          
+          # List the files we found for debugging
+          echo "Found test files:"
+          ls -la test_pdf_files/ || echo "No test files found"
+
       - name: Set up DSS validation service
         env:
           MAX_WAIT: 60 # seconds
@@ -125,7 +204,8 @@ jobs:
 
           echo "✅ DSS service is up"
 
-      - name: Download test PDF files
+      - name: Download test PDF files (for workflow_run triggers)
+        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
