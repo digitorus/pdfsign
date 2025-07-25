@@ -28,7 +28,118 @@ jobs:
     - name: Test
       env:
         TMPDIR: ${{ github.workspace }}/tmp
-      run: mkdir $TMPDIR; go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+      run: |
+        mkdir -p $TMPDIR
+        mkdir -p test_pdf_files
+        
+        # Run tests normally
+        go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        
+        # Create a simple test PDF for validation using the library itself
+        cat > create_test_pdf.go << 'EOF'
+        package main
+        
+        import (
+            "crypto"
+            "crypto/x509"
+            "encoding/pem"
+            "fmt"
+            "os"
+            "time"
+            
+            "github.com/digitorus/pdfsign/sign"
+        )
+        
+        const testCert = `-----BEGIN CERTIFICATE-----
+        MIICjDCCAfWgAwIBAgIUEeqOicMEtCutCNuBNq9GAQNYD10wDQYJKoZIhvcNAQEL
+        BQAwVzELMAkGA1UEBhMCTkwxEzARBgNVBAgMClNvbWUtU3RhdGUxEjAQBgNVBAoM
+        CURpZ2l0b3J1czEfMB0GA1UEAwwWUGF1bCB2YW4gQnJvdXdlcnNoYXZlbjAgFw0y
+        NDExMTMwOTUxMTFaGA8yMTI0MTAyMDA5NTExMVowVzELMAkGA1UEBhMCTkwxEzAR
+        BgNVBAgMClNvbWUtU3RhdGUxEjAQBgNVBAoMCURpZ2l0b3J1czEfMB0GA1UEAwwW
+        UGF1bCB2YW4gQnJvdXdlcnNoYXZlbjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkC
+        gYEAmrvrZiUZZ/nSmFKMsQXg5slYTQjj7nuenczt7KGPVuGA8nNOqiGktf+yep5h
+        2r87jPvVjVXjJVjOTKx9HMhaFECHKHKV72iQhlw4fXa8iB1EDeGuwP+pTpRWlzur
+        Q/YMxvemNJVcGMfTE42X5Bgqh6DvkddRTAeeqQDBD6+5VPsCAwEAAaNTMFEwHQYD
+        VR0OBBYEFETizi2bTLRMIknQXWDRnQ59xI99MB8GA1UdIwQYMBaAFETizi2bTLRM
+        IknQXWDRnQ59xI99MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADgYEA
+        OBng+EzD2xA6eF/W5Wh+PthE1MpJ1QvejZBDyCOiplWFUImJAX39ZfTo/Ydfz2xR
+        4Jw4hOF0kSLxDK4WGtCs7mRB0d24YDJwpJj0KN5+uh3iWk5orY75FSensfLZN7YI
+        VuUN7Q+2v87FjWsl0w3CPcpjB6EgI5QHsNm13bkQLbQ=
+        -----END CERTIFICATE-----`
+        
+        const testKey = `-----BEGIN RSA PRIVATE KEY-----
+        MIICWwIBAAKBgQCau+tmJRln+dKYUoyxBeDmyVhNCOPue56dzO3soY9W4YDyc06q
+        IaS1/7J6nmHavzuM+9WNVeMlWM5MrH0cyFoUQIcocpXvaJCGXDh9dryIHUQN4a7A
+        /6lOlFaXO6tD9gzG96Y0lVwYx9MTjZfkGCqHoO+R11FMB56pAMEPr7lU+wIDAQAB
+        AoGADPlKsILV0YEB5mGtiD488DzbmYHwUpOs5gBDxr55HUjFHg8K/nrZq6Tn2x4i
+        iEvWe2i2LCaSaBQ9H/KqftpRqxWld2/uLbdml7kbPh0+57/jsuZZs3jlN76HPMTr
+        uYcfG2UiU/wVTcWjQLURDotdI6HLH2Y9MeJhybctywDKWaECQQDNejmEUybbg0qW
+        2KT5u9OykUpRSlV3yoGlEuL2VXl1w5dUMa3rw0yE4f7ouWCthWoiCn7dcPIaZeFf
+        5CoshsKrAkEAwMenQppKsLk62m8F4365mPxV/Lo+ODg4JR7uuy3kFcGvRyGML/FS
+        TB5NI+DoTmGEOZVmZeLEoeeSnO0B52Q28QJAXFJcYW4S+XImI1y301VnKsZJA/lI
+        KYidc5Pm0hNZfWYiKjwgDtwzF0mLhPk1zQEyzJS2p7xFq0K3XqRfpp3t/QJACW77
+        sVephgJabev25s4BuQnID2jxuICPxsk/t2skeSgUMq/ik0oE0/K7paDQ3V0KQmMc
+        MqopIx8Y3pL+f9s4kQJADWxxuF+Rb7FliXL761oa2rZHo4eciey2rPhJIU/9jpCc
+        kBQHZaJ8TJTGvicMpbVg1EHkV3dCZN8YgdjVJBFOyQ==
+        -----END RSA PRIVATE KEY-----`
+        
+        func main() {
+            certBlock, _ := pem.Decode([]byte(testCert))
+            cert, err := x509.ParseCertificate(certBlock.Bytes)
+            if err != nil {
+                fmt.Printf("Error parsing certificate: %v\n", err)
+                os.Exit(1)
+            }
+            
+            keyBlock, _ := pem.Decode([]byte(testKey))
+            pkey, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
+            if err != nil {
+                fmt.Printf("Error parsing private key: %v\n", err)
+                os.Exit(1)
+            }
+            
+            // Create test PDF for validation
+            err = sign.SignFile("testfiles/testfile20.pdf", "test_pdf_files/TestValidationSample.pdf", sign.SignData{
+                Signature: sign.SignDataSignature{
+                    Info: sign.SignDataSignatureInfo{
+                        Name:        "Test Validation",
+                        Location:    "CI/CD Pipeline",
+                        Reason:      "PDF Validation Test",
+                        ContactInfo: "test@validation.com",
+                        Date:        time.Now().Local(),
+                    },
+                    CertType:   sign.CertificationSignature,
+                    DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
+                },
+                DigestAlgorithm: crypto.SHA256,
+                Signer:          pkey,
+                Certificate:     cert,
+                TSA: sign.TSA{
+                    URL: "", // Empty URL means no timestamping to avoid network issues
+                },
+            })
+            
+            if err != nil {
+                fmt.Printf("Error creating test PDF: %v\n", err)
+                os.Exit(1)
+            }
+            
+            fmt.Println("Successfully created test PDF for validation")
+        }
+        EOF
+        
+        # Build and run the test PDF generator
+        go run create_test_pdf.go || echo "Test PDF generation failed, but continuing..."
+        
+        echo "Generated test PDF files:"
+        ls -la test_pdf_files/ || echo "No test PDF files generated"
+
+    - name: Upload test PDF artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-pdf-artifacts
+        path: test_pdf_files/
+        retention-days: 1
 
     - name: Upload coverage report
       uses: codecov/codecov-action@v4
