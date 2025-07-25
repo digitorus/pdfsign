@@ -36,32 +36,3 @@ jobs:
         file: ./coverage.txt
         flags: unittests
         name: codecov-umbrella
-        
-    - name: Collect test PDF files
-      run: |
-        mkdir -p test_pdf_files
-        
-        # Copy any test PDF files to the artifact directory
-        if [ -d "${{ github.workspace }}/tmp" ]; then
-          # First copy files that already have .pdf extension
-          find ${{ github.workspace }}/tmp -name "Test*.pdf" -exec cp {} test_pdf_files/ \; 2>/dev/null || true
-          
-          # Then check for Test files without extension and add .pdf extension
-          for file in ${{ github.workspace }}/tmp/Test*; do
-            if [ -f "$file" ] && [[ "$file" != *.pdf ]] && [ -s "$file" ]; then
-              cp "$file" "test_pdf_files/$(basename "$file").pdf"
-            fi
-          done
-        fi
-        
-        # List the files we found for debugging
-        echo "Found test files:"
-        ls -la test_pdf_files/ || echo "No test files found"
-
-    - name: Upload test PDF files
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-pdf-artifacts
-        path: test_pdf_files/
-        retention-days: 7
-        if-no-files-found: warn
