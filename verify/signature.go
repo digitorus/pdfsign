@@ -10,14 +10,15 @@ import (
 	"crypto/sha256"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/common"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
 )
 
 // processSignature processes a single digital signature found in the PDF.
-func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (SignatureInfo, SignatureValidation, string, error) {
-	info := SignatureInfo{
+func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (common.SignatureInfo, SignatureValidation, string, error) {
+	info := common.SignatureInfo{
 		Name:        v.Key("Name").Text(),
 		Reason:      v.Key("Reason").Text(),
 		Location:    v.Key("Location").Text(),
@@ -103,7 +104,7 @@ func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
 }
 
 // processTimestamp processes timestamp information from the signature.
-func processTimestamp(p7 *pkcs7.PKCS7, signer *SignatureInfo) error {
+func processTimestamp(p7 *pkcs7.PKCS7, signer *common.SignatureInfo) error {
 	for _, s := range p7.Signers {
 		// Timestamp - RFC 3161 id-aa-timeStampToken
 		for _, attr := range s.UnauthenticatedAttributes {

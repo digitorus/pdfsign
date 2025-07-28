@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/common"
 )
 
 // parseDocumentInfo parses document information from PDF Info dictionary.
-func parseDocumentInfo(v pdf.Value, documentInfo *DocumentInfo) {
+func parseDocumentInfo(v pdf.Value, documentInfo *common.DocumentInfo) {
 	keys := []string{
 		"Author", "CreationDate", "Creator", "Hash", "Keywords", "ModDate",
 		"Name", "Pages", "Permission", "Producer", "Subject", "Title",

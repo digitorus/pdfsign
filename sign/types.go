@@ -95,25 +95,8 @@ type SignDataSignatureInfo struct {
 	Date        time.Time
 }
 
-// SignatureInfo contains information about the signer and signature
-// (not related to validation)
-type SignatureInfo struct {
-	Name        string    `json:"name"`
-	Reason      string    `json:"reason"`
-	Location    string    `json:"location"`
-	ContactInfo string    `json:"contact_info"`
-	Date        time.Time `json:"date"`
-}
-
-// SignatureValidation contains validation results and technical details
-// (not about the signer's intent)
-type SignatureValidation struct {
-	ValidSignature bool   `json:"valid_signature"`
-	TrustedIssuer  bool   `json:"trusted_issuer"`
-	DocumentHash   string `json:"document_hash"`
-	SignatureHash  string `json:"signature_hash"`
-	HashAlgorithm  string `json:"hash_algorithm"`
-}
+// Remove the duplicated SignatureInfo and SignatureValidation types
+// They are now available in the common package
 
 type SignContext struct {
 	InputFile              io.ReadSeeker

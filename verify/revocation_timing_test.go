@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/digitorus/pdfsign/common"
 	"github.com/digitorus/timestamp"
 	"golang.org/x/crypto/ocsp"
 )
@@ -91,7 +92,7 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 
 	tests := []struct {
 		name                  string
-		setupValidation       func() (*SignatureInfo, *SignatureValidation)
+		setupValidation       func() (*common.SignatureInfo, *SignatureValidation)
 		mockRevocationTime    time.Time
 		expectedRevokedBefore bool
 		expectedTimeWarnings  int
@@ -100,8 +101,8 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 	}{
 		{
 			name: "Embedded timestamp - revoked before signing",
-			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
-				info := &SignatureInfo{
+			setupValidation: func() (*common.SignatureInfo, *SignatureValidation) {
+				info := &common.SignatureInfo{
 					TimeStamp: &timestamp.Timestamp{
 						Time: baseTime,
 					},
@@ -121,8 +122,8 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		},
 		{
 			name: "Embedded timestamp - revoked after signing",
-			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
-				info := &SignatureInfo{
+			setupValidation: func() (*common.SignatureInfo, *SignatureValidation) {
+				info := &common.SignatureInfo{
 					TimeStamp: &timestamp.Timestamp{
 						Time: baseTime,
 					},
@@ -142,8 +143,8 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		},
 		{
 			name: "Signature time fallback - revoked after",
-			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
-				info := &SignatureInfo{
+			setupValidation: func() (*common.SignatureInfo, *SignatureValidation) {
+				info := &common.SignatureInfo{
 					SignatureTime: &baseTime,
 				}
 				validation := &SignatureValidation{
@@ -161,8 +162,8 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		},
 		{
 			name: "No timestamp - current time",
-			setupValidation: func() (*SignatureInfo, *SignatureValidation) {
-				info := &SignatureInfo{}
+			setupValidation: func() (*common.SignatureInfo, *SignatureValidation) {
+				info := &common.SignatureInfo{}
 				validation := &SignatureValidation{
 					VerificationTime: &time.Time{}, // Zero time for current_time
 					TimeSource:       "current_time",
@@ -184,7 +185,7 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 			initialWarnings := len(validation.TimeWarnings)
 
 			// Create a mock certificate for testing
-			cert := &Certificate{
+			cert := &common.Certificate{
 				RevocationTime:       &tt.mockRevocationTime,
 				RevokedBeforeSigning: false, // Will be set by our logic
 			}
@@ -240,7 +241,7 @@ func TestRevocationTimingFieldsInCertificate(t *testing.T) {
 	// Test that the new fields are properly populated in the Certificate struct
 	revocationTime := time.Date(2024, 1, 10, 12, 0, 0, 0, time.UTC)
 
-	cert := Certificate{
+	cert := common.Certificate{
 		Certificate:          &x509.Certificate{}, // Mock cert
 		RevocationTime:       &revocationTime,
 		RevokedBeforeSigning: true,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/digitorus/pdfsign/common"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
@@ -12,7 +13,7 @@ import (
 )
 
 // buildCertificateChainsWithOptions builds certificate chains with custom verification options
-func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, info *SignatureInfo, validation *SignatureValidation, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
+func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, info *common.SignatureInfo, validation *SignatureValidation, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
 	// Directory of certificates, including OCSP
 	certPool := x509.NewCertPool()
 	for _, cert := range p7.Certificates {
@@ -126,7 +127,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, info *SignatureInfo, val
 	}
 
 	for _, cert := range p7.Certificates {
-		var c Certificate
+		var c common.Certificate
 		c.Certificate = cert
 
 		// Validate Key Usage and Extended Key Usage for PDF signing

@@ -9,13 +9,13 @@ import (
 	"os"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/verify"
+	"github.com/digitorus/pdfsign/common"
 	"github.com/digitorus/pkcs7"
 
 	"github.com/mattetti/filebuffer"
 )
 
-func SignFile(input string, output string, sign_data SignData) (*verify.SignatureInfo, error) {
+func SignFile(input string, output string, sign_data SignData) (*common.SignatureInfo, error) {
 	input_file, err := os.Open(input)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func SignFile(input string, output string, sign_data SignData) (*verify.Signatur
 	return Sign(input_file, output_file, rdr, size, sign_data)
 }
 
-func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) (*verify.SignatureInfo, error) {
+func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) (*common.SignatureInfo, error) {
 	sign_data.objectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
 	context := SignContext{
@@ -72,7 +72,7 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 	return signatureInfo, nil
 }
 
-func (context *SignContext) SignPDF() (*verify.SignatureInfo, error) {
+func (context *SignContext) SignPDF() (*common.SignatureInfo, error) {
 	// set defaults
 	if context.SignData.Signature.CertType == 0 {
 		context.SignData.Signature.CertType = 1
@@ -273,7 +273,7 @@ func (context *SignContext) SignPDF() (*verify.SignatureInfo, error) {
 	}
 
 	// Create and return signature info
-	signatureInfo := &verify.SignatureInfo{
+	signatureInfo := &common.SignatureInfo{
 		Name:          context.SignData.Signature.Info.Name,
 		Reason:        context.SignData.Signature.Info.Reason,
 		Location:      context.SignData.Signature.Info.Location,

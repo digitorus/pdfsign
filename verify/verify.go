@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/common"
 )
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -50,7 +51,7 @@ func Verify(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 }
 
 func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (apiResp *Response, err error) {
-	var documentInfo DocumentInfo
+	var documentInfo common.DocumentInfo
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -106,8 +107,8 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 		}
 
 		apiResp.Signatures = append(apiResp.Signatures, struct {
-			Info       SignatureInfo       `json:"info"`
-			Validation SignatureValidation `json:"validation"`
+			Info       common.SignatureInfo `json:"info"`
+			Validation SignatureValidation  `json:"validation"`
 		}{
 			Info:       info,
 			Validation: validation,
