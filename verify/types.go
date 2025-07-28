@@ -8,8 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/digitorus/timestamp"
-	"golang.org/x/crypto/ocsp"
+	"github.com/digitorus/pdfsign/common"
 )
 
 // VerifyOptions contains options for PDF signature verification
@@ -54,62 +53,26 @@ type VerifyOptions struct {
 	HTTPTimeout time.Duration
 }
 
-type Response struct {
-	Error string
-
-	DocumentInfo DocumentInfo
-	Signers      []Signer
-}
-
-type Signer struct {
-	Name               string               `json:"name"`
-	Reason             string               `json:"reason"`
-	Location           string               `json:"location"`
-	ContactInfo        string               `json:"contact_info"`
+// SignatureValidation contains validation results and technical details
+// (not about the signer's intent)
+type SignatureValidation struct {
 	ValidSignature     bool                 `json:"valid_signature"`
 	TrustedIssuer      bool                 `json:"trusted_issuer"`
 	RevokedCertificate bool                 `json:"revoked_certificate"`
-	Certificates       []Certificate        `json:"certificates"`
-	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
-	SignatureTime      *time.Time           `json:"signature_time,omitempty"`   // Time from the signature object, may be untrusted
-	TimestampStatus    string               `json:"timestamp_status,omitempty"` // "valid", "invalid", "missing"
-	TimestampTrusted   bool                 `json:"timestamp_trusted"`          // Whether timestamp certificate chain is trusted
-	VerificationTime   *time.Time           `json:"verification_time"`          // Time used for certificate validation
-	TimeSource         string               `json:"time_source"`                // "embedded_timestamp", "signature_time", "current_time"
-	TimeWarnings       []string             `json:"time_warnings,omitempty"`    // Warnings about time validation
+	Certificates       []common.Certificate `json:"certificates"`
+	TimestampStatus    string               `json:"timestamp_status,omitempty"`
+	TimestampTrusted   bool                 `json:"timestamp_trusted"`
+	VerificationTime   *time.Time           `json:"verification_time"`
+	TimeSource         string               `json:"time_source"`
+	TimeWarnings       []string             `json:"time_warnings,omitempty"`
 }
 
-type Certificate struct {
-	Certificate          *x509.Certificate `json:"certificate"`
-	VerifyError          string            `json:"verify_error"`
-	KeyUsageValid        bool              `json:"key_usage_valid"`
-	KeyUsageError        string            `json:"key_usage_error,omitempty"`
-	ExtKeyUsageValid     bool              `json:"ext_key_usage_valid"`
-	ExtKeyUsageError     string            `json:"ext_key_usage_error,omitempty"`
-	OCSPResponse         *ocsp.Response    `json:"ocsp_response"`
-	OCSPEmbedded         bool              `json:"ocsp_embedded"`
-	OCSPExternal         bool              `json:"ocsp_external"`
-	CRLRevoked           time.Time         `json:"crl_revoked"`
-	CRLEmbedded          bool              `json:"crl_embedded"`
-	CRLExternal          bool              `json:"crl_external"`
-	RevocationWarning    string            `json:"revocation_warning,omitempty"`
-	RevocationTime       *time.Time        `json:"revocation_time,omitempty"` // When the certificate was revoked (if applicable)
-	RevokedBeforeSigning bool              `json:"revoked_before_signing"`    // Whether revocation occurred before signing
-}
+type Response struct {
+	Error string
 
-// DocumentInfo contains document information.
-type DocumentInfo struct {
-	Author     string `json:"author"`
-	Creator    string `json:"creator"`
-	Hash       string `json:"hash"`
-	Name       string `json:"name"`
-	Permission string `json:"permission"`
-	Producer   string `json:"producer"`
-	Subject    string `json:"subject"`
-	Title      string `json:"title"`
-
-	Pages        int       `json:"pages"`
-	Keywords     []string  `json:"keywords"`
-	ModDate      time.Time `json:"mod_date"`
-	CreationDate time.Time `json:"creation_date"`
+	DocumentInfo common.DocumentInfo
+	Signatures   []struct {
+		Info       common.SignatureInfo `json:"info"`
+		Validation SignatureValidation  `json:"validation"`
+	}
 }

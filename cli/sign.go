@@ -101,7 +101,7 @@ func signPDFImpl(input string, args []string) {
 
 	cert, pkey, certificateChains := LoadCertificatesAndKey(certPath, keyPath, chainPath)
 
-	err = sign.SignFile(input, output, sign.SignData{
+	_, err = sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{
 			Info: sign.SignDataSignatureInfo{
 				Name:        InfoName,
@@ -196,7 +196,7 @@ func LoadCertificateChain(chainPath string, cert *x509.Certificate) [][]*x509.Ce
 }
 
 func TimeStampPDF(input, output, tsa string) {
-	err := sign.SignFile(input, output, sign.SignData{
+	_, err := sign.SignFile(input, output, sign.SignData{
 		Signature: sign.SignDataSignature{
 			CertType: sign.TimeStampSignature,
 		},

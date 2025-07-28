@@ -287,6 +287,11 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[0]:(context.ByteRangeValues[0]+context.ByteRangeValues[1])]...)
 	sign_content = append(sign_content, file_content[context.ByteRangeValues[2]:(context.ByteRangeValues[2]+context.ByteRangeValues[3])]...)
 
+	// Compute document hash
+	documentHasher := context.SignData.DigestAlgorithm.New()
+	documentHasher.Write(sign_content)
+	context.computedDocumentHash = hex.EncodeToString(documentHasher.Sum(nil))
+
 	// Return the timestamp if we are signing a timestamp.
 	if context.SignData.Signature.CertType == TimeStampSignature {
 		// ETSI EN 319 142-1 V1.2.1
@@ -309,6 +314,8 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse timestamp: %w", err)
 		}
+
+		context.computedTimeStamp = ts
 
 		return ts.RawToken, nil
 	}
@@ -362,6 +369,8 @@ func (context *SignContext) createSignature() ([]byte, error) {
 			return nil, fmt.Errorf("parse timestamp: %w", err)
 		}
 
+		context.computedTimeStamp = ts
+
 		_, err = pkcs7.Parse(ts.RawToken)
 		if err != nil {
 			return nil, fmt.Errorf("parse timestamp token: %w", err)
@@ -376,7 +385,15 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		}
 	}
 
-	return signed_data.Finish()
+	signatureBytes, err := signed_data.Finish()
+	if err != nil {
+		return nil, err
+	}
+
+	// Note: Signature hash will be computed in replaceSignature() from the hex content with padding
+	// to match what the verify package sees via RawString()
+
+	return signatureBytes, nil
 }
 
 func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {
@@ -442,11 +459,24 @@ func (context *SignContext) replaceSignature() error {
 	dst := make([]byte, hex.EncodedLen(len(signature)))
 	hex.Encode(dst, signature)
 
+	// Create the complete hex string content that will be stored in PDF
+	zeroPadding := bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)-len(dst))
+
+	// Compute signature hash from the binary signature data + zero padding (matching verify package behavior)
+	// The verify package gets binary data from RawString() which includes the signature + zero padding
+	paddingBytes := make([]byte, len(zeroPadding)/2) // Convert hex padding to binary padding
+	signatureWithPadding := append(signature, paddingBytes...)
+
+	signatureHasher := context.SignData.DigestAlgorithm.New()
+	signatureHasher.Write(signatureWithPadding)
+	context.computedSignatureHash = hex.EncodeToString(signatureHasher.Sum(nil))
+
 	if uint32(len(dst)) > context.SignatureMaxLength {
 		log.Println("Signature too long, retrying with increased buffer size.")
 		// set new base and try signing again
 		context.SignatureMaxLengthBase += (uint32(len(dst)) - context.SignatureMaxLength) + 1
-		return context.SignPDF()
+		_, err := context.SignPDF()
+		return err
 	}
 
 	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
@@ -469,7 +499,6 @@ func (context *SignContext) replaceSignature() error {
 	}
 
 	// Write 0s to ensure the signature remains the same size
-	zeroPadding := bytes.Repeat([]byte("0"), int(context.SignatureMaxLength)-len(dst))
 	if _, err := context.OutputBuffer.Write(zeroPadding); err != nil {
 		return err
 	}
