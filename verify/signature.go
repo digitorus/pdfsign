@@ -10,10 +10,10 @@ import (
 	"crypto/sha256"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/common"
-	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
+	"github.com/subnoto/pdfsign/common"
+	"github.com/subnoto/pdfsign/revocation"
 )
 
 // processSignature processes a single digital signature found in the PDF.

@@ -1,10 +1,15 @@
 # Signing PDF files with Go
 
-[![Build & Test](https://github.com/digitorus/pdfsign/workflows/Build%20&%20Test/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Abuild-and-test)
-[![golangci-lint](https://github.com/digitorus/pdfsign/workflows/golangci-lint/badge.svg)](https://github.com/digitorus/pdfsign/actions?query=workflow%3Agolangci-lint)
-[![Go Report Card](https://goreportcard.com/badge/github.com/digitorus/pdfsign)](https://goreportcard.com/report/github.com/digitorus/pdfsign)
-[![Coverage Status](https://codecov.io/gh/digitorus/pdfsign/branch/main/graph/badge.svg)](https://codecov.io/gh/)
-[![Go Reference](https://pkg.go.dev/badge/github.com/digitorus/pdfsign.svg)](https://pkg.go.dev/github.com/digitorus/pdfsign)
+> [!NOTE]
+> This project is a fork of [digitorus/pdfsign](https://github.com/digitorus/pdfsign) with the following changes:
+>
+> This fork includes breaking changes from the original project. It is intended to be used for Subnoto's internal use only. This will be enventually be merged back into the original project once the main refactor of the original project is complete.
+
+[![Build & Test](https://github.com/subnoto/pdfsign/workflows/Build%20&%20Test/badge.svg)](https://github.com/subnoto/pdfsign/actions?query=workflow%3Abuild-and-test)
+[![golangci-lint](https://github.com/subnoto/pdfsign/workflows/golangci-lint/badge.svg)](https://github.com/subnoto/pdfsign/actions?query=workflow%3Agolangci-lint)
+[![Go Report Card](https://goreportcard.com/badge/github.com/subnoto/pdfsign)](https://goreportcard.com/report/github.com/subnoto/pdfsign)
+[![Coverage Status](https://codecov.io/gh/subnoto/pdfsign/branch/main/graph/badge.svg)](https://codecov.io/gh/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/subnoto/pdfsign.svg)](https://pkg.go.dev/github.com/subnoto/pdfsign)
 
 A PDF signing and verification library written in [Go](https://go.dev). This library provides both command-line tools and Go APIs for digitally signing and verifying PDF documents.
 
@@ -34,14 +39,14 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 
 ### Signing Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `-name` | string | | Name of the signatory |
-| `-location` | string | | Location of the signatory |
-| `-reason` | string | | Reason for signing |
-| `-contact` | string | | Contact information for signatory |
-| `-certType` | string | `CertificationSignature` | Certificate type: `CertificationSignature`, `ApprovalSignature`, `UsageRightsSignature`, `TimeStampSignature` |
-| `-tsa` | string | `https://freetsa.org/tsr` | URL for Time-Stamp Authority |
+| Option      | Type   | Default                   | Description                                                                                                   |
+| ----------- | ------ | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `-name`     | string |                           | Name of the signatory                                                                                         |
+| `-location` | string |                           | Location of the signatory                                                                                     |
+| `-reason`   | string |                           | Reason for signing                                                                                            |
+| `-contact`  | string |                           | Contact information for signatory                                                                             |
+| `-certType` | string | `CertificationSignature`  | Certificate type: `CertificationSignature`, `ApprovalSignature`, `UsageRightsSignature`, `TimeStampSignature` |
+| `-tsa`      | string | `https://freetsa.org/tsr` | URL for Time-Stamp Authority                                                                                  |
 
 ### Signing Examples
 
@@ -66,15 +71,15 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 
 ### Verification Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `-external` | bool | `false` | Enable external OCSP and CRL checking |
-| `-require-digital-signature` | bool | `true` | Require Digital Signature key usage in certificates |
-| `-require-non-repudiation` | bool | `false` | Require Non-Repudiation key usage in certificates (for highest security) |
-| `-trust-signature-time` | bool | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
-| `-validate-timestamp-certs` | bool | `true` | Validate timestamp token certificates |
-| `-allow-untrusted-roots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
-| `-http-timeout` | duration | `10s` | Timeout for external revocation checking requests |
+| Option                       | Type     | Default | Description                                                                                    |
+| ---------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `-external`                  | bool     | `false` | Enable external OCSP and CRL checking                                                          |
+| `-require-digital-signature` | bool     | `true`  | Require Digital Signature key usage in certificates                                            |
+| `-require-non-repudiation`   | bool     | `false` | Require Non-Repudiation key usage in certificates (for highest security)                       |
+| `-trust-signature-time`      | bool     | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
+| `-validate-timestamp-certs`  | bool     | `true`  | Validate timestamp token certificates                                                          |
+| `-allow-untrusted-roots`     | bool     | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution)          |
+| `-http-timeout`              | duration | `10s`   | Timeout for external revocation checking requests                                              |
 
 ### Verification Examples
 
@@ -97,34 +102,27 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 
 ### Verification Output
 
+The verification command outputs JSON with the following key fields:
 
-#### Key Fields
-
-| Field | Location | Description |
-|-------|----------|-------------|
-| `Error` | top-level | Error message if verification failed |
-| `DocumentInfo` | top-level | PDF document metadata |
-| `Signatures` | top-level | Array of signature results |
-| `Info` | Signatures[] | Signer and signature metadata |
-| `Validation` | Signatures[] | Validation results for the signature |
-| `valid_signature` | Signatures[].Validation | Whether the cryptographic signature is mathematically valid |
-| `trusted_issuer` | Signatures[].Validation | Whether the certificate chain is trusted by system root certificates |
-| `revoked_certificate` | Signatures[].Validation | Whether any certificate in the chain has been revoked before signing |
-| `certificates` | Signatures[].Validation | Array of certificate validation results |
-| `timestamp_status` | Signatures[].Validation | Status of embedded timestamp: "valid", "invalid", or "missing" |
-| `timestamp_trusted` | Signatures[].Validation | Whether the timestamp token's certificate chain is trusted |
-| `verification_time` | Signatures[].Validation | The time used for certificate validation |
-| `time_source` | Signatures[].Validation | Source of verification time: "embedded_timestamp", "signature_time", or "current_time" |
-| `time_warnings` | Signatures[].Validation | Warnings about time validation (e.g., using untrusted signature time) |
-| `key_usage_valid` | Signatures[].Validation.Certificates[] | Whether the certificate has appropriate key usage for PDF signing |
-| `ext_key_usage_valid` | Signatures[].Validation.Certificates[] | Whether the certificate has proper Extended Key Usage (EKU) values |
-| `ocsp_embedded` | Signatures[].Validation.Certificates[] | Whether OCSP response is embedded in the PDF |
-| `ocsp_external` | Signatures[].Validation.Certificates[] | Whether external OCSP checking was performed |
-| `crl_embedded` | Signatures[].Validation.Certificates[] | Whether CRL is embedded in the PDF |
-| `crl_external` | Signatures[].Validation.Certificates[] | Whether external CRL checking was performed |
-| `revocation_time` | Signatures[].Validation.Certificates[] | When the certificate was revoked (if applicable) |
-| `revoked_before_signing` | Signatures[].Validation.Certificates[] | Whether revocation occurred before the signing time |
-| `revocation_warning` | Signatures[].Validation.Certificates[] | Human-readable warning about revocation status checking |
+| Field | Description |
+|-------|-------------|
+| `ValidSignature` | Whether the cryptographic signature is mathematically valid |
+| `TrustedIssuer` | Whether the certificate chain is trusted by system root certificates |
+| `RevokedCertificate` | Whether any certificate in the chain has been revoked before signing |
+| `KeyUsageValid` | Whether the certificate has appropriate key usage for PDF signing |
+| `ExtKeyUsageValid` | Whether the certificate has proper Extended Key Usage (EKU) values |
+| `TimestampStatus` | Status of embedded timestamp: "valid", "invalid", or "missing" |
+| `TimestampTrusted` | Whether the timestamp token's certificate chain is trusted |
+| `VerificationTime` | The time used for certificate validation |
+| `TimeSource` | Source of verification time: "embedded_timestamp", "signature_time", or "current_time" |
+| `TimeWarnings` | Warnings about time validation (e.g., using untrusted signature time) |
+| `OCSPEmbedded` | Whether OCSP response is embedded in the PDF |
+| `OCSPExternal` | Whether external OCSP checking was performed |
+| `CRLEmbedded` | Whether CRL is embedded in the PDF |
+| `CRLExternal` | Whether external CRL checking was performed |
+| `RevocationTime` | When the certificate was revoked (if applicable) |
+| `RevokedBeforeSigning` | Whether revocation occurred before the signing time |
+| `RevocationWarning` | Human-readable warning about revocation status checking |
 
 ## Go Library Usage
 
@@ -137,9 +135,9 @@ import (
     "crypto"
     "os"
     "time"
-    
+
     "github.com/digitorus/pdf"
-    "github.com/digitorus/pdfsign/sign"
+    "github.com/subnoto/pdfsign/sign"
 )
 
 func main() {
@@ -193,8 +191,8 @@ import (
     "encoding/json"
     "fmt"
     "os"
-    
-    "github.com/digitorus/pdfsign/verify"
+
+    "github.com/subnoto/pdfsign/verify"
 )
 
 func main() {
@@ -222,8 +220,8 @@ package main
 import (
     "net/http"
     "time"
-    
-    "github.com/digitorus/pdfsign/verify"
+
+    "github.com/subnoto/pdfsign/verify"
 )
 
 func main() {
@@ -238,7 +236,7 @@ func main() {
     options.TrustSignatureTime = true  // Allow fallback to signature time
     options.ValidateTimestampCertificates = true  // Always validate timestamp certs
     options.HTTPTimeout = 15 * time.Second
-    
+
     // Optional: Custom HTTP client for proxy support
     options.HTTPClient = &http.Client{
         Timeout: 20 * time.Second,
@@ -248,13 +246,13 @@ func main() {
     if err != nil {
         panic(err)
     }
-    
+
     // Check timestamp validation results
     for _, signer := range response.Signers {
         fmt.Printf("Time source: %s\n", signer.TimeSource)
         fmt.Printf("Timestamp status: %s\n", signer.TimestampStatus)
         fmt.Printf("Timestamp trusted: %v\n", signer.TimestampTrusted)
-        
+
         if len(signer.TimeWarnings) > 0 {
             fmt.Println("Time warnings:")
             for _, warning := range signer.TimeWarnings {
@@ -267,16 +265,16 @@ func main() {
 
 ### Library Verification Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `EnableExternalRevocationCheck` | bool | `false` | Perform OCSP and CRL checks via network requests |
-| `HTTPClient` | `*http.Client` | `nil` | Custom HTTP client for external checks (proxy support) |
-| `HTTPTimeout` | `time.Duration` | `10s` | Timeout for external revocation checking requests |
-| `RequireDigitalSignatureKU` | bool | `true` | Require Digital Signature key usage in certificates |
-| `AllowNonRepudiationKU` | bool | `true` | Allow Non-Repudiation key usage (recommended for PDF signing) |
-| `TrustSignatureTime` | bool | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
-| `ValidateTimestampCertificates` | bool | `true` | Validate timestamp token's certificate chain and revocation status |
-| `AllowUntrustedRoots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
+| Option                          | Type            | Default | Description                                                                                    |
+| ------------------------------- | --------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `EnableExternalRevocationCheck` | bool            | `false` | Perform OCSP and CRL checks via network requests                                               |
+| `HTTPClient`                    | `*http.Client`  | `nil`   | Custom HTTP client for external checks (proxy support)                                         |
+| `HTTPTimeout`                   | `time.Duration` | `10s`   | Timeout for external revocation checking requests                                              |
+| `RequireDigitalSignatureKU`     | bool            | `true`  | Require Digital Signature key usage in certificates                                            |
+| `AllowNonRepudiationKU`         | bool            | `true`  | Allow Non-Repudiation key usage (recommended for PDF signing)                                  |
+| `TrustSignatureTime`            | bool            | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
+| `ValidateTimestampCertificates` | bool            | `true`  | Validate timestamp token's certificate chain and revocation status                             |
+| `AllowUntrustedRoots`           | bool            | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution)          |
 
 ## Signature Appearance with Images
 
@@ -284,10 +282,10 @@ Add visible signatures with custom images to your PDF documents.
 
 ### Supported Features
 
-- **Image formats**: JPG and PNG
-- **Transparency**: PNG alpha channel support
-- **Positioning**: Precise coordinate control
-- **Scaling**: Automatic aspect ratio preservation
+-   **Image formats**: JPG and PNG
+-   **Transparency**: PNG alpha channel support
+-   **Positioning**: Precise coordinate control
+-   **Scaling**: Automatic aspect ratio preservation
 
 ### Usage Example
 
@@ -331,9 +329,10 @@ err = sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
 **Important**: This library does not support SHA1-based cryptographic operations due to Go's security policies. SHA1 has been deprecated and is considered cryptographically insecure.
 
 **Impact on Revocation Checking**:
-- OCSP responders and CRL distribution points that use SHA1 signatures will fail verification
-- External revocation checking (`-external` flag or `EnableExternalRevocationCheck` option) may fail for certificates signed with SHA1
-- Legacy PKI infrastructure still using SHA1 may not be compatible with this library
+
+-   OCSP responders and CRL distribution points that use SHA1 signatures will fail verification
+-   External revocation checking (`-external` flag or `EnableExternalRevocationCheck` option) may fail for certificates signed with SHA1
+-   Legacy PKI infrastructure still using SHA1 may not be compatible with this library
 
 **Recommendation**: Use certificates and PKI infrastructure that support modern hash algorithms (SHA-256 or higher).
 

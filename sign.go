@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/digitorus/pdfsign/cli"
+	"github.com/subnoto/pdfsign/cli"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/common"
+	"github.com/subnoto/pdfsign/common"
 )
 
 // parseDocumentInfo parses document information from PDF Info dictionary.

@@ -9,8 +9,8 @@ import (
 	"os"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/common"
 	"github.com/digitorus/pkcs7"
+	"github.com/subnoto/pdfsign/common"
 
 	"github.com/mattetti/filebuffer"
 )

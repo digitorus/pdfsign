@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/digitorus/pdfsign/common"
 	"github.com/digitorus/timestamp"
+	"github.com/subnoto/pdfsign/common"
 	"golang.org/x/crypto/ocsp"
 )
 

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/timestamp"
 	"github.com/mattetti/filebuffer"
+	"github.com/subnoto/pdfsign/revocation"
 )
 
 type CatalogData struct {
