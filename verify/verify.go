@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/common"
+	"github.com/subnoto/pdfsign/common"
 )
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/digitorus/pdfsign/common"
+	"github.com/subnoto/pdfsign/common"
 )
 
 // VerifyOptions contains options for PDF signature verification
