@@ -148,13 +148,16 @@ func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 func compressData(data []byte) []byte {
 	var compressedData bytes.Buffer
 	writer := zlib.NewWriter(&compressedData)
-	defer func() {
+	// Write data and ensure the writer is closed before returning the buffer.
+	if _, err := writer.Write(data); err != nil {
 		_ = writer.Close()
-	}()
-	_, err := writer.Write(data)
-	if err != nil {
 		return nil
 	}
+
+	if err := writer.Close(); err != nil {
+		return nil
+	}
+
 	return compressedData.Bytes()
 }
 
