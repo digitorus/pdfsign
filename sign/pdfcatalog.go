@@ -47,25 +47,92 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 		}
 	}
 
-	// Start the AcroForm dictionary with /NeedAppearances
+	// Start the AcroForm dictionary. If the input PDF already has an AcroForm
+	// preserve its entries (including existing form fields) and append the new
+	// visual signature field instead of overwriting the whole dictionary.
+	acro := root.Key("AcroForm")
 	catalog_buffer.WriteString("  /AcroForm <<\n")
-	catalog_buffer.WriteString("    /Fields [")
 
-	// Add existing signatures to the AcroForm dictionary
-	for i, sig := range context.existingSignatures {
-		if i > 0 {
+	// If an AcroForm existed, copy its keys except SigFlags and Fields
+	// (Fields will be handled to append the new signature field).
+	if !acro.IsNull() {
+		// Track whether Fields was present so we can add one if missing.
+		fieldsPresent := false
+
+		for _, key := range acro.Keys() {
+			if key == "SigFlags" {
+				// We'll write an updated SigFlags below; skip existing.
+				continue
+			}
+			if key == "Fields" {
+				fieldsPresent = true
+				// Write existing Fields array and append the new visual signature.
+				catalog_buffer.WriteString("    /Fields [")
+				fields := acro.Key("Fields")
+				for i := 0; i < fields.Len(); i++ {
+					if i > 0 {
+						catalog_buffer.WriteString(" ")
+					}
+					v := fields.Index(i)
+					if ptr := v.GetPtr(); ptr.GetID() != 0 {
+						// Indirect reference
+						catalog_buffer.WriteString(strconv.Itoa(int(ptr.GetID())))
+						catalog_buffer.WriteString(" ")
+						catalog_buffer.WriteString(strconv.Itoa(int(ptr.GetGen())))
+						catalog_buffer.WriteString(" R")
+					} else {
+						// Direct value
+						context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), v)
+					}
+				}
+
+				// Append the visual signature field object reference.
+				if fields.Len() > 0 {
+					catalog_buffer.WriteString(" ")
+				}
+				catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.objectId)) + " 0 R")
+				catalog_buffer.WriteString("]\n")
+				continue
+			}
+
+			// Copy other AcroForm entries as-is.
+			_, _ = fmt.Fprintf(&catalog_buffer, "    /%s ", key)
+			context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), acro.Key(key))
+			catalog_buffer.WriteString("\n")
+		}
+
+		// If Fields was not present in the original AcroForm, create it with
+		// existing signature entries (if any) and the new visual signature.
+		if !fieldsPresent {
+			catalog_buffer.WriteString("    /Fields [")
+			for i, sig := range context.existingSignatures {
+				if i > 0 {
+					catalog_buffer.WriteString(" ")
+				}
+				catalog_buffer.WriteString(strconv.Itoa(int(sig.objectId)) + " 0 R")
+			}
+			if len(context.existingSignatures) > 0 {
+				catalog_buffer.WriteString(" ")
+			}
+			catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.objectId)) + " 0 R")
+			catalog_buffer.WriteString("]\n")
+		}
+	} else {
+		// No existing AcroForm: create Fields array containing signature fields
+		catalog_buffer.WriteString("    /Fields [")
+		for i, sig := range context.existingSignatures {
+			if i > 0 {
+				catalog_buffer.WriteString(" ")
+			}
+			catalog_buffer.WriteString(strconv.Itoa(int(sig.objectId)) + " 0 R")
+		}
+
+		if len(context.existingSignatures) > 0 {
 			catalog_buffer.WriteString(" ")
 		}
-		catalog_buffer.WriteString(strconv.Itoa(int(sig.objectId)) + " 0 R")
+		catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.objectId)) + " 0 R")
+		catalog_buffer.WriteString("]\n")
 	}
-
-	// Add the visual signature field to the AcroForm dictionary
-	if len(context.existingSignatures) > 0 {
-		catalog_buffer.WriteString(" ")
-	}
-	catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.objectId)) + " 0 R")
-
-	catalog_buffer.WriteString("]\n") // close Fields array
 
 	// (Optional; deprecated in PDF 2.0) A flag specifying whether
 	// to construct appearance streams and appearance
@@ -75,9 +142,9 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	// provided appearance streams for all visible widget
 	// annotations present in the document.
 	// if context.SignData.Visible {
-	// 	catalog_buffer.WriteString(" /NeedAppearances true")
+	//  catalog_buffer.WriteString(" /NeedAppearances true")
 	// } else {
-	// 	catalog_buffer.WriteString(" /NeedAppearances false")
+	//  catalog_buffer.WriteString(" /NeedAppearances false")
 	// }
 
 	// Signature flags (Table 225)
