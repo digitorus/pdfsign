@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/digitorus/pdf"
 	"github.com/mattetti/filebuffer"
@@ -241,10 +242,10 @@ func TestSignPDFFileUTF8(t *testing.T) {
 func TestSignPDFInitials(t *testing.T) {
 	cert, pkey := loadCertificateAndKey(t)
 
-	tests := []struct{
-		name string
-		uid  string // UID is already in hex as present in testfile50
-		signerName string
+	tests := []struct {
+		name             string
+		uid              string // UID is already in hex as present in testfile50
+		signerName       string
 		expectedInitials string
 	}{
 		{"jane", "6a616e652e736d697468406578616d706c652e636f6d", "Jane Smith", "JS"},
@@ -271,10 +272,10 @@ func TestSignPDFInitials(t *testing.T) {
 						Name: tc.signerName,
 						Date: time.Now().Local(),
 					},
-					CertType: CertificationSignature,
+					CertType:   CertificationSignature,
 					DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
 				},
-				Signer: pkey,
+				Signer:      pkey,
 				Certificate: cert,
 				Appearance: Appearance{
 					SignerUID: tc.uid,
@@ -315,8 +316,31 @@ func TestSignPDFInitials(t *testing.T) {
 				if tVal.IsNull() {
 					continue
 				}
-				name := tVal.RawString()
-				if !strings.Contains(name, tc.uid) {
+				fieldName := tVal.RawString()
+
+				// Decode UTF-16 field names just like fillInitialsFields does
+				decodedFieldName := fieldName
+				b := []byte(fieldName)
+				if len(b) >= 2 {
+					// BOM 0xFEFF = big endian, 0xFFFE = little endian
+					if b[0] == 0xfe && b[1] == 0xff {
+						// UTF-16 BE
+						var u16s []uint16
+						for i := 2; i+1 < len(b); i += 2 {
+							u16s = append(u16s, uint16(b[i])<<8|uint16(b[i+1]))
+						}
+						decodedFieldName = string(utf16.Decode(u16s))
+					} else if b[0] == 0xff && b[1] == 0xfe {
+						// UTF-16 LE
+						var u16s []uint16
+						for i := 2; i+1 < len(b); i += 2 {
+							u16s = append(u16s, uint16(b[i])|uint16(b[i+1])<<8)
+						}
+						decodedFieldName = string(utf16.Decode(u16s))
+					}
+				}
+
+				if !strings.Contains(decodedFieldName, tc.uid) {
 					continue
 				}
 				vVal := field.Key("V")
