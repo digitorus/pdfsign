@@ -51,6 +51,11 @@ type Appearance struct {
 
 	Image            []byte // Image data to use as signature appearance
 	ImageAsWatermark bool   // If true, the text will be drawn over the image
+	// SignerUID, when set, will cause the signer initials to be filled into
+	// AcroForm fields matching the pattern:
+	//   initials_page_${pageIndex}_signer_${signer_uid}
+	// The initials are derived from SignData.Signature.Info.Name.
+	SignerUID string
 }
 
 type VisualSignData struct {

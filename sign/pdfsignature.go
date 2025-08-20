@@ -11,7 +11,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
@@ -539,6 +542,97 @@ func (context *SignContext) fetchExistingSignatures() ([]SignData, error) {
 	}
 
 	return signatures, nil
+}
+
+// fillInitialsFields will search the AcroForm Fields array for fields with names
+// matching the pattern `initials_page_${pageIndex}_signer_${signer_uid}` and,
+// when the signer_uid matches the configured Appearance.SignerUID, replace the
+// field value (/V) with the initials computed from SignData.Signature.Info.Name.
+func (context *SignContext) fillInitialsFields() error {
+	uid := context.SignData.Appearance.SignerUID
+	if uid == "" {
+		return nil
+	}
+
+	name := context.SignData.Signature.Info.Name
+	if name == "" {
+		return nil
+	}
+
+	// compute initials (first rune of each name part, uppercased)
+	parts := strings.Fields(name)
+	var initialsRunes []rune
+	for _, p := range parts {
+		r := []rune(p)
+		if len(r) > 0 {
+			initialsRunes = append(initialsRunes, unicode.ToUpper(r[0]))
+		}
+	}
+	initials := string(initialsRunes)
+
+	acroForm := context.PDFReader.Trailer().Key("Root").Key("AcroForm")
+	if acroForm.IsNull() {
+		return nil
+	}
+
+	fields := acroForm.Key("Fields")
+	if fields.IsNull() {
+		return nil
+	}
+
+	re := regexp.MustCompile(`^initials_page_(\d+)_signer_(.+)$`)
+
+	for i := 0; i < fields.Len(); i++ {
+		field := fields.Index(i)
+		t := field.Key("T")
+		if t.IsNull() {
+			continue
+		}
+
+		fieldName := t.RawString()
+		matches := re.FindStringSubmatch(fieldName)
+		if len(matches) < 3 {
+			continue
+		}
+
+		fieldSigner := matches[2]
+		if fieldSigner != uid {
+			continue
+		}
+
+		// Only update indirect field objects
+		ptr := field.GetPtr()
+		if ptr.GetID() == 0 {
+			// direct object - cannot replace easily in an incremental update
+			continue
+		}
+
+		// Build a new dictionary preserving existing keys except /V which we replace
+		var buf bytes.Buffer
+		buf.WriteString("<<\n")
+		for _, key := range field.Keys() {
+			if key == "V" {
+				continue
+			}
+			buf.WriteString(" /")
+			buf.WriteString(key)
+			buf.WriteString(" ")
+			context.serializeCatalogEntry(&buf, ptr.GetID(), field.Key(key))
+			buf.WriteString("\n")
+		}
+
+		// Set new value
+		buf.WriteString(" /V ")
+		buf.WriteString(pdfString(initials))
+		buf.WriteString("\n")
+		buf.WriteString(">>\n")
+
+		if err := context.updateObject(uint32(ptr.GetID()), buf.Bytes()); err != nil {
+			return fmt.Errorf("failed to update field object %d: %w", ptr.GetID(), err)
+		}
+	}
+
+	return nil
 }
 
 func (context *SignContext) createPropBuild() string {
