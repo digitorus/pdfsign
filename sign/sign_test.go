@@ -752,6 +752,103 @@ func TestSignPDFWithWatermarkImagePNG(t *testing.T) {
 	verifySignedFile(t, tmpfile, originalFileName)
 }
 
+// TestSignPDFAcroFormPreserved ensures signing a PDF with AcroForm does not
+// remove existing form fields; the signed PDF should have at least as many
+// AcroForm fields as the original (usually original + signature field).
+func TestSignPDFAcroFormPreserved(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/testfile40.pdf"
+
+	// Open original file and read its AcroForm fields count
+	inputFile, err := os.Open(inputFilePath)
+	if err != nil {
+		t.Skipf("test file not available: %v", err)
+		return
+	}
+	defer func() { _ = inputFile.Close() }()
+
+	finfo, err := inputFile.Stat()
+	if err != nil {
+		t.Fatalf("failed to stat input file: %v", err)
+	}
+	rdr, err := pdf.NewReader(inputFile, finfo.Size())
+	if err != nil {
+		t.Fatalf("failed to read input PDF: %v", err)
+	}
+
+	acro := rdr.Trailer().Key("Root").Key("AcroForm")
+	if acro.IsNull() {
+		t.Fatalf("input PDF does not contain an AcroForm")
+	}
+
+	origFields := acro.Key("Fields")
+	origCount := 0
+	if !origFields.IsNull() {
+		origCount = origFields.Len()
+	}
+
+	// Sign the file to a temporary output
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
+
+	_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "Test",
+				Location:    "Here",
+				Reason:      "Preserve AcroForm",
+				ContactInfo: "None",
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		DigestAlgorithm:    crypto.SHA256,
+		Signer:             pkey,
+		Certificate:        cert,
+		RevocationData:     revocation.InfoArchival{},
+		RevocationFunction: DefaultEmbedRevocationStatusFunction,
+	})
+	if err != nil {
+		t.Fatalf("signing failed: %v", err)
+	}
+
+	// Open signed file and check AcroForm fields
+	signedFile, err := os.Open(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("failed to open signed file: %v", err)
+	}
+	defer func() { _ = signedFile.Close() }()
+
+	sfinfo, err := signedFile.Stat()
+	if err != nil {
+		t.Fatalf("failed to stat signed file: %v", err)
+	}
+
+	signedRdr, err := pdf.NewReader(signedFile, sfinfo.Size())
+	if err != nil {
+		t.Fatalf("failed to read signed PDF: %v", err)
+	}
+
+	sacro := signedRdr.Trailer().Key("Root").Key("AcroForm")
+	if sacro.IsNull() {
+		t.Fatalf("signed PDF missing AcroForm")
+	}
+	sfields := sacro.Key("Fields")
+	if sfields.IsNull() {
+		t.Fatalf("signed PDF AcroForm missing Fields")
+	}
+	newCount := sfields.Len()
+
+	if newCount < origCount {
+		t.Fatalf("AcroForm fields decreased after signing: before=%d after=%d", origCount, newCount)
+	}
+
+	verifySignedFile(t, tmpfile, filepath.Base(inputFilePath))
+}
+
 func TestVisualSignLastPage(t *testing.T) {
 	cert, pkey := loadCertificateAndKey(t)
 	inputFilePath := "../testfiles/testfile16.pdf"
