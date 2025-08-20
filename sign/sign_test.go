@@ -238,6 +238,105 @@ func TestSignPDFFileUTF8(t *testing.T) {
 	}
 }
 
+func TestSignPDFInitials(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+
+	tests := []struct{
+		name string
+		uid  string // UID is already in hex as present in testfile50
+		signerName string
+		expectedInitials string
+	}{
+		{"jane", "6a616e652e736d697468406578616d706c652e636f6d", "Jane Smith", "JS"},
+		{"newt", "6e657740746f746f2e636f6d", "Newt Totoo", "NT"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(st *testing.T) {
+			st.Parallel()
+
+			inputFilePath := "../testfiles/testfile50.pdf"
+			tmpfile, err := os.CreateTemp("", "sign_initials_")
+			if err != nil {
+				st.Fatalf("failed to create tmpfile: %v", err)
+			}
+			defer func() {
+				_ = os.Remove(tmpfile.Name())
+			}()
+
+			_, err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+				Signature: SignDataSignature{
+					Info: SignDataSignatureInfo{
+						Name: tc.signerName,
+						Date: time.Now().Local(),
+					},
+					CertType: CertificationSignature,
+					DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+				},
+				Signer: pkey,
+				Certificate: cert,
+				Appearance: Appearance{
+					SignerUID: tc.uid,
+				},
+			})
+			if err != nil {
+				st.Fatalf("sign failed: %v", err)
+			}
+
+			// Open signed file and verify AcroForm fields for the uid were updated
+			sf, err := os.Open(tmpfile.Name())
+			if err != nil {
+				st.Fatalf("failed to open signed file: %v", err)
+			}
+			defer sf.Close()
+			sfi, err := sf.Stat()
+			if err != nil {
+				st.Fatalf("stat failed: %v", err)
+			}
+			rdr, err := pdf.NewReader(sf, sfi.Size())
+			if err != nil {
+				st.Fatalf("pdf reader failed: %v", err)
+			}
+
+			acro := rdr.Trailer().Key("Root").Key("AcroForm")
+			if acro.IsNull() {
+				st.Fatalf("signed PDF missing AcroForm")
+			}
+			fields := acro.Key("Fields")
+			if fields.IsNull() {
+				st.Fatalf("signed PDF AcroForm missing Fields")
+			}
+
+			found := false
+			for i := 0; i < fields.Len(); i++ {
+				field := fields.Index(i)
+				tVal := field.Key("T")
+				if tVal.IsNull() {
+					continue
+				}
+				name := tVal.RawString()
+				if !strings.Contains(name, tc.uid) {
+					continue
+				}
+				vVal := field.Key("V")
+				if vVal.IsNull() {
+					continue
+				}
+				raw := vVal.RawString()
+				if strings.Contains(raw, tc.expectedInitials) {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				st.Fatalf("expected initials %s for uid %s not found in any AcroForm field", tc.expectedInitials, tc.uid)
+			}
+		})
+	}
+}
+
 func TestSignPDFVisible(t *testing.T) {
 	cert, pkey := loadCertificateAndKey(t)
 	inputFilePath := "../testfiles/testfile12.pdf"
