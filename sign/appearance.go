@@ -61,7 +61,7 @@ func writeFormTypeAndLength(buffer *bytes.Buffer, streamLength int) {
 func writeAppearanceStreamBuffer(buffer *bytes.Buffer, stream []byte) {
 	buffer.WriteString("stream\n")
 	buffer.Write(stream)
-	buffer.WriteString("endstream\n")
+	buffer.WriteString("\nendstream\n")
 }
 
 func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
