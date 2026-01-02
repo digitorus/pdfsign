@@ -5,13 +5,15 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   build:
-    name: Build
+    name: Build & Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -29,11 +31,11 @@ jobs:
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload test PDF files
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: test-pdf-artifacts
           path: testfiles/success/
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
@@ -41,3 +43,170 @@ jobs:
           file: ./coverage.txt
           flags: unittests
           name: codecov-umbrella
+
+  validation:
+    name: PDF Validation
+    needs: build
+    runs-on: ubuntu-latest
+    if: success() || failure()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Install pdfcpu
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+
+      - name: Download signed PDF files
+        uses: actions/download-artifact@v4
+        with:
+          name: test-pdf-artifacts
+          path: signed_pdf_files
+
+      - name: Check for PDF files
+        id: check_files
+        run: |
+          if [ -d "signed_pdf_files" ] && [ -n "$(ls -A signed_pdf_files 2>/dev/null)" ]; then
+             echo "exists=true" >> $GITHUB_OUTPUT
+          else
+             echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run PDF validation
+        id: validate
+        if: steps.check_files.outputs.exists == 'true'
+        run: |
+          VALIDATION_REPORT="validation_results.md"
+          
+          # Build list of source files that have pre-existing errors (baseline)
+          echo "## Baseline Check (Source Files)" > baseline.log
+          
+          # Use find to handle potential directory structure in artifacts
+          find signed_pdf_files -name "*.pdf" | while read signed_file; do
+            filename=$(basename "$signed_file")
+            source_file="testfiles/$filename"
+            
+            if [ -f "$source_file" ]; then
+              if ! pdfcpu validate -mode strict "$source_file" > /dev/null 2>&1; then
+                echo "$filename" >> skip_list.txt
+              fi
+            fi
+          done
+          
+          # Validate signed files
+          {
+            echo "## PDF Validation Results"
+            echo ""
+            
+            if [ -f skip_list.txt ]; then
+              echo "> [!NOTE]"
+              echo "> Some files are skipped because their source PDFs have pre-existing validation errors."
+              echo ""
+            fi
+            
+            find signed_pdf_files -name "*.pdf" | sort | while read signed_file; do
+              filename=$(basename "$signed_file")
+              
+              # Skip if source had pre-existing errors
+              if [ -f skip_list.txt ] && grep -q "$filename" skip_list.txt; then
+                echo "### ⏭️ \`$filename\` (skipped - source has pre-existing errors)"
+                echo ""
+                continue
+              fi
+              
+              echo "### \`$filename\`"
+              echo ""
+              
+              # Structure validation
+              echo "**Structure Validation:**"
+              STRUCT_OUT=$(pdfcpu validate -mode strict "$signed_file" 2>&1)
+              if [ $? -eq 0 ]; then
+                echo "✅ Structure OK"
+              else
+                echo "❌ Structure validation failed"
+                echo "<details><summary>Click to view structure error details</summary>"
+                echo ""
+                echo '```'
+                echo "$STRUCT_OUT"
+                echo '```'
+                echo "</details>"
+                touch validation_failed.flag
+              fi
+              echo ""
+              
+              # Signature validation
+              echo "**Signature Validation:**"
+              echo "<details><summary>Click to view full signature details</summary>"
+              echo ""
+              echo '```'
+              SIG_OUT=$(pdfcpu signatures validate -f "$signed_file" 2>&1)
+              echo "$SIG_OUT"
+              echo '```'
+              echo "</details>"
+              echo ""
+              
+              if echo "$SIG_OUT" | grep -q "DocModified: false"; then
+                echo "✅ Signature integrity verified (Document not modified)"
+              else
+                echo "❌ Signature integrity failed or document modified"
+                touch validation_failed.flag
+              fi
+              echo ""
+            done
+            
+            if [ -f validation_failed.flag ]; then
+              echo "### ❌ Some validations failed"
+              echo "validation_passed=false" > validation_status.txt
+            else
+              echo "### ✅ All validations passed"
+              echo "validation_passed=true" > validation_status.txt
+            fi
+          } > $VALIDATION_REPORT
+
+          cat $VALIDATION_REPORT
+          
+          if [ -f validation_status.txt ]; then
+            cat validation_status.txt >> $GITHUB_OUTPUT
+          else
+            echo "validation_passed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create skipped report
+        if: steps.check_files.outputs.exists != 'true'
+        run: |
+          echo "## PDF Validation Results" > validation_results.md
+          echo "" >> validation_results.md
+          echo "### ⏭️ Skipped: No PDF files found" >> validation_results.md
+
+      - name: Find PR comment
+        if: github.event_name == 'pull_request'
+        id: find-comment
+        uses: peter-evans/find-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "## PDF Validation Results"
+
+      - name: Create or update comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-file: validation_results.md
+          edit-mode: replace
+
+      - name: Check validation status
+        if: steps.check_files.outputs.exists == 'true'
+        run: |
+          # This step explicitly fails the job if any validation errors were found.
+          # Steps above (e.g., posting a PR comment) may succeed even if the PDF is invalid.
+          if [[ "${{ steps.validate.outputs.validation_passed }}" == "false" ]]; then
+            echo "Validation failed! Check the PR comment for details."
+            exit 1
+          fi
+
