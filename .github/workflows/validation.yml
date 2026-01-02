@@ -1,0 +1,127 @@
+name: PDF Validation
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build & Test"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Install pdfcpu
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+
+      - name: Download test PDF files
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: test-pdf-artifacts
+          path: test_pdf_files
+
+      - name: Check for PDF files
+        id: check_files
+        run: |
+          if [ -d "test_pdf_files" ] && [ -n "$(ls -A test_pdf_files 2>/dev/null)" ]; then
+             echo "exists=true" >> $GITHUB_OUTPUT
+             echo "Files found."
+          else
+             echo "exists=false" >> $GITHUB_OUTPUT
+             echo "No files found."
+          fi
+
+      - name: Run pdfcpu validation
+        id: pdfcpu-validate
+        if: steps.check_files.outputs.exists == 'true'
+        run: |
+          echo "::group::PDF pdfcpu Validation Results"
+          # Create a temporary file to store validation results
+          PDFCPU_RESULT_FILE=$(mktemp)
+
+          {
+            echo "## PDF Validation Results"
+            echo ""
+            
+            for file in test_pdf_files/*; do
+              echo "### Validating $file with pdfcpu"
+              echo '```'
+              
+              # pdfcpu validation
+              pdfcpu validate -mode strict "$file" 2>&1 | tee -a $PDFCPU_RESULT_FILE
+              PDFCPU_STATUS=$?
+              
+              if [ $PDFCPU_STATUS -eq 0 ]; then
+                echo "✅ pdfcpu validation passed for $file" | tee -a $PDFCPU_RESULT_FILE
+              else
+                echo "❌ pdfcpu validation failed for $file" | tee -a $PDFCPU_RESULT_FILE
+              fi
+              echo '```'
+              echo "" | tee -a $PDFCPU_RESULT_FILE
+            done
+            
+            # Determine pdfcpu status
+            if grep -q "❌" $PDFCPU_RESULT_FILE; then
+              echo "### ❌ Some pdfcpu validations failed"
+              echo "See details above for specific failures."
+              VALIDATION_PASSED="false"
+            else
+              echo "### ✅ All pdfcpu validations passed"
+              VALIDATION_PASSED="true"  
+            fi
+            echo "validation_passed=$VALIDATION_PASSED" >> $GITHUB_OUTPUT
+          } > validation_results.md
+
+          cat validation_results.md
+          echo "::endgroup::"
+
+      - name: Create skipped report
+        if: steps.check_files.outputs.exists != 'true'
+        run: |
+          echo "## PDF Validation Results" > validation_results.md
+          echo "" >> validation_results.md
+          echo "### ⏭️ Validation Skipped: No PDF files found to validate" >> validation_results.md
+          echo "validation_passed=skipped" >> $GITHUB_OUTPUT
+
+      - name: Upload validation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: validation_results.md
+          retention-days: 7
+
+      - name: Find PR comment
+        if: github.event_name == 'pull_request'
+        id: find-comment
+        uses: peter-evans/find-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "## PDF Validation Results"
+
+      - name: Create or update comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-file: validation_results.md
+          edit-mode: replace
+
+      - name: Check validation status
+        run: |
+          if [[ "${{ steps.pdfcpu-validate.outputs.validation_passed }}" == "false" ]]; then
+            echo "Validation failed! Check the PR comment for details."
+            exit 1
+          fi
