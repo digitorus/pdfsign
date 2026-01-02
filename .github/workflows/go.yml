@@ -48,14 +48,12 @@ jobs:
 
           # Build list of source files that have pre-existing errors (baseline)
           echo "Running baseline check..."
-          find testfiles/success -name "*.pdf" | while read signed_file; do
-            filename=$(basename "$signed_file")
-            source_file="testfiles/$filename"
-            
-            if [ -f "$source_file" ]; then
-              if ! pdfcpu validate -mode strict "$source_file" > /dev/null 2>&1; then
-                echo "$filename" >> skip_list.txt
-              fi
+          for source_file in testfiles/*.pdf; do
+            [ -e "$source_file" ] || continue
+            filename=$(basename "$source_file")
+            if ! pdfcpu validate -mode strict "$source_file" > /dev/null 2>&1; then
+              echo "$filename" >> baseline_errors.txt
+              echo "Baseline skip: $filename (source has pre-existing errors)"
             fi
           done
 
@@ -63,9 +61,15 @@ jobs:
           find testfiles/success -name "*.pdf" | sort | while read signed_file; do
             filename=$(basename "$signed_file")
             
+            # Extract the original source filename by removing the test suffix
+            # e.g., testfile14_TestSignPDF.pdf -> testfile14.pdf
+            # e.g., testfile14_TestSignPDFVisibleAll.pdf -> testfile14.pdf
+            source_filename=$(echo "$filename" | sed 's/_TestSignPDF.pdf/.pdf/' | sed 's/_TestSignPDFVisibleAll.pdf/.pdf/')
+            
             # Skip if source had pre-existing errors
-            if [ -f skip_list.txt ] && grep -q "$filename" skip_list.txt; then
-              echo "⏭️  $filename (skipped - source has pre-existing errors)"
+            if [ -f baseline_errors.txt ] && grep -q "^$source_filename$" baseline_errors.txt; then
+              echo "--------------------------------------------------"
+              echo "⏭️  $filename (skipped - source '$source_filename' has pre-existing errors)"
               continue
             fi
             
