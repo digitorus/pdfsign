@@ -1,0 +1,152 @@
+name: PDF Validation
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build & Test"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  validation:
+    name: PDF Validation
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Install pdfcpu
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+
+      - name: Download signed PDF files
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: test-pdf-artifacts
+          path: signed_pdf_files
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Check for PDF files
+        id: check_files
+        run: |
+          if [ -d "signed_pdf_files" ] && [ -n "$(ls -A signed_pdf_files 2>/dev/null)" ]; then
+             echo "exists=true" >> $GITHUB_OUTPUT
+          else
+             echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run PDF validation
+        id: validate
+        if: steps.check_files.outputs.exists == 'true'
+        run: |
+          VALIDATION_REPORT="validation_results.md"
+          VALIDATION_PASSED="true"
+          
+          # Build list of source files that have pre-existing errors (baseline)
+          echo "## Baseline Check (Source Files)" > baseline.log
+          SKIP_FILES=""
+          for signed_file in signed_pdf_files/*; do
+            filename=$(basename "$signed_file")
+            source_file="testfiles/$filename"
+            
+            if [ -f "$source_file" ]; then
+              if ! pdfcpu validate -mode strict "$source_file" > /dev/null 2>&1; then
+                echo "⚠️ Skipping $filename (source has pre-existing errors)" >> baseline.log
+                SKIP_FILES="$SKIP_FILES $filename"
+              fi
+            fi
+          done
+          
+          # Validate signed files
+          {
+            echo "## PDF Validation Results"
+            echo ""
+            
+            # Show baseline skip notes
+            if [ -n "$SKIP_FILES" ]; then
+              echo "> [!NOTE]"
+              echo "> Some files are skipped because their source PDFs have pre-existing validation errors."
+              echo ""
+            fi
+            
+            for signed_file in signed_pdf_files/*; do
+              filename=$(basename "$signed_file")
+              
+              # Skip if source had pre-existing errors
+              if echo "$SKIP_FILES" | grep -q "$filename"; then
+                echo "### ⏭️ \`$filename\` (skipped - source has pre-existing errors)"
+                echo ""
+                continue
+              fi
+              
+              echo "### \`$filename\`"
+              echo ""
+              
+              # Structure validation
+              echo "**Structure Validation:**"
+              echo '```'
+              if pdfcpu validate -mode strict "$signed_file" 2>&1; then
+                echo "✅ Structure OK"
+                STRUCT_OK="true"
+              else
+                echo "❌ Structure validation failed"
+                STRUCT_OK="false"
+                VALIDATION_PASSED="false"
+              fi
+              echo '```'
+              echo ""
+              
+              # Signature validation
+              echo "**Signature Validation:**"
+              echo '```'
+              if pdfcpu signatures validate "$signed_file" 2>&1 | grep -q "DocModified: false"; then
+                echo "✅ Signature valid, document not modified"
+              else
+                echo "⚠️ Signature check - see details above"
+              fi
+              echo '```'
+              echo ""
+            done
+            
+            if [ "$VALIDATION_PASSED" == "true" ]; then
+              echo "### ✅ All validations passed"
+            else
+              echo "### ❌ Some validations failed"
+            fi
+          } > $VALIDATION_REPORT
+
+          cat $VALIDATION_REPORT
+          echo "validation_passed=$VALIDATION_PASSED" >> $GITHUB_OUTPUT
+
+      - name: Create skipped report
+        if: steps.check_files.outputs.exists != 'true'
+        run: |
+          echo "## PDF Validation Results" > validation_results.md
+          echo "" >> validation_results.md
+          echo "### ⏭️ Skipped: No PDF files found" >> validation_results.md
+
+      - name: Upload validation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: validation_results.md
+          retention-days: 7
+
+      - name: Check validation status
+        if: steps.check_files.outputs.exists == 'true'
+        run: |
+          if [[ "${{ steps.validate.outputs.validation_passed }}" == "false" ]]; then
+            echo "Validation failed!"
+            exit 1
+          fi

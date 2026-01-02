@@ -4,6 +4,7 @@
 !testfile*.pdf
 testfiles/*_signed.pdf
 testfiles/failed/*
+testfiles/success/*
 pdfsign
 certs/*
 tmp/
