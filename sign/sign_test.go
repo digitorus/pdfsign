@@ -148,7 +148,7 @@ func TestSignPDF(t *testing.T) {
 			var outputFile *os.File
 			var err error
 
-			if st.Verbose() {
+			if testing.Verbose() {
 				// In verbose mode, write directly to the success directory in testfiles
 				outputFile, err = os.Create(filepath.Join("../testfiles/success", f.Name()))
 			} else {
@@ -159,10 +159,10 @@ func TestSignPDF(t *testing.T) {
 			if err != nil {
 				st.Fatalf("%s", err.Error())
 			}
-			
+
 			// Only remove the file if we are NOT in verbose mode
 			defer func() {
-				if !st.Verbose() {
+				if !testing.Verbose() {
 					if err := os.Remove(outputFile.Name()); err != nil {
 						st.Errorf("Failed to remove output file: %v", err)
 					}
