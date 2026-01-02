@@ -128,6 +128,8 @@ func TestReaderCanReadPDF(t *testing.T) {
 func TestSignPDF(t *testing.T) {
 	_ = os.RemoveAll("../testfiles/failed/")
 	_ = os.MkdirAll("../testfiles/failed/", 0o777)
+	_ = os.RemoveAll("../testfiles/success/")
+	_ = os.MkdirAll("../testfiles/success/", 0o777)
 
 	files, err := os.ReadDir("../testfiles/")
 	if err != nil {
@@ -143,13 +145,29 @@ func TestSignPDF(t *testing.T) {
 		}
 
 		t.Run(f.Name(), func(st *testing.T) {
-			outputFile, err := os.CreateTemp("", fmt.Sprintf("%s_%s_", t.Name(), f.Name()))
+			var outputFile *os.File
+			var err error
+
+			if st.Verbose() {
+				// In verbose mode, write directly to the success directory in testfiles
+				outputFile, err = os.Create(filepath.Join("../testfiles/success", f.Name()))
+			} else {
+				// In normal mode, use a temporary file
+				outputFile, err = os.CreateTemp("", fmt.Sprintf("%s_%s_", t.Name(), f.Name()))
+			}
+
 			if err != nil {
 				st.Fatalf("%s", err.Error())
 			}
+			
+			// Only remove the file if we are NOT in verbose mode
 			defer func() {
-				if err := os.Remove(outputFile.Name()); err != nil {
-					st.Errorf("Failed to remove output file: %v", err)
+				if !st.Verbose() {
+					if err := os.Remove(outputFile.Name()); err != nil {
+						st.Errorf("Failed to remove output file: %v", err)
+					}
+				} else {
+					st.Logf("Preserving test file in success folder: %s", outputFile.Name())
 				}
 			}()
 
