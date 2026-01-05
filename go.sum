@@ -1,5 +1,5 @@
-github.com/digitorus/pdf v0.1.2 h1:RjYEJNbiV6Kcn8QzRi6pwHuOaSieUUrg4EZo4b7KuIQ=
-github.com/digitorus/pdf v0.1.2/go.mod h1:05fDDJhPswBRM7GTfqCxNiDyeNcN0f+IobfOAl5pdXw=
+github.com/digitorus/pdf v0.2.0 h1:VTH4wOsVqIcV3CHeh8kahHDtvPmlK3jjRMIGhLXn4K4=
+github.com/digitorus/pdf v0.2.0/go.mod h1:hAVtI9P/OwJ4Hk+xoxxpLfBL3KHFpEFfcKMAnv02F80=
 github.com/digitorus/pkcs7 v0.0.0-20230713084857-e76b763bdc49/go.mod h1:SKVExuS+vpu2l9IoOc0RwqE7NYnb0JlcFHFnEJkVDzc=
 github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352 h1:ge14PCmCvPjpMQMIAH7uKg0lrtNSOdpYsRXlwk3QbaE=
 github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352/go.mod h1:SKVExuS+vpu2l9IoOc0RwqE7NYnb0JlcFHFnEJkVDzc=
