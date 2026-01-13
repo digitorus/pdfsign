@@ -86,6 +86,16 @@ func (context *SignContext) SignPDF() error {
 		context.SignData.Appearance.Page = 1
 	}
 
+	// Reset state that accumulates during signing (important for retry)
+	context.newXrefEntries = nil
+	context.updatedXrefEntries = nil
+	context.lastXrefID = 0
+	context.ByteRangeValues = nil
+	context.NewXrefStart = 0
+	context.CatalogData = CatalogData{}
+	context.VisualSignData = VisualSignData{}
+	context.InfoData = InfoData{}
+
 	context.OutputBuffer = filebuffer.New([]byte{})
 
 	// Copy old file into new buffer.
@@ -111,22 +121,23 @@ func (context *SignContext) SignPDF() error {
 			return fmt.Errorf("certificate is required")
 		}
 
-		switch context.SignData.Certificate.SignatureAlgorithm.String() {
-		case "SHA1-RSA":
-		case "ECDSA-SHA1":
-		case "DSA-SHA1":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(128))
-		case "SHA256-RSA":
-		case "ECDSA-SHA256":
-		case "DSA-SHA256":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(256))
-		case "SHA384-RSA":
-		case "ECDSA-SHA384":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(384))
-		case "SHA512-RSA":
-		case "ECDSA-SHA512":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(512))
+		if context.SignData.Signer != nil {
+			if err := ValidateSignerCertificateMatch(context.SignData.Signer, context.SignData.Certificate); err != nil {
+				return fmt.Errorf("signer/certificate validation failed: %w", err)
+			}
 		}
+
+		var sigSize int
+		if context.SignData.SignatureSizeOverride > 0 {
+			sigSize = int(context.SignData.SignatureSizeOverride)
+		} else {
+			var err error
+			sigSize, err = PublicKeySignatureSize(context.SignData.Certificate.PublicKey)
+			if err != nil {
+				sigSize = DefaultSignatureSize
+			}
+		}
+		context.SignatureMaxLength += uint32(hex.EncodedLen(sigSize))
 
 		// Add size of digest algorithm twice (for file digist and signing certificate attribute)
 		context.SignatureMaxLength += uint32(hex.EncodedLen(context.SignData.DigestAlgorithm.Size() * 2))
@@ -256,9 +267,18 @@ func (context *SignContext) SignPDF() error {
 		return fmt.Errorf("failed to update byte range: %w", err)
 	}
 
+	// Track retry count before replaceSignature to detect if retry occurred
+	retryCountBefore := context.retryCount
+
 	// Replace signature
 	if err := context.replaceSignature(); err != nil {
 		return fmt.Errorf("failed to replace signature: %w", err)
+	}
+
+	// If retry occurred inside replaceSignature, the recursive SignPDF call
+	// already wrote the output. Skip writing to avoid duplicate content.
+	if context.retryCount > retryCountBefore {
+		return nil
 	}
 
 	// Write final output

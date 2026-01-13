@@ -1,14 +1,20 @@
 package sign
 
 import (
+	"bytes"
 	"crypto"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
+	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -812,4 +818,261 @@ func TestVisualSignLastPage(t *testing.T) {
 	}
 
 	verifySignedFile(t, tmpfile, originalFileName)
+}
+
+// TestRetryMechanismProducesValidPDF tests that when a retry is triggered
+// (due to undersized buffer), the resulting PDF is still valid.
+// This is a regression test for a bug where retry would corrupt PDFs because
+// context state (newXrefEntries, lastXrefID, etc.) wasn't reset between attempts.
+func TestRetryMechanismProducesValidPDF(t *testing.T) {
+	// Capture log output to verify retry happens
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	// Generate RSA-4096 key - produces 512-byte signatures
+	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		t.Fatalf("failed to generate RSA-4096 key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Retry Test"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse certificate: %v", err)
+	}
+
+	inputFilePath := "../testfiles/testfile20.pdf"
+	tmpfile, err := os.CreateTemp("", "retry_test_*.pdf")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	// Force a retry by setting SignatureSizeOverride to simulate the old bug.
+	// Old bug: used Certificate.SignatureAlgorithm (SHA256=256 bits) instead of key size.
+	// RSA-4096 produces 512-byte signatures, but old code would allocate for 256 bytes.
+	// This override replicates that bug to test the retry mechanism.
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:   "Retry Test",
+				Reason: "Testing retry mechanism with undersized buffer",
+				Date:   time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Signer:                privateKey,
+		DigestAlgorithm:       crypto.SHA256,
+		Certificate:           cert,
+		SignatureSizeOverride: 1, // Way too small! RSA-4096 needs 512 bytes. Forces retry.
+	})
+	if err != nil {
+		t.Fatalf("signing failed: %v", err)
+	}
+
+	// Verify retry actually happened
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, "Signature too long") {
+		t.Logf("Log output: %s", logOutput)
+		t.Fatal("Expected retry to be triggered but no retry log message found")
+	}
+	t.Logf("Retry was triggered: %s", logOutput)
+
+	// Verify the PDF is valid - this will fail if retry corrupted the PDF
+	_, err = verify.VerifyFile(tmpfile)
+	if err != nil {
+		// Debug: show file size and content around signature
+		tmpfile.Seek(0, 0)
+		data, _ := io.ReadAll(tmpfile)
+		t.Logf("Output file size: %d bytes", len(data))
+
+		// Find /Contents< to see signature area
+		contentsIdx := bytes.Index(data, []byte("/Contents<"))
+		if contentsIdx != -1 {
+			start := contentsIdx
+			end := contentsIdx + 200
+			if end > len(data) {
+				end = len(data)
+			}
+			t.Logf("Signature area at offset %d: %q", contentsIdx, data[start:end])
+		} else {
+			t.Log("Could not find /Contents<")
+		}
+
+		// Show area around offset 5209 where xref says object 11 is
+		if len(data) > 5409 {
+			t.Logf("Content at offset 5209: %q", data[5209:5409])
+		}
+
+		t.Fatalf("PDF verification failed after retry: %v", err)
+	}
+}
+
+// TestSignatureSizeOverride tests that SignatureSizeOverride is used when set.
+func TestSignatureSizeOverride(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	tmpfile, err := os.CreateTemp("", "sigsize_override_test_*.pdf")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	// Test with a valid override (larger than needed)
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:   "Override Test",
+				Reason: "Testing SignatureSizeOverride",
+				Date:   time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Signer:                pkey,
+		DigestAlgorithm:       crypto.SHA256,
+		Certificate:           cert,
+		SignatureSizeOverride: 512, // Override with larger size
+	})
+	if err != nil {
+		t.Fatalf("failed to sign PDF with SignatureSizeOverride: %v", err)
+	}
+
+	verifySignedFile(t, tmpfile, "sigsize_override_test.pdf")
+}
+
+// TestSignatureSizeOverrideTooSmall tests that signing fails gracefully when
+// SignatureSizeOverride is set too small.
+func TestSignatureSizeOverrideTooSmall(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	tmpfile, err := os.CreateTemp("", "sigsize_small_test_*.pdf")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	// Test with override that's too small - should trigger retry and eventually succeed
+	// The embedded certificate is RSA-1024 (128 bytes), so 64 is too small
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:   "Small Override Test",
+				Reason: "Testing too-small SignatureSizeOverride",
+				Date:   time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Signer:                pkey,
+		DigestAlgorithm:       crypto.SHA256,
+		Certificate:           cert,
+		SignatureSizeOverride: 64, // Too small - will trigger retry
+	})
+
+	// This should succeed because the retry mechanism will increase the buffer
+	if err != nil {
+		t.Fatalf("signing should have succeeded with retry, got error: %v", err)
+	}
+
+	verifySignedFile(t, tmpfile, "sigsize_small_test.pdf")
+}
+
+// TestSignPDFWithRSA3072Key tests signing with an RSA-3072 key.
+// This is a regression test for a bug where the signature buffer size was
+// calculated based on Certificate.SignatureAlgorithm (the algorithm used to
+// sign the certificate) rather than the actual public key size.
+//
+// RSA-3072 produces 384-byte signatures, but a certificate signed with SHA256-RSA
+// would cause the code to allocate only 256 bytes, triggering retry logic that
+// could corrupt the PDF.
+func TestSignPDFWithRSA3072Key(t *testing.T) {
+	// Generate a 3072-bit RSA key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		t.Fatalf("failed to generate RSA-3072 key: %v", err)
+	}
+
+	// Create a self-signed certificate with SHA256-RSA signature algorithm
+	// This is the key part: the certificate is signed with SHA256-RSA,
+	// but the public key is RSA-3072 which produces 384-byte signatures
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName:   "RSA-3072 Test Certificate",
+			Organization: []string{"Test"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse certificate: %v", err)
+	}
+
+	// Verify our test setup: certificate should be signed with SHA256-RSA
+	// but have an RSA-3072 public key
+	if cert.SignatureAlgorithm != x509.SHA256WithRSA {
+		t.Fatalf("expected SHA256WithRSA signature algorithm, got %v", cert.SignatureAlgorithm)
+	}
+	if privateKey.Size() != 384 { // 3072 bits = 384 bytes
+		t.Fatalf("expected 384-byte key size, got %d", privateKey.Size())
+	}
+
+	// Now try to sign a PDF with this certificate
+	inputFilePath := "../testfiles/testfile20.pdf"
+	tmpfile, err := os.CreateTemp("", "rsa3072_test_*.pdf")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "RSA-3072 Test",
+				Location:    "Test Location",
+				Reason:      "Testing RSA-3072 signature buffer size",
+				ContactInfo: "test@example.com",
+				Date:        time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		Signer:             privateKey,
+		DigestAlgorithm:    crypto.SHA256,
+		Certificate:        cert,
+		RevocationData:     revocation.InfoArchival{},
+		RevocationFunction: DefaultEmbedRevocationStatusFunction,
+	})
+	if err != nil {
+		t.Fatalf("failed to sign PDF with RSA-3072 key: %v", err)
+	}
+
+	// Verify the signed PDF
+	verifySignedFile(t, tmpfile, "rsa3072_test.pdf")
 }
