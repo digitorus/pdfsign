@@ -51,7 +51,8 @@ func PublicKeySignatureSize(pub crypto.PublicKey) (int, error) {
 		if k.Curve == nil {
 			return 0, fmt.Errorf("%w: ECDSA key has nil curve", ErrUnsupportedKey)
 		}
-		// DER encoding: 2*coordSize + 9 bytes overhead (sequence + two integers with possible padding)
+		// ECDSA signatures are DER-encoded as SEQUENCE { r INTEGER, s INTEGER } per RFC 3279 Section 2.2.3.
+		// Max size: 2 coords + 9 bytes overhead (SEQUENCE tag/len, two INTEGER tag/len, two padding bytes)
 		coordSize := (k.Curve.Params().BitSize + 7) / 8
 		return 2*coordSize + 9, nil
 

@@ -297,8 +297,8 @@ func TestPDFSigningKeyMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create temp file: %v", err)
 			}
-			defer os.Remove(tmpfile.Name())
-			tmpfile.Close()
+			defer func() { _ = os.Remove(tmpfile.Name()) }()
+			_ = tmpfile.Close()
 
 			// Attempt to sign the PDF
 			signErr := SignFile(inputFilePath, tmpfile.Name(), SignData{
@@ -331,7 +331,7 @@ func TestPDFSigningKeyMatrix(t *testing.T) {
 				if err != nil {
 					t.Fatalf("failed to open signed file: %v", err)
 				}
-				defer signedFile.Close()
+				defer func() { _ = signedFile.Close() }()
 
 				_, verifyErr := verifyFile(signedFile)
 				if verifyErr != nil {

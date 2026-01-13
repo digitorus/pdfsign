@@ -858,7 +858,7 @@ func TestRetryMechanismProducesValidPDF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
 	// Force a retry by setting SignatureSizeOverride to simulate the old bug.
 	// Old bug: used Certificate.SignatureAlgorithm (SHA256=256 bits) instead of key size.
@@ -895,7 +895,7 @@ func TestRetryMechanismProducesValidPDF(t *testing.T) {
 	_, err = verify.VerifyFile(tmpfile)
 	if err != nil {
 		// Debug: show file size and content around signature
-		tmpfile.Seek(0, 0)
+		_, _ = tmpfile.Seek(0, 0)
 		data, _ := io.ReadAll(tmpfile)
 		t.Logf("Output file size: %d bytes", len(data))
 
@@ -930,7 +930,7 @@ func TestSignatureSizeOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
 	// Test with a valid override (larger than needed)
 	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
@@ -965,7 +965,7 @@ func TestSignatureSizeOverrideTooSmall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
 	// Test with override that's too small - should trigger retry and eventually succeed
 	// The embedded certificate is RSA-1024 (128 bytes), so 64 is too small
@@ -1049,7 +1049,7 @@ func TestSignPDFWithRSA3072Key(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name())
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
 
 	err = SignFile(inputFilePath, tmpfile.Name(), SignData{
 		Signature: SignDataSignature{
