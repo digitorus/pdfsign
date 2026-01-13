@@ -35,6 +35,11 @@ type SignData struct {
 	RevocationFunction RevocationFunction
 	Appearance         Appearance
 
+	// SignatureSizeOverride sets the raw signature size in bytes manually.
+	// Leave as 0 to auto-detect from the certificate's public key.
+	// Only needed for unsupported key types (e.g., post-quantum algorithms).
+	SignatureSizeOverride uint32
+
 	objectId uint32
 }
 
@@ -112,4 +117,5 @@ type SignContext struct {
 	lastXrefID         uint32
 	newXrefEntries     []xrefEntry
 	updatedXrefEntries []xrefEntry
+	retryCount         int
 }

@@ -443,9 +443,29 @@ func (context *SignContext) replaceSignature() error {
 	hex.Encode(dst, signature)
 
 	if uint32(len(dst)) > context.SignatureMaxLength {
-		log.Println("Signature too long, retrying with increased buffer size.")
-		// set new base and try signing again
-		context.SignatureMaxLengthBase += (uint32(len(dst)) - context.SignatureMaxLength) + 1
+		const maxSignatureRetries = 2
+		if context.retryCount >= maxSignatureRetries {
+			return fmt.Errorf("signature buffer calculation failed after %d attempts: "+
+				"signature size %d exceeds allocated %d bytes",
+				maxSignatureRetries, len(dst), context.SignatureMaxLength)
+		}
+		context.retryCount++
+
+		deficit := uint32(len(dst)) - context.SignatureMaxLength
+		padding := uint32(2) // Use 2 to ensure we add an even number (hex requires pairs)
+		if context.retryCount == 2 {
+			// Add extra padding on second retry to handle timestamp variability
+			padding = deficit/5 + 256
+			// Ensure padding keeps total even
+			if (deficit+padding)%2 != 0 {
+				padding++
+			}
+		}
+
+		log.Printf("Signature too long (need %d, have %d), retry %d with +%d bytes",
+			len(dst), context.SignatureMaxLength, context.retryCount, deficit+padding)
+
+		context.SignatureMaxLengthBase += deficit + padding
 		return context.SignPDF()
 	}
 

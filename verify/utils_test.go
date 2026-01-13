@@ -31,7 +31,7 @@ func TestParseDate(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := parseDate(test.input)
-			
+
 			if test.expected {
 				if err != nil {
 					t.Errorf("Expected parsing to succeed, but got error: %v", err)
@@ -95,18 +95,18 @@ func TestParseKeywords(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := parseKeywords(test.input)
-			
+
 			if len(result) != len(test.expected) {
 				t.Errorf("Expected %d keywords, got %d", len(test.expected), len(result))
 				return
 			}
-			
+
 			for i, keyword := range result {
 				if keyword != test.expected[i] {
 					t.Errorf("Expected keyword %d to be %q, got %q", i, test.expected[i], keyword)
 				}
 			}
-			
+
 			t.Logf("Input: %q -> %v", test.input, result)
 		})
 	}
