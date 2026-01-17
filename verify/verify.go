@@ -171,12 +171,7 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 	}
 
 	if !foundSignature {
-		// Fallback: This might occur if SigFlags is set but fields are empty or not found properly.
-		// In strictly compliant PDFs, this shouldn't happen if SigFlags implies signatures.
-		// However, adhering to the "Line of Sight" rule, we return what we found (or didn't).
-		// If we want to be robust against malformed PDFs that have detached signature objects
-		// floating around without being in Fields, we would keep the old scan.
-		// Given the direction to optimize, we rely on standard structure.
+		return nil, fmt.Errorf("inconsistent PDF: SigFlags implies signatures but none found in AcroForm Fields")
 	}
 
 	if apiResp == nil {

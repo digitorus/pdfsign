@@ -103,14 +103,14 @@ func (a *Appearance) Standard() *Appearance {
 
 // Background sets the fill color for the signature widget background.
 func (a *Appearance) Background(r, g, b uint8) *Appearance {
-	a.bgColor = &Color{r, g, b}
+	a.bgColor = &Color{R: r, G: g, B: b}
 	return a
 }
 
 // Border draws a rectangular border around the signature widget with the specified width and RGB color.
 func (a *Appearance) Border(width float64, r, g, b uint8) *Appearance {
 	a.borderWidth = width
-	a.borderColor = &Color{r, g, b}
+	a.borderColor = &Color{R: r, G: g, B: b}
 	return a
 }
 
@@ -179,7 +179,7 @@ func (a *Appearance) Text(content string) *TextBuilder {
 		appearance: a,
 		content:    content,
 		size:       10,
-		color:      Color{0, 0, 0},
+		color:      Color{R: 0, G: 0, B: 0},
 	}
 }
 
@@ -277,7 +277,7 @@ func (b *TextBuilder) Position(x, y float64) *TextBuilder {
 
 // SetColor sets the text color.
 func (tb *TextBuilder) SetColor(r, g, b uint8) *TextBuilder {
-	tb.color = Color{r, g, b}
+	tb.color = Color{R: r, G: g, B: b}
 	return tb
 }
 
@@ -325,7 +325,7 @@ func (a *Appearance) Line(x1, y1, x2, y2 float64) *LineBuilder {
 		y1:          y1,
 		x2:          x2,
 		y2:          y2,
-		strokeColor: Color{0, 0, 0},
+		strokeColor: Color{R: 0, G: 0, B: 0},
 		strokeWidth: 1.0,
 	}
 }
@@ -341,7 +341,7 @@ type LineBuilder struct {
 
 // Stroke sets the line color.
 func (b *LineBuilder) Stroke(r, g, b_ uint8) *LineBuilder {
-	b.strokeColor = Color{r, g, b_}
+	b.strokeColor = Color{R: r, G: g, B: b_}
 	b.finalize()
 	return b
 }
@@ -412,13 +412,13 @@ func (*ShapeBuilder) IsElement() {}
 
 // Stroke sets the stroke color.
 func (b *ShapeBuilder) Stroke(r, g, b_ uint8) *ShapeBuilder {
-	b.strokeColor = &Color{r, g, b_}
+	b.strokeColor = &Color{R: r, G: g, B: b_}
 	return b
 }
 
 // Fill sets the fill color.
 func (b *ShapeBuilder) Fill(r, g, b_ uint8) *ShapeBuilder {
-	b.fillColor = &Color{r, g, b_}
+	b.fillColor = &Color{R: r, G: g, B: b_}
 	return b
 }
 

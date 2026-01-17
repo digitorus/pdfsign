@@ -286,14 +286,14 @@ func RegisterImage(context *sign.SignContext, data []byte) (uint32, error) {
 			if a8 < 255 {
 				hasAlpha = true
 			}
-			alphaWriter.Write([]byte{a8})
-			rgbWriter.Write([]byte{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8)})
+			_, _ = alphaWriter.Write([]byte{a8})
+			_, _ = rgbWriter.Write([]byte{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8)})
 		}
 	}
 
 	if useCompression {
-		zlibRgb.Close()
-		zlibAlpha.Close()
+		_ = zlibRgb.Close()
+		_ = zlibAlpha.Close()
 	}
 
 	var smaskID uint32
@@ -337,8 +337,8 @@ func RegisterFont(context *sign.SignContext, f *fonts.Font) (uint32, error) {
 		if compressLevel != zlib.NoCompression {
 			var buf bytes.Buffer
 			zw, _ := zlib.NewWriterLevel(&buf, compressLevel)
-			zw.Write(f.Data)
-			zw.Close()
+			_, _ = zw.Write(f.Data)
+			_ = zw.Close()
 			fontData = buf.Bytes()
 			filter = "/Filter /FlateDecode"
 		}
