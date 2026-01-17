@@ -2,22 +2,22 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 
-	"github.com/digitorus/pdfsign/sign"
+	"github.com/digitorus/pdfsign"
 )
 
 func TestParseCertType(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected sign.CertType
+		expected pdfsign.SignatureType
 		wantErr  bool
 	}{
-		{"Valid CertificationSignature", "CertificationSignature", sign.CertificationSignature, false},
-		{"Valid ApprovalSignature", "ApprovalSignature", sign.ApprovalSignature, false},
-		{"Valid UsageRightsSignature", "UsageRightsSignature", sign.UsageRightsSignature, false},
-		{"Valid TimeStampSignature", "TimeStampSignature", sign.TimeStampSignature, false},
+		{"Valid CertificationSignature", "CertificationSignature", pdfsign.CertificationSignature, false},
+		{"Valid ApprovalSignature", "ApprovalSignature", pdfsign.ApprovalSignature, false},
+		{"Valid DocumentTimestamp", "DocumentTimestamp", pdfsign.DocumentTimestamp, false},
 		{"Invalid cert type", "InvalidCertType", 0, true},
 		{"Empty string", "", 0, true},
 	}
@@ -41,13 +41,17 @@ func TestParseCertType(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	origArgs := os.Args
-	defer func() { os.Args = origArgs }()
-	if os.Getenv("TEST_USAGE") == "1" {
+	if os.Getenv("BE_CRASHER") == "1" {
 		Usage()
 		return
 	}
-	t.Skip("Skipping Usage() test - requires subprocess testing for os.Exit()")
+	cmd := exec.Command(os.Args[0], "-test.run=TestUsage")
+	cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+	err := cmd.Run()
+	if e, ok := err.(*exec.ExitError); ok && !e.Success() {
+		return // Expected exit status 1
+	}
+	t.Fatalf("process ran with err %v, want exit status 1", err)
 }
 
 func TestSignCommandValidation(t *testing.T) {
@@ -57,8 +61,8 @@ func TestSignCommandValidation(t *testing.T) {
 		args     []string
 		wantErr  bool
 	}{
-		{"TimeStamp with insufficient args", "TimeStampSignature", []string{"input.pdf"}, true},
-		{"TimeStamp with sufficient args", "TimeStampSignature", []string{"input.pdf", "output.pdf"}, false},
+		{"TimeStamp with insufficient args", "DocumentTimestamp", []string{"input.pdf"}, true},
+		{"TimeStamp with sufficient args", "DocumentTimestamp", []string{"input.pdf", "output.pdf"}, false},
 		{"Regular signing with insufficient args", "CertificationSignature", []string{"input.pdf", "output.pdf"}, true},
 		{"Regular signing with sufficient args", "CertificationSignature", []string{"input.pdf", "output.pdf", "cert.crt", "key.key"}, false},
 	}
@@ -69,7 +73,7 @@ func TestSignCommandValidation(t *testing.T) {
 				t.Errorf("ParseCertType() failed: %v", err)
 				return
 			}
-			if tt.certType == "TimeStampSignature" {
+			if tt.certType == "DocumentTimestamp" {
 				if len(tt.args) < 2 && !tt.wantErr {
 					t.Error("TimeStamp signing should require at least 2 args")
 				}

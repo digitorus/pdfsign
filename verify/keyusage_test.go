@@ -170,6 +170,7 @@ func TestDefaultVerifyOptions(t *testing.T) {
 
 	if options == nil {
 		t.Fatal("DefaultVerifyOptions returned nil")
+		return // unreachable, but satisfies staticcheck
 	}
 
 	if !options.RequireDigitalSignatureKU {
@@ -318,7 +319,7 @@ func TestTimestampVerificationOptions(t *testing.T) {
 			}
 
 			// Mock signer with or without timestamp
-			signer := &Signer{}
+			signer := NewSigner()
 			if tt.hasTimestamp {
 				// Mock timestamp - we can't easily create a real one here
 				// In a real test, you'd need to create a proper timestamp.Timestamp

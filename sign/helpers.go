@@ -195,3 +195,13 @@ func isASCII(s string) bool {
 	}
 	return true
 }
+
+// getPrevXrefOffset returns the correct previous xref offset for incremental updates.
+// This returns the startxref value which points to the first (or only) xref.
+// For linearized PDFs, the startxref points to the linearization xref at the beginning,
+// which then chains via /Prev to the main xref. We must use startxref to maintain
+// the complete xref chain including all objects (some objects may only appear in
+// the linearization xref, such as the Encrypt dictionary).
+func getPrevXrefOffset(rdr *pdf.Reader) int64 {
+	return rdr.XrefInformation.StartPos
+}

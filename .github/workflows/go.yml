@@ -23,6 +23,12 @@ jobs:
         with:
           go-version: ^1.23
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Build
         run: go build -v ./...
 
@@ -107,6 +113,41 @@ jobs:
             echo "✅ All PDF validations passed!"
           fi
 
+      - name: Run DSS Validation
+        run: |
+          # Clone DSS demonstrations
+          git clone --depth 1 https://github.com/esig/dss-demonstrations.git
+          cd dss-demonstrations/dss-demo-webapp
+          
+          # Start DSS Service via Maven
+          mvn spring-boot:run > dss-startup.log 2>&1 &
+          DSS_PID=$!
+          
+          echo "Waiting for DSS Service to start..."
+          # Wait for service to be healthy (up to 5 minutes)
+          for i in {1..60}; do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/services/rest/validation/v2/validateSignature | grep -E "405|415|200" > /dev/null; then
+              echo "DSS Service is up!"
+              break
+            fi
+            echo "Waiting for DSS Service (attempt $i)..."
+            sleep 5
+            if [ $i -eq 60 ]; then
+              echo "❌ DSS Service failed to start"
+              cat dss-startup.log
+              kill $DSS_PID || true
+              exit 1
+            fi
+          done
+
+          cd ../..
+          # Run validation test
+          echo "### DSS Signature Validation Results"
+          DSS_API_URL=http://localhost:8080/services/rest/validation/v2/validateSignature go test -v ./sign -run TestSignDSSValidation
+          
+          # Cleanup
+          kill $DSS_PID || true
+
       - name: Upload coverage report
         if: always()
         uses: codecov/codecov-action@v4
@@ -122,3 +163,46 @@ jobs:
           name: test-pdf-artifacts
           path: testfiles/success/
           retention-days: 7
+
+  corpus-test:
+    name: Corpus Security Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghostscript
+          go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+          
+          # Install veraPDF greenfield
+          curl -L https://github.com/veraPDF/veraPDF-apps/releases/latest/download/verapdf-greenfield-latest.zip -o verapdf.zip
+          unzip verapdf.zip
+          VERAPDF_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
+          echo "VERAPDF_DIR=$VERAPDF_DIR" >> $GITHUB_ENV
+          echo "$PWD/$VERAPDF_DIR" >> $GITHUB_PATH
+
+      - name: Cache corpus downloads
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pdf-corpus
+          key: pdf-corpus-v1
+
+      - name: Run corpus security tests
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin:$PWD/$VERAPDF_DIR
+          # veraPDF script name is usually 'verapdf'
+          PDF_CORPUS_CACHE=/tmp/pdf-corpus go test -v ./sign -run TestSignCorpus -download-corpus -timeout 30m

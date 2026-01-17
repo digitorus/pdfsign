@@ -97,7 +97,7 @@ func TestAddObject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			outputBuf.Buff.Reset()
-			id, err := context.addObject(tt.object)
+			id, err := context.AddObject(tt.object)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("addObject() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -158,7 +158,7 @@ func TestUpdateObject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			context.OutputBuffer.Buff.Reset()
-			err := context.updateObject(tt.objectID, tt.object)
+			err := context.UpdateObject(tt.objectID, tt.object)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateObject() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -215,7 +215,7 @@ func TestWriteObject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			context.OutputBuffer.Buff.Reset()
-			err := context.writeObject(tt.objectID, tt.object)
+			err := context.WriteObject(tt.objectID, tt.object)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("writeObject() error = %v, wantErr %v", err, tt.wantErr)
 				return

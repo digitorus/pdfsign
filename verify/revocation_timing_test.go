@@ -75,9 +75,12 @@ func TestIsRevokedBeforeSigning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isRevokedBeforeSigning(tt.revocationTime, tt.signingTime, tt.timeSource)
+			signer := NewSigner()
+			signer.VerificationTime = tt.signingTime
+			signer.TimeSource = tt.timeSource
+			result := signer.IsRevokedBeforeSigning(tt.revocationTime)
 			if result != tt.expected {
-				t.Errorf("isRevokedBeforeSigning() = %v, want %v\nDescription: %s",
+				t.Errorf("IsRevokedBeforeSigning() = %v, want %v\nDescription: %s",
 					result, tt.expected, tt.description)
 			}
 			t.Logf("✓ %s: %v", tt.description, result)
@@ -101,14 +104,13 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		{
 			name: "Embedded timestamp - revoked before signing",
 			setupSigner: func() *Signer {
-				return &Signer{
-					TimeStamp: &timestamp.Timestamp{
-						Time: baseTime,
-					},
-					VerificationTime: &baseTime,
-					TimeSource:       "embedded_timestamp",
-					TimeWarnings:     []string{},
+				signer := NewSigner()
+				signer.TimeStamp = &timestamp.Timestamp{
+					Time: baseTime,
 				}
+				signer.VerificationTime = &baseTime
+				signer.TimeSource = "embedded_timestamp"
+				return signer
 			},
 			mockRevocationTime:    baseTime.Add(-24 * time.Hour), // 1 day before
 			expectedRevokedBefore: true,
@@ -119,14 +121,13 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		{
 			name: "Embedded timestamp - revoked after signing",
 			setupSigner: func() *Signer {
-				return &Signer{
-					TimeStamp: &timestamp.Timestamp{
-						Time: baseTime,
-					},
-					VerificationTime: &baseTime,
-					TimeSource:       "embedded_timestamp",
-					TimeWarnings:     []string{},
+				signer := NewSigner()
+				signer.TimeStamp = &timestamp.Timestamp{
+					Time: baseTime,
 				}
+				signer.VerificationTime = &baseTime
+				signer.TimeSource = "embedded_timestamp"
+				return signer
 			},
 			mockRevocationTime:    baseTime.Add(24 * time.Hour), // 1 day after
 			expectedRevokedBefore: false,
@@ -137,12 +138,11 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 		{
 			name: "Signature time fallback - revoked after",
 			setupSigner: func() *Signer {
-				return &Signer{
-					SignatureTime:    &baseTime,
-					VerificationTime: &baseTime,
-					TimeSource:       "signature_time",
-					TimeWarnings:     []string{},
-				}
+				signer := NewSigner()
+				signer.SignatureTime = &baseTime
+				signer.VerificationTime = &baseTime
+				signer.TimeSource = "signature_time"
+				return signer
 			},
 			mockRevocationTime:    baseTime.Add(24 * time.Hour), // 1 day after
 			expectedRevokedBefore: true,                         // Conservative - don't trust signature time
@@ -154,11 +154,10 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 			name: "No timestamp - current time",
 			setupSigner: func() *Signer {
 				currentTime := time.Now()
-				return &Signer{
-					VerificationTime: &currentTime,
-					TimeSource:       "current_time",
-					TimeWarnings:     []string{},
-				}
+				signer := NewSigner()
+				signer.VerificationTime = &currentTime
+				signer.TimeSource = "current_time"
+				return signer
 			},
 			mockRevocationTime:    baseTime, // Any revocation time
 			expectedRevokedBefore: true,     // Conservative - can't determine timing
@@ -180,7 +179,7 @@ func TestRevocationTimingWithMockData(t *testing.T) {
 			}
 
 			// Simulate the revocation checking logic
-			revokedBeforeSigning := isRevokedBeforeSigning(tt.mockRevocationTime, signer.VerificationTime, signer.TimeSource)
+			revokedBeforeSigning := signer.IsRevokedBeforeSigning(tt.mockRevocationTime)
 			cert.RevokedBeforeSigning = revokedBeforeSigning
 
 			// Simulate the actual logic that would be used in certificate validation
@@ -298,14 +297,12 @@ func TestOCSPRevocationTiming(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			signer := &Signer{
-				TimeStamp: &timestamp.Timestamp{
-					Time: baseTime,
-				},
-				VerificationTime: &baseTime,
-				TimeSource:       tt.timeSource,
-				TimeWarnings:     []string{},
+			signer := NewSigner()
+			signer.TimeStamp = &timestamp.Timestamp{
+				Time: baseTime,
 			}
+			signer.VerificationTime = &baseTime
+			signer.TimeSource = tt.timeSource
 
 			// Mock OCSP response
 			resp := &ocsp.Response{
@@ -315,7 +312,7 @@ func TestOCSPRevocationTiming(t *testing.T) {
 
 			// Test the revocation timing logic
 			if resp.Status != ocsp.Good {
-				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning := signer.IsRevokedBeforeSigning(resp.RevokedAt)
 
 				if revokedBeforeSigning != tt.expectRevoked {
 					t.Errorf("Expected revokedBeforeSigning=%v, got %v", tt.expectRevoked, revokedBeforeSigning)
@@ -364,18 +361,16 @@ func TestCRLRevocationTiming(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			signer := &Signer{
-				TimeStamp: &timestamp.Timestamp{
-					Time: baseTime,
-				},
-				VerificationTime: &baseTime,
-				TimeSource:       tt.timeSource,
-				TimeWarnings:     []string{},
+			signer := NewSigner()
+			signer.TimeStamp = &timestamp.Timestamp{
+				Time: baseTime,
 			}
+			signer.VerificationTime = &baseTime
+			signer.TimeSource = tt.timeSource
 
 			var revokedBeforeSigning bool
 			if tt.revocationTime != nil {
-				revokedBeforeSigning = isRevokedBeforeSigning(*tt.revocationTime, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning = signer.IsRevokedBeforeSigning(*tt.revocationTime)
 			}
 
 			if revokedBeforeSigning != tt.expectRevoked {
@@ -427,9 +422,12 @@ func TestRevocationTimingEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isRevokedBeforeSigning(tt.revocationTime, tt.signingTime, tt.timeSource)
+			signer := NewSigner()
+			signer.VerificationTime = tt.signingTime
+			signer.TimeSource = tt.timeSource
+			result := signer.IsRevokedBeforeSigning(tt.revocationTime)
 			if result != tt.expected {
-				t.Errorf("isRevokedBeforeSigning() = %v, want %v\n%s",
+				t.Errorf("IsRevokedBeforeSigning() = %v, want %v\n%s",
 					result, tt.expected, tt.description)
 			}
 			t.Logf("✓ %s: %v", tt.description, result)

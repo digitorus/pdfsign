@@ -144,7 +144,7 @@ func TestProcessSignatureUnit_PKCS7ParseError(t *testing.T) {
 
 // --- Unit test for processTimestamp ---
 func TestProcessTimestampUnit_NoTimestamp(t *testing.T) {
-	signer := &Signer{}
+	signer := NewSigner()
 	_ = signer // silence unused
 }
 
@@ -157,7 +157,7 @@ func TestVerifySignatureUnit_Invalid(t *testing.T) {
 }
 
 func TestVerifySignatureUnit_Valid(t *testing.T) {
-	signer := &Signer{}
+	signer := NewSigner()
 	signer.ValidSignature = true
 	if !signer.ValidSignature {
 		t.Error("expected ValidSignature to be true")

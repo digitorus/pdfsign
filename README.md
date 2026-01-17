@@ -18,11 +18,22 @@ A PDF signing and verification library written in [Go](https://go.dev). This lib
 
 # Verify a PDF signature
 ./pdfsign verify document.pdf
-
-# Get help for specific commands
-./pdfsign sign -h
-./pdfsign verify -h
 ```
+
+## Package Architecture
+
+The library is organized into specialized subpackages, though most users will primarily interact with the root `pdfsign` package.
+
+| Package | Purpose |
+|:--- |:--- |
+| **`pdfsign`** | **Primary entry point**. Provides the fluent API for signing, verification, and document management. |
+| **`extract`** | Low-level signature inspection. Allows extracting raw PKCS#7 envelopes and signed data. |
+| **`forms`** | PDF form handling. Logic for field discovery and generating PDF object updates. |
+| **`initials`** | Configuration and placement logic for signing initials across multiple pages. |
+| **`signers/...`** | **External Signers**. Optional integrations for remote signing (CSC, KMS, PKCS#11). |
+| **`fonts`** | Font resource management and TrueType (TTF) metric parsing for accurate positioning. |
+| **`images`** | Image resource handling for visual signatures. |
+| **`internal/...`** | Private implementation details for PDF scanning and rendering. |
 
 ## PDF Signing
 
@@ -119,7 +130,24 @@ The verification command outputs JSON with the following key fields:
 | `RevokedBeforeSigning` | Whether revocation occurred before the signing time |
 | `RevocationWarning` | Human-readable warning about revocation status checking |
 
-## Go Library Usage
+
+### Go Library Usage
+
+The `pdfsign` package provides a modern, fluent API for signing and verification.
+
+### Opening Documents
+
+You can open PDFs from a file path or any `io.ReaderAt`.
+
+```go
+// Open from file
+doc, err := pdfsign.OpenFile("document.pdf")
+
+// Open from memory (byte slice)
+data, _ := os.ReadFile("document.pdf")
+reader := bytes.NewReader(data)
+doc, err := pdfsign.Open(reader, int64(len(data)))
+```
 
 ### Basic Signing
 
@@ -127,211 +155,304 @@ The verification command outputs JSON with the following key fields:
 package main
 
 import (
-    "crypto"
     "os"
-    "time"
-    
-    "github.com/digitorus/pdf"
-    "github.com/digitorus/pdfsign/sign"
+    "github.com/digitorus/pdfsign"
 )
 
 func main() {
-    inputFile, err := os.Open("input.pdf")
-    if err != nil {
-        panic(err)
-    }
-    defer inputFile.Close()
-
-    outputFile, err := os.Create("output.pdf")
-    if err != nil {
-        panic(err)
-    }
-    defer outputFile.Close()
-
-    // Load certificate and private key
-    certificate := loadCertificate("cert.crt")
-    privateKey := loadPrivateKey("key.key")
-
-    err = sign.SignFile("input.pdf", "output.pdf", sign.SignData{
-        Signature: sign.SignDataSignature{
-            Info: sign.SignDataSignatureInfo{
-                Name:        "John Doe",
-                Location:    "New York",
-                Reason:      "Document approval",
-                ContactInfo: "john@example.com",
-                Date:        time.Now().Local(),
-            },
-            CertType:   sign.CertificationSignature,
-            DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
-        },
-        Signer:          privateKey,
-        DigestAlgorithm: crypto.SHA256,
-        Certificate:     certificate,
-        TSA: sign.TSA{
-            URL: "https://freetsa.org/tsr",
-        },
-    })
-    if err != nil {
-        panic(err)
-    }
-}
-```
-
-### Basic Verification
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "fmt"
-    "os"
+    doc, _ := pdfsign.OpenFile("contract.pdf")
     
-    "github.com/digitorus/pdfsign/verify"
-)
-
-func main() {
-    file, err := os.Open("document.pdf")
-    if err != nil {
-        panic(err)
-    }
-    defer file.Close()
-
-    response, err := verify.VerifyFile(file)
-    if err != nil {
-        panic(err)
-    }
-
-    jsonData, _ := json.MarshalIndent(response, "", "  ")
-    fmt.Println(string(jsonData))
-}
-```
-
-### Advanced Verification with Timestamp and External Checking
-
-```go
-package main
-
-import (
-    "net/http"
-    "time"
+    // Create visual appearance
+    appearance := pdfsign.NewAppearance(250, 80)
+    appearance.Text("Signed by: {{Name}}").Position(10, 60)
     
-    "github.com/digitorus/pdfsign/verify"
-)
-
-func main() {
-    file, err := os.Open("document.pdf")
-    if err != nil {
-        panic(err)
-    }
-    defer file.Close()
-
-    options := verify.DefaultVerifyOptions()
-    options.EnableExternalRevocationCheck = true
-    options.TrustSignatureTime = true  // Allow fallback to signature time
-    options.ValidateTimestampCertificates = true  // Always validate timestamp certs
-    options.HTTPTimeout = 15 * time.Second
-    
-    // Optional: Custom HTTP client for proxy support
-    options.HTTPClient = &http.Client{
-        Timeout: 20 * time.Second,
-    }
-
-    response, err := verify.VerifyFileWithOptions(file, options)
-    if err != nil {
-        panic(err)
-    }
-    
-    // Check timestamp validation results
-    for _, signer := range response.Signers {
-        fmt.Printf("Time source: %s\n", signer.TimeSource)
-        fmt.Printf("Timestamp status: %s\n", signer.TimestampStatus)
-        fmt.Printf("Timestamp trusted: %v\n", signer.TimestampTrusted)
+    // Configure and write
+    output, _ := os.Create("signed.pdf")
+    doc.Sign(certificate, privateKey).
+        Reason("Approved").
+        Location("New York").
+        Appearance(appearance, 1, 400, 50)
         
-        if len(signer.TimeWarnings) > 0 {
-            fmt.Println("Time warnings:")
-            for _, warning := range signer.TimeWarnings {
-                fmt.Printf("  - %s\n", warning)
-            }
-        }
-    }
+    _, err := doc.Write(output)
 }
 ```
 
-### Library Verification Options
+### Form Filling
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `EnableExternalRevocationCheck` | bool | `false` | Perform OCSP and CRL checks via network requests |
-| `HTTPClient` | `*http.Client` | `nil` | Custom HTTP client for external checks (proxy support) |
-| `HTTPTimeout` | `time.Duration` | `10s` | Timeout for external revocation checking requests |
-| `RequireDigitalSignatureKU` | bool | `true` | Require Digital Signature key usage in certificates |
-| `AllowNonRepudiationKU` | bool | `true` | Allow Non-Repudiation key usage (recommended for PDF signing) |
-| `TrustSignatureTime` | bool | `false` | Trust the signature time embedded in the PDF if no timestamp is present (untrusted by default) |
-| `ValidateTimestampCertificates` | bool | `true` | Validate timestamp token's certificate chain and revocation status |
-| `AllowUntrustedRoots` | bool | `false` | Allow certificates embedded in the PDF to be used as trusted roots (use with caution) |
+You can interact with PDF forms by listing, setting, and unsetting fields.
 
-## Signature Appearance with Images
+#### List Form Fields
+```go
+fields := doc.FormFields()
+for _, f := range fields {
+    fmt.Printf("Field: %s (Type: %s, Value: %v)\n", f.Name, f.Type, f.Value)
+}
+```
 
-Add visible signatures with custom images to your PDF documents.
-
-### Supported Features
-
-- **Image formats**: JPG and PNG
-- **Transparency**: PNG alpha channel support
-- **Positioning**: Precise coordinate control
-- **Scaling**: Automatic aspect ratio preservation
-
-### Usage Example
+#### Fill Form Fields
+Form changes are applied when `Write()` is called, alongside any signatures.
 
 ```go
-// Read signature image
-signatureImage, err := os.ReadFile("signature.jpg")
-if err != nil {
-    panic(err)
+// Set a text field
+if err := doc.SetField("Full Name", "John Doe"); err != nil {
+    log.Fatal(err)
 }
 
-err = sign.Sign(inputFile, outputFile, rdr, size, sign.SignData{
-    Signature: sign.SignDataSignature{
-        Info: sign.SignDataSignatureInfo{
-            Name:        "John Doe",
-            Location:    "New York",
-            Reason:      "Signed with image",
-            ContactInfo: "john@example.com",
-            Date:        time.Now().Local(),
-        },
-        CertType: sign.ApprovalSignature,
-    },
-    Appearance: sign.Appearance{
-        Visible:     true,
-        LowerLeftX:  400,
-        LowerLeftY:  50,
-        UpperRightX: 600,
-        UpperRightY: 125,
-        Image:       signatureImage,
-        // ImageAsWatermark: true, // Optional: draw text over image
-    },
-    DigestAlgorithm: crypto.SHA512,
-    Signer:          privateKey,
-    Certificate:     certificate,
-})
+// Unset/Clear a field
+if err := doc.SetField("Comments", ""); err != nil {
+    log.Fatal(err)
+}
+
+// Write the changes (with or without a signature)
+// If you only want to fill forms without signing:
+// doc.Write(output)
+
+// If you want to sign AND fill:
+doc.Sign(signer, cert).Reason("Form Filled").Write(output)
 ```
 
-## Limitations
+### Signature Extraction
 
-### SHA1 Algorithm Support
+You can iterate over all signatures in a document to inspect their properties or extract raw data without performing full cryptographic verification.
 
-**Important**: This library does not support SHA1-based cryptographic operations due to Go's security policies. SHA1 has been deprecated and is considered cryptographically insecure.
+```go
+// Iterate through signatures
+for sig, err := range doc.Signatures() {
+    if err != nil {
+        log.Fatal(err)
+    }
 
-**Impact on Revocation Checking**:
-- OCSP responders and CRL distribution points that use SHA1 signatures will fail verification
-- External revocation checking (`-external` flag or `EnableExternalRevocationCheck` option) may fail for certificates signed with SHA1
-- Legacy PKI infrastructure still using SHA1 may not be compatible with this library
+    fmt.Printf("Signer: %s\n", sig.Name())
+    fmt.Printf("Filter: %s\n", sig.Filter())
+    fmt.Printf("SubFilter: %s\n", sig.SubFilter())
 
-**Recommendation**: Use certificates and PKI infrastructure that support modern hash algorithms (SHA-256 or higher).
+    // Access raw PKCS#7 signature envelope
+    envelope := sig.Contents()
+    fmt.Printf("Signature size: %d bytes\n", len(envelope))
 
-## Development Status
+    // Read the actual bytes of the document covered by the signature
+    reader, _ := sig.SignedData()
+    data, _ := io.ReadAll(reader)
+    fmt.Printf("Signed data size: %d bytes\n", len(data))
+}
+```
 
-This library is under active development. The API may change and some PDF files might not work correctly. Bug reports, contributions, and suggestions are welcome.
+### Initials
 
-For production use, consider our [PDFSigner](https://github.com/digitorus/pdfsigner/) server solution.
+```go
+// Add initials to all pages (except page 1)
+initials := pdfsign.NewAppearance(60, 40)
+
+// Optional: Use custom font
+// font := doc.AddFont("Handwriting", fontBytes)
+// initials.Text("JD").Font(font, 24).Center()
+
+initials.Text("{{Initials}}").Font(nil, 12).Center()
+
+doc.AddInitials(initials).
+    Position(pdfsign.BottomRight, 30, 30).
+    ExcludePages(1)
+```
+
+## Verification
+
+The verification API uses a fluent builder pattern with lazy execution. Verification is triggered when you access result properties.
+
+```go
+doc, _ := pdfsign.OpenFile("signed.pdf")
+
+// Configure verification with chainable methods
+result := doc.Verify().
+    TrustSelfSigned(false).   // Security: Reject self-signed/untrusted CAs
+    ExternalChecks(true).     // Enable online revocation checks
+    MinRSAKeySize(2048)       // Enforce minimum key size
+
+// Accessing .Valid() triggers the actual verification
+if result.Valid() {
+    fmt.Println("Document is valid!")
+    for _, sig := range result.Signatures() {
+        fmt.Printf("Signed by %s at %s\n", sig.SignerName, sig.SigningTime)
+    }
+}
+
+// Check for errors
+if result.Err() != nil {
+    fmt.Printf("Verification error: %v\n", result.Err())
+}
+```
+
+### Strict Verification
+
+Use `Strict()` to enable all security checks at once:
+
+```go
+result := doc.Verify().Strict()  // Enables all security constraints
+
+if result.Valid() {
+    fmt.Printf("Document passed strict verification (%d signatures)\n", result.Count())
+}
+```
+
+### Compression
+
+Optimize file size by configuring compression levels (powered by `compress/zlib`).
+
+```go
+import "compress/zlib"
+
+// ...
+doc, _ := pdfsign.OpenFile("large.pdf")
+
+// Options: zlib.DefaultCompression, zlib.BestCompression, zlib.BestSpeed, zlib.NoCompression
+doc.SetCompression(zlib.BestCompression)
+```
+
+### Custom Fonts
+
+Embed TrueType fonts for realistic signatures and styling. Font metrics are automatically parsed for accurate text positioning.
+
+```go
+fontData, _ := os.ReadFile("MySignatureFont.ttf")
+customFont := doc.AddFont("MySig", fontData)
+
+appearance := pdfsign.NewAppearance(200, 80)
+appearance.Text("John Doe").Font(customFont, 24).Center()
+```
+
+> **Note:** When you call `AddFont()` with TTF data, the library automatically parses glyph widths for accurate text measurement and centering.
+
+### Standard Appearance
+
+Use the built-in standard appearance for a professional signature with metadata:
+
+```go
+// Standard appearance with Name, Reason, Location, and Date
+appearance := pdfsign.NewAppearance(300, 100).Standard()
+
+doc.Sign(signer, cert).
+    SignerName("John Doe").
+    Reason("Contract Agreement").
+    Location("Amsterdam, NL").
+    Appearance(appearance, 1, 100, 100)
+```
+
+The `Standard()` method automatically adds:
+- Signer name (larger font)
+- Reason
+- Location  
+- Date
+
+Template variables (`{{Name}}`, `{{Reason}}`, `{{Location}}`, `{{Date}}`) are expanded at render time.
+
+### Crypto Settings
+
+Configure hash algorithms and use custom signers (HSM, Tokens, Cloud):
+
+```go
+import "crypto"
+
+// Custom hash algorithm (default: SHA256)
+doc.Sign(signer, cert).
+    Digest(crypto.SHA384)  // or crypto.SHA512
+
+// HSM/Token signing - any crypto.Signer works
+hsmSigner := pkcs11.NewSigner(slot, pin)  // Your HSM implementation
+doc.Sign(hsmSigner, cert).
+    Digest(crypto.SHA256)
+```
+
+The signature algorithm is determined by your `crypto.Signer` implementation (RSA, ECDSA, Ed25519).
+
+### External Signers (Integrations)
+
+The `signers/` directory contains "best-effort" implementations and skeletons for various external signing systems. These are provided as examples to help you integrate with hardware security modules and cloud services.
+
+#### Cloud Signing (CSC API)
+
+Sign documents using a remote Cloud Signature Consortium (CSC) compliant service:
+
+```go
+import "github.com/digitorus/pdfsign/signers/csc"
+
+// Connect to your CSC-compliant signing service
+signer, _ := csc.NewSigner(csc.Config{
+    BaseURL:      "https://signing-service.example.com/csc/v1",
+    CredentialID: "my-signing-key",
+    AuthToken:    "Bearer ey...",
+    PIN:          "123456",  // Optional
+})
+
+doc.Sign(signer, cert).Reason("Cloud Signed")
+```
+
+#### Cloud KMS and PKCS#11
+
+We provide functional implementations for major cloud providers and HSMs. Each integration is a standalone module to minimize core dependencies.
+
+```go
+import (
+    "github.com/digitorus/pdfsign/signers/aws"
+    "github.com/digitorus/pdfsign/signers/gcp"
+    "github.com/digitorus/pdfsign/signers/azure"
+    "github.com/digitorus/pdfsign/signers/pkcs11"
+)
+
+// Example: AWS KMS Signer
+// client is a *kms.Client from aws-sdk-go-v2
+awsSigner, _ := aws.NewSigner(client, "key-id-or-arn", publicKey)
+doc.Sign(awsSigner, cert)
+
+// Example: Google Cloud KMS Signer
+// client is a *kms.KeyManagementClient
+gcpSigner, _ := gcp.NewSigner(client, "key-resource-name", publicKey)
+doc.Sign(gcpSigner, cert)
+
+// Example: Azure Key Vault Signer
+// client is a *azkeys.Client
+azureSigner, _ := azure.NewSigner(client, "key-name", "key-version", publicKey)
+doc.Sign(azureSigner, cert)
+
+// Example: PKCS#11 / HSM Signer
+hsmSigner, _ := pkcs11.NewSigner("/usr/lib/libpkcs11.so", "token-label", "key-label", "pin", publicKey)
+doc.Sign(hsmSigner, cert)
+```
+
+> [!TIP]
+> Each integration is designed to be a standalone module. This prevents your core application from dragging in heavy cloud SDKs unless you specifically import and use them.
+
+## Development
+
+### DSS Validation
+
+For automated validation of signed PDFs against European standards, we use the [Digital Signature Service (DSS)](https://github.com/esig/dss).
+
+#### Local Setup
+
+A local DSS instance is required for running the signature validation tests. You can set it up using the provided script, which supports both Docker and Apple's native `container` CLI:
+
+> [!NOTE]
+> On Apple Silicon (M1/M2/M3), the `container` tool requires **Rosetta 2**. If you haven't installed it yet, you can do so with:
+> `softwareupdate --install-rosetta --agree-to-license`
+
+```bash
+# Build and start the DSS service
+./scripts/setup-dss.sh
+```
+
+The script will:
+1. Detect if `container` (Apple Silicon native) or `docker` is available.
+2. Build the `dss-validator` image from source.
+3. Start the service on `http://localhost:8080`.
+
+#### Running Validation Tests
+
+Once the DSS service is running, you can run the validation tests:
+
+```bash
+export DSS_API_URL=http://localhost:8080/services/rest/validation/v2/validateSignature
+go test -v ./sign -run TestSignDSSValidation
+```
+
+## Legacy API (Deprecated)
+
+The old `sign.SignFile` and `verify.VerifyFile` APIs are deprecated. Please migrate to the `pdfsign` package.

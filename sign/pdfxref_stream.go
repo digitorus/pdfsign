@@ -46,7 +46,7 @@ func (context *SignContext) writeXrefStream() error {
 		return fmt.Errorf("failed to write xref stream content: %w", err)
 	}
 
-	_, err = context.addObject(xrefStreamObject.Bytes())
+	_, err = context.AddObject(xrefStreamObject.Bytes())
 	if err != nil {
 		return fmt.Errorf("failed to add xref stream object: %w", err)
 	}
@@ -109,7 +109,7 @@ func writeXrefStreamHeader(buffer *bytes.Buffer, context *SignContext, streamLen
 	buffer.WriteString("  /Filter /FlateDecode\n")
 	// Change W array to [1 4 1] to accommodate larger offsets
 	buffer.WriteString("  /W [ 1 4 1 ]\n")
-	fmt.Fprintf(buffer, "  /Prev %d\n", context.PDFReader.XrefInformation.StartPos)
+	fmt.Fprintf(buffer, "  /Prev %d\n", getPrevXrefOffset(context.PDFReader))
 	fmt.Fprintf(buffer, "  /Size %d\n", totalEntries+1)
 
 	// Write index array if we have entries
@@ -127,6 +127,13 @@ func writeXrefStreamHeader(buffer *bytes.Buffer, context *SignContext, streamLen
 		id0 := hex.EncodeToString([]byte(id.Index(0).RawString()))
 		id1 := hex.EncodeToString([]byte(id.Index(1).RawString()))
 		fmt.Fprintf(buffer, "  /ID [<%s><%s>]\n", id0, id1)
+	}
+
+	// Propagate /Encrypt reference for encrypted PDFs
+	encrypt := context.PDFReader.Trailer().Key("Encrypt")
+	if !encrypt.IsNull() {
+		ptr := encrypt.GetPtr()
+		fmt.Fprintf(buffer, "  /Encrypt %d %d R\n", ptr.GetID(), ptr.GetGen())
 	}
 
 	buffer.WriteString(">>\n")

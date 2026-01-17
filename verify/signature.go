@@ -2,6 +2,8 @@ package verify
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
@@ -13,13 +15,17 @@ import (
 	"github.com/digitorus/timestamp"
 )
 
-// processSignature processes a single digital signature found in the PDF.
-func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (Signer, string, error) {
-	signer := Signer{
-		Name:        v.Key("Name").Text(),
-		Reason:      v.Key("Reason").Text(),
-		Location:    v.Key("Location").Text(),
-		ContactInfo: v.Key("ContactInfo").Text(),
+// VerifySignature processes a single digital signature found in the PDF.
+func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, string, error) {
+	signer := NewSigner()
+	signer.Name = v.Key("Name").Text()
+	signer.Reason = v.Key("Reason").Text()
+	signer.Location = v.Key("Location").Text()
+	signer.ContactInfo = v.Key("ContactInfo").Text()
+
+	// Check for DocMDP and incremental updates
+	if err := checkDocMDP(v, fileSize, signer); err != nil {
+		return signer, fmt.Sprintf("DocMDP validation failed: %v", err), nil
 	}
 
 	// Parse signature time if available from the signature object
@@ -43,13 +49,13 @@ func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (Si
 	}
 
 	// Process timestamp if present
-	err = processTimestamp(p7, &signer)
+	err = processTimestamp(p7, signer)
 	if err != nil {
 		return signer, fmt.Sprintf("Failed to process timestamp: %v", err), nil
 	}
 
 	// Verify the digital signature
-	err = verifySignature(p7, &signer)
+	err = verifySignature(p7, signer)
 	if err != nil {
 		return signer, fmt.Sprintf("Failed to verify signature: %v", err), nil
 	}
@@ -58,30 +64,131 @@ func processSignature(v pdf.Value, file io.ReaderAt, options *VerifyOptions) (Si
 	var revInfo revocation.InfoArchival
 	_ = p7.UnmarshalSignedAttribute(asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}, &revInfo)
 
-	certError, err := buildCertificateChainsWithOptions(p7, &signer, revInfo, options)
+	certError, err := buildCertificateChainsWithOptions(p7, signer, revInfo, options)
 	if err != nil {
 		return signer, fmt.Sprintf("Failed to build certificate chains: %v", err), nil
+	}
+
+	// Check algorithm constraints
+	if algoErr := verifyAlgorithmAndKeySize(signer, p7, options); algoErr != nil {
+		return signer, fmt.Sprintf("Algorithm verification failed: %v", algoErr), nil
 	}
 
 	return signer, certError, nil
 }
 
-// processByteRange processes the byte range for signature verification.
-func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
-	for i := 0; i < v.Key("ByteRange").Len(); i++ {
-		// As the byte range comes in pairs, we increment one extra
-		i++
+func verifyAlgorithmAndKeySize(signer *Signer, p7 *pkcs7.PKCS7, options *VerifyOptions) error {
+	if len(signer.Certificates) == 0 {
+		return nil
+	}
 
-		// Read the byte range from the raw file and add it to the contents.
-		// This content will be hashed with the corresponding algorithm to
-		// verify the signature.
-		content, err := io.ReadAll(io.NewSectionReader(file, v.Key("ByteRange").Index(i-1).Int64(), v.Key("ByteRange").Index(i).Int64()))
-		if err != nil {
-			return fmt.Errorf("failed to read byte range %d: %v", i, err)
+	// Helper to verify a single certificate
+	verifyCert := func(cert *x509.Certificate, isLeaf bool) error {
+		if cert == nil {
+			return nil
 		}
 
-		p7.Content = append(p7.Content, content...)
+		// 1. Verify Allowed Algorithms
+		if len(options.AllowedAlgorithms) > 0 {
+			allowed := false
+			for _, algo := range options.AllowedAlgorithms {
+				if cert.PublicKeyAlgorithm == algo {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return fmt.Errorf("public key algorithm %s is not allowed (isLeaf: %v)", cert.PublicKeyAlgorithm, isLeaf)
+			}
+		}
+
+		// 2. Verify Minimum Key Size
+		switch pub := cert.PublicKey.(type) {
+		case *rsa.PublicKey:
+			if options.MinRSAKeySize > 0 && pub.N.BitLen() < options.MinRSAKeySize {
+				return fmt.Errorf("RSA key size %d is less than minimum %d (isLeaf: %v)", pub.N.BitLen(), options.MinRSAKeySize, isLeaf)
+			}
+		case *ecdsa.PublicKey:
+			if options.MinECDSAKeySize > 0 && pub.Params().BitSize < options.MinECDSAKeySize {
+				return fmt.Errorf("ECDSA key size %d is less than minimum %d (isLeaf: %v)", pub.Params().BitSize, options.MinECDSAKeySize, isLeaf)
+			}
+		}
+		return nil
 	}
+
+	// Identify the leaf signer
+	// We try to match the signer info from p7
+	var leafCert *x509.Certificate
+	if len(p7.Signers) > 0 {
+		signerInfo := p7.Signers[0]
+		for _, cert := range p7.Certificates {
+			// Compare Serial Number
+			if cert.SerialNumber.Cmp(signerInfo.IssuerAndSerialNumber.SerialNumber) == 0 {
+				// Compare Issuer (Raw Bytes)
+				// signerInfo.IssuerAndSerialNumber.IssuerName is asn1.RawValue
+				if bytes.Equal(cert.RawIssuer, signerInfo.IssuerAndSerialNumber.IssuerName.FullBytes) {
+					leafCert = cert
+					break
+				}
+			}
+		}
+	}
+	// Fallback if not found (e.g. strict matching fail), assume first in list if single
+	if leafCert == nil && len(p7.Certificates) > 0 {
+		leafCert = p7.Certificates[0]
+	}
+
+	if options.ValidateFullChain {
+		// Verify all certificates
+		for _, certWrapper := range signer.Certificates {
+			isLeaf := (certWrapper.Certificate == leafCert)
+			if err := verifyCert(certWrapper.Certificate, isLeaf); err != nil {
+				return err
+			}
+		}
+	} else {
+		// Only verify the leaf
+		if leafCert != nil {
+			if err := verifyCert(leafCert, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// processByteRange processes the byte range for signature verification.
+func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
+	var parts []io.Reader
+	var totalSize int64
+
+	br := v.Key("ByteRange")
+	if br.Len()%2 != 0 {
+		return fmt.Errorf("invalid ByteRange length: %d", br.Len())
+	}
+
+	for i := 0; i < br.Len(); i += 2 {
+		offset := br.Index(i).Int64()
+		length := br.Index(i + 1).Int64()
+
+		parts = append(parts, io.NewSectionReader(file, offset, length))
+		totalSize += length
+	}
+
+	// Pre-allocate the content buffer to avoid repeated allocations and copies
+	// We read the entire signed content into memory because the pkcs7 library requires it in p7.Content
+	// However, we do it in one go instead of multiple ReadAll + append calls
+	p7.Content = make([]byte, totalSize)
+
+	// Use MultiReader to treat the separate ranges as a single continuous stream
+	reader := io.MultiReader(parts...)
+
+	_, err := io.ReadFull(reader, p7.Content)
+	if err != nil {
+		return fmt.Errorf("failed to read signed content: %v", err)
+	}
+
 	return nil
 }
 
@@ -143,5 +250,62 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 		signer.TrustedIssuer = true
 	}
 
+	return nil
+}
+
+// checkDocMDP verifies Document Modification Detection and Prevention permissions.
+func checkDocMDP(v pdf.Value, fileSize int64, signer *Signer) error {
+	refs := v.Key("Reference")
+	if refs.IsNull() || refs.Kind() != pdf.Array {
+		return nil
+	}
+
+	for i := 0; i < refs.Len(); i++ {
+		ref := refs.Index(i)
+		transform := ref.Key("TransformMethod")
+		if transform.Name() == "DocMDP" {
+			// Found DocMDP
+			perms := 2 // Default
+			params := ref.Key("TransformParams")
+			if !params.IsNull() {
+				p := params.Key("P")
+				if !p.IsNull() {
+					perms = int(p.Int64())
+				}
+			}
+
+			// Check for incremental updates
+			br := v.Key("ByteRange")
+			if br.Len() < 4 {
+				return nil // Should fail elsewhere if ByteRange is bad
+			}
+
+			// End of the signed range
+			signedEnd := br.Index(2).Int64() + br.Index(3).Int64()
+
+			// Detect if there are modifications (bytes appended)
+			if fileSize > signedEnd {
+				// We have an incremental update
+
+				// P=1: No changes permitted
+				if perms == 1 {
+					// Strictly invalid
+					return fmt.Errorf("incremental update found but P=1 (NoChanges) permits none")
+				}
+
+				// P=2: Form filling permitted
+				if perms == 2 {
+					// TODO: validate that the update only contains form moves/values or signature.
+					signer.TimeWarnings = append(signer.TimeWarnings, "DocMDP P=2: Incremental update found (content verification skipped)")
+				}
+
+				// P=3: Annotations permitted
+				if perms == 3 {
+					// TODO: validate annotations
+					signer.TimeWarnings = append(signer.TimeWarnings, "DocMDP P=3: Incremental update found (content verification skipped)")
+				}
+			}
+		}
+	}
 	return nil
 }

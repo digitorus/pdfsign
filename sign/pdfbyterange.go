@@ -12,14 +12,18 @@ func (context *SignContext) updateByteRange() error {
 	}
 
 	// Set ByteRangeValues by looking for the /Contents< filled with zeros
-	contentsPlaceholder := bytes.Repeat([]byte("0"), int(context.SignatureMaxLength))
-	contentsIndex := bytes.Index(context.OutputBuffer.Buff.Bytes(), contentsPlaceholder)
+	prefix := []byte("/Contents<")
+	zeros := bytes.Repeat([]byte("0"), int(context.SignatureMaxLength))
+	searchToken := append(prefix, zeros...)
+
+	contentsIndex := bytes.Index(context.OutputBuffer.Buff.Bytes(), searchToken)
 	if contentsIndex == -1 {
 		return fmt.Errorf("failed to find contents placeholder")
 	}
 
 	// Calculate ByteRangeValues
-	signatureContentsStart := int64(contentsIndex) - 1
+	// contentsIndex points to start of "/Contents<". The hole starts at '<', which is at index + 9
+	signatureContentsStart := int64(contentsIndex) + 9
 	signatureContentsEnd := signatureContentsStart + int64(context.SignatureMaxLength) + 2
 	context.ByteRangeValues = []int64{
 		0,

@@ -29,7 +29,7 @@ func (context *SignContext) getNextObjectID() uint32 {
 	return objectID
 }
 
-func (context *SignContext) addObject(object []byte) (uint32, error) {
+func (context *SignContext) AddObject(object []byte) (uint32, error) {
 	if context.lastXrefID == 0 {
 		lastXrefID, err := context.getLastObjectIDFromXref()
 		if err != nil {
@@ -44,7 +44,7 @@ func (context *SignContext) addObject(object []byte) (uint32, error) {
 		Offset: int64(context.OutputBuffer.Buff.Len()) + 1,
 	})
 
-	err := context.writeObject(objectID, object)
+	err := context.WriteObject(objectID, object)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write object: %w", err)
 	}
@@ -52,13 +52,13 @@ func (context *SignContext) addObject(object []byte) (uint32, error) {
 	return objectID, nil
 }
 
-func (context *SignContext) updateObject(id uint32, object []byte) error {
+func (context *SignContext) UpdateObject(id uint32, object []byte) error {
 	context.updatedXrefEntries = append(context.updatedXrefEntries, xrefEntry{
 		ID:     id,
 		Offset: int64(context.OutputBuffer.Buff.Len()) + 1,
 	})
 
-	err := context.writeObject(id, object)
+	err := context.WriteObject(id, object)
 	if err != nil {
 		return fmt.Errorf("failed to write object: %w", err)
 	}
@@ -66,7 +66,7 @@ func (context *SignContext) updateObject(id uint32, object []byte) error {
 	return nil
 }
 
-func (context *SignContext) writeObject(id uint32, object []byte) error {
+func (context *SignContext) WriteObject(id uint32, object []byte) error {
 	// Write the object header
 	if _, err := fmt.Fprintf(context.OutputBuffer, "\n%d 0 obj\n", id); err != nil {
 		return fmt.Errorf("failed to write object header: %w", err)
