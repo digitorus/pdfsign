@@ -37,27 +37,70 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 	}
 
 	// Parse PKCS#7 signature
-	p7, err := pkcs7.Parse([]byte(v.Key("Contents").RawString()))
+	rawSignature := []byte(v.Key("Contents").RawString())
+	p7, err := pkcs7.Parse(rawSignature)
 	if err != nil {
 		return signer, "", fmt.Errorf("failed to parse PKCS#7: %v", err)
 	}
 
-	// Process byte range for signature verification
-	err = processByteRange(v, file, p7)
-	if err != nil {
-		return signer, fmt.Sprintf("Failed to process ByteRange: %v", err), nil
-	}
+	isDocTimeStamp := (v.Key("SubFilter").Name() == "ETSI.RFC3161")
 
-	// Process timestamp if present
-	err = processTimestamp(p7, signer)
-	if err != nil {
-		return signer, fmt.Sprintf("Failed to process timestamp: %v", err), nil
-	}
+	if isDocTimeStamp {
+		// DocTimeStamp: p7.Content contains the TSTInfo (embedded).
+		// We verify the PDF bytes match the TSTInfo MessageImprint.
+		pdfBytes, err := readByteRange(v, file)
+		if err != nil {
+			return signer, fmt.Sprintf("Failed to read ByteRange: %v", err), nil
+		}
 
-	// Verify the digital signature
-	err = verifySignature(p7, signer)
-	if err != nil {
-		return signer, fmt.Sprintf("Failed to verify signature: %v", err), nil
+		// Parse TSTInfo to check MessageImprint.
+		// We parse the original token because timestamp.Parse expects ContentInfo,
+		// whereas p7.Content is the inner TSTInfo.
+		ts, err := timestamp.Parse(rawSignature)
+		if err != nil {
+			return signer, fmt.Sprintf("Failed to parse TSTInfo: %v", err), nil
+		}
+		signer.TimeStamp = ts
+
+		// Verify hash of PDF bytes vs MessageImprint
+		h := ts.HashAlgorithm.New()
+		h.Write(pdfBytes)
+		if !bytes.Equal(h.Sum(nil), ts.HashedMessage) {
+			return signer, "timestamp hash does not match", nil
+		}
+
+		// Verify reference to the previous signature (if available).
+		// For a DocTimeStamp, if there are previous signatures, the ByteRange
+		// covers them. So the hash check above implicitly validates the integrity
+		// of the previous state.
+
+		// Verify the TSTInfo signature (standard verification on embedded content)
+		// We skip processTimestamp as the timestamp IS the content, not an attribute.
+		err = verifySignature(p7, signer)
+		if err != nil {
+			// Specific error for DocTimeStamp
+			return signer, fmt.Sprintf("Failed to verify timestamp signature: %v", err), nil
+		}
+
+	} else {
+		// Standard Detached Signature
+		// Process byte range uses the PDF content as the signed data
+		err = processByteRange(v, file, p7)
+		if err != nil {
+			return signer, fmt.Sprintf("Failed to process ByteRange: %v", err), nil
+		}
+
+		// Process timestamp if present (as an attribute)
+		err = processTimestamp(p7, signer)
+		if err != nil {
+			return signer, fmt.Sprintf("Failed to process timestamp: %v", err), nil
+		}
+
+		// Verify the digital signature
+		err = verifySignature(p7, signer)
+		if err != nil {
+			return signer, fmt.Sprintf("Failed to verify signature: %v", err), nil
+		}
 	}
 
 	// Process certificate chains and revocation
@@ -160,12 +203,22 @@ func verifyAlgorithmAndKeySize(signer *Signer, p7 *pkcs7.PKCS7, options *VerifyO
 
 // processByteRange processes the byte range for signature verification.
 func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
+	content, err := readByteRange(v, file)
+	if err != nil {
+		return err
+	}
+	p7.Content = content
+	return nil
+}
+
+// readByteRange reads the content defined by ByteRange.
+func readByteRange(v pdf.Value, file io.ReaderAt) ([]byte, error) {
 	var parts []io.Reader
 	var totalSize int64
 
 	br := v.Key("ByteRange")
 	if br.Len()%2 != 0 {
-		return fmt.Errorf("invalid ByteRange length: %d", br.Len())
+		return nil, fmt.Errorf("invalid ByteRange length: %d", br.Len())
 	}
 
 	for i := 0; i < br.Len(); i += 2 {
@@ -176,20 +229,18 @@ func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
 		totalSize += length
 	}
 
-	// Pre-allocate the content buffer to avoid repeated allocations and copies
-	// We read the entire signed content into memory because the pkcs7 library requires it in p7.Content
-	// However, we do it in one go instead of multiple ReadAll + append calls
-	p7.Content = make([]byte, totalSize)
+	// Pre-allocate the content buffer
+	content := make([]byte, totalSize)
 
 	// Use MultiReader to treat the separate ranges as a single continuous stream
 	reader := io.MultiReader(parts...)
 
-	_, err := io.ReadFull(reader, p7.Content)
+	_, err := io.ReadFull(reader, content)
 	if err != nil {
-		return fmt.Errorf("failed to read signed content: %v", err)
+		return nil, fmt.Errorf("failed to read signed content: %v", err)
 	}
 
-	return nil
+	return content, nil
 }
 
 // processTimestamp processes timestamp information from the signature.
