@@ -34,6 +34,7 @@ func TestFile(t *testing.T) {
 	// Basic response validation
 	if response == nil {
 		t.Fatal("Response is nil")
+		return
 	}
 
 	if response.Error != "" {
@@ -43,6 +44,7 @@ func TestFile(t *testing.T) {
 	// Check if we have signers
 	if len(response.Signers) == 0 {
 		t.Fatal("No signers found in the document")
+		return
 	}
 
 	validSignatureFound := false
@@ -178,15 +180,18 @@ func TestReader(t *testing.T) {
 	response, err := Verify(file, fileInfo.Size())
 	if err != nil {
 		t.Fatalf("Failed to verify file with Reader: %v", err)
+		return
 	}
 
 	// Basic validation
 	if response == nil {
 		t.Fatal("Response is nil")
+		return
 	}
 
 	if len(response.Signers) == 0 {
 		t.Fatal("No signers found in the document")
+		return
 	}
 
 	t.Logf("Reader test: Found %d signer(s)", len(response.Signers))
@@ -225,6 +230,7 @@ func TestFileWithInvalidFile(t *testing.T) {
 	_, err = VerifyFile(tmpFile)
 	if err == nil {
 		t.Fatal("Expected error for invalid PDF file, but got none")
+		return
 	}
 
 	t.Logf("Expected error for invalid file: %v", err)
