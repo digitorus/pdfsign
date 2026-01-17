@@ -11,6 +11,12 @@ import (
 )
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
+//
+// Deprecated: Use the fluent API instead:
+//
+//	doc, _ := pdfsign.OpenFile("document.pdf")
+//	result := doc.Verify().TrustSelfSigned(false).MinRSAKeySize(2048)
+//	if result.Valid() { ... }
 func DefaultVerifyOptions() *VerifyOptions {
 	return &VerifyOptions{
 		RequiredEKUs: []x509.ExtKeyUsage{
@@ -32,10 +38,23 @@ func DefaultVerifyOptions() *VerifyOptions {
 	}
 }
 
+// VerifyFile verifies a PDF file.
+//
+// Deprecated: Use the fluent API instead:
+//
+//	doc, _ := pdfsign.OpenFile("document.pdf")
+//	if doc.Verify().Valid() { ... }
 func VerifyFile(file *os.File) (apiResp *Response, err error) {
 	return VerifyFileWithOptions(file, DefaultVerifyOptions())
 }
 
+// VerifyFileWithOptions verifies a PDF file with options.
+//
+// Deprecated: Use the fluent API instead:
+//
+//	doc, _ := pdfsign.OpenFile("document.pdf")
+//	result := doc.Verify().MinRSAKeySize(2048).ExternalChecks(true)
+//	if result.Valid() { ... }
 func VerifyFileWithOptions(file *os.File, options *VerifyOptions) (apiResp *Response, err error) {
 	finfo, _ := file.Stat()
 	if _, err := file.Seek(0, 0); err != nil {
@@ -45,10 +64,23 @@ func VerifyFileWithOptions(file *os.File, options *VerifyOptions) (apiResp *Resp
 	return VerifyWithOptions(file, finfo.Size(), options)
 }
 
+// Verify verifies a PDF from a reader.
+//
+// Deprecated: Use the fluent API instead:
+//
+//	doc, _ := pdfsign.Open(reader, size)
+//	if doc.Verify().Valid() { ... }
 func Verify(file io.ReaderAt, size int64) (apiResp *Response, err error) {
 	return VerifyWithOptions(file, size, DefaultVerifyOptions())
 }
 
+// VerifyWithOptions verifies a PDF from a reader with options.
+//
+// Deprecated: Use the fluent API instead:
+//
+//	doc, _ := pdfsign.Open(reader, size)
+//	result := doc.Verify().TrustSelfSigned(false).Strict()
+//	if result.Valid() { ... }
 func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (apiResp *Response, err error) {
 	var documentInfo DocumentInfo
 
@@ -78,34 +110,73 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 	}
 
 	// AcroForm will contain a SigFlags value if the form contains a digital signature
-	t := rdr.Trailer().Key("Root").Key("AcroForm").Key("SigFlags")
-	if t.IsNull() {
-		return nil, fmt.Errorf("no digital signature in document")
+	root := rdr.Trailer().Key("Root")
+	acroForm := root.Key("AcroForm")
+
+	// Check SigFlags
+	sigFlags := acroForm.Key("SigFlags")
+	if sigFlags.IsNull() {
+		return nil, fmt.Errorf("no digital signature in document (SigFlags missing)")
 	}
 
-	// Walk over the cross references in the document
-	for _, x := range rdr.Xref() {
-		// Get the xref object Value
-		v := rdr.Resolve(x.Ptr(), x.Ptr())
+	// Iterate over the AcroForm Fields to find signature fields
+	fields := acroForm.Key("Fields")
+	foundSignature := false
 
-		// We must have a Filter Adobe.PPKLite
-		if v.Key("Filter").Name() != "Adobe.PPKLite" {
-			continue
+	var traverse func(pdf.Value) bool
+	traverse = func(arr pdf.Value) bool {
+		if !arr.IsNull() && arr.Kind() == pdf.Array {
+			for i := 0; i < arr.Len(); i++ {
+				field := arr.Index(i)
+
+				// Check if this field is a signature
+				if field.Key("FT").Name() == "Sig" {
+					// Get the signature dictionary (the value of the field)
+					v := field.Key("V")
+
+					// Verify if it is a signature dictionary and has the correct filter
+					if !v.IsNull() && v.Key("Filter").Name() == "Adobe.PPKLite" {
+						foundSignature = true
+
+						// Use the new modular signature processing function
+						signer, errorMsg, err := VerifySignature(v, file, size, options)
+						if err != nil {
+							// Skip this signature if there's a critical error
+							return true // Continue to next
+						}
+
+						// Set any error message if present
+						if errorMsg != "" && apiResp.Error == "" {
+							apiResp.Error = errorMsg
+						}
+
+						apiResp.Signers = append(apiResp.Signers, *signer)
+					}
+				}
+
+				// Recurse into Kids
+				kids := field.Key("Kids")
+				if !kids.IsNull() {
+					if !traverse(kids) {
+						return false
+					}
+				}
+			}
 		}
+		return true
+	}
 
-		// Use the new modular signature processing function
-		signer, errorMsg, err := processSignature(v, file, options)
-		if err != nil {
-			// Skip this signature if there's a critical error
-			continue
-		}
+	if !fields.IsNull() {
+		traverse(fields)
+	}
 
-		// Set any error message if present
-		if errorMsg != "" && apiResp.Error == "" {
-			apiResp.Error = errorMsg
-		}
-
-		apiResp.Signers = append(apiResp.Signers, signer)
+	if !foundSignature {
+		// Fallback: This might occur if SigFlags is set but fields are empty or not found properly.
+		// In strictly compliant PDFs, this shouldn't happen if SigFlags implies signatures.
+		// However, adhering to the "Line of Sight" rule, we return what we found (or didn't).
+		// If we want to be robust against malformed PDFs that have detached signature objects
+		// floating around without being in Fields, we would keep the old scan.
+		// Given the direction to optimize, we rely on standard structure.
 	}
 
 	if apiResp == nil {

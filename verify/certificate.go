@@ -169,7 +169,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			if resp.Status != ocsp.Good {
 				c.RevocationTime = &resp.RevokedAt
 				// Check if revocation occurred before signing
-				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning := signer.IsRevokedBeforeSigning(resp.RevokedAt)
 				c.RevokedBeforeSigning = revokedBeforeSigning
 
 				if revokedBeforeSigning {
@@ -213,7 +213,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			c.RevocationTime = revocationTime
 
 			// Check if revocation occurred before signing
-			revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, signer.VerificationTime, signer.TimeSource)
+			revokedBeforeSigning := signer.IsRevokedBeforeSigning(*revocationTime)
 			c.RevokedBeforeSigning = revokedBeforeSigning
 
 			if revokedBeforeSigning {
@@ -248,7 +248,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 					if externalOCSPResp.Status != ocsp.Good {
 						c.RevocationTime = &externalOCSPResp.RevokedAt
 						// Check if revocation occurred before signing
-						revokedBeforeSigning := isRevokedBeforeSigning(externalOCSPResp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+						revokedBeforeSigning := signer.IsRevokedBeforeSigning(externalOCSPResp.RevokedAt)
 						c.RevokedBeforeSigning = revokedBeforeSigning
 
 						if revokedBeforeSigning {
@@ -277,7 +277,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 					if isRevoked {
 						c.RevocationTime = revocationTime
 						// Check if revocation occurred before signing
-						revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, signer.VerificationTime, signer.TimeSource)
+						revokedBeforeSigning := signer.IsRevokedBeforeSigning(*revocationTime)
 						c.RevokedBeforeSigning = revokedBeforeSigning
 
 						if revokedBeforeSigning {
@@ -408,21 +408,21 @@ func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOption
 	return true, ""
 }
 
-// isRevokedBeforeSigning determines if a certificate was revoked before the signing time
-func isRevokedBeforeSigning(revocationTime time.Time, signingTime *time.Time, timeSource string) bool {
+// IsRevokedBeforeSigning determines if a certificate was revoked before the signing time
+func (s *Signer) IsRevokedBeforeSigning(revocationTime time.Time) bool {
 	// If we don't have a reliable signing time, we must assume revocation invalidates the signature
-	if signingTime == nil || timeSource == "current_time" {
+	if s.VerificationTime == nil || s.TimeSource == "current_time" {
 		return true
 	}
 
 	// If we only have signature time (untrusted), we should be conservative
-	if timeSource == "signature_time" {
+	if s.TimeSource == "signature_time" {
 		return true
 	}
 
 	// For embedded timestamps (trusted), we can make a proper determination
-	if timeSource == "embedded_timestamp" {
-		return revocationTime.Before(*signingTime)
+	if s.TimeSource == "embedded_timestamp" {
+		return revocationTime.Before(*s.VerificationTime)
 	}
 
 	// Default to conservative behavior

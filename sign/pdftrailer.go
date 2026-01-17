@@ -26,7 +26,7 @@ func (context *SignContext) writeTrailer() error {
 		new_size := "Size " + strconv.FormatInt(context.PDFReader.XrefInformation.ItemCount+int64(len(context.newXrefEntries)+1), 10)
 
 		prev_string := "Prev " + context.PDFReader.Trailer().Key("Prev").String()
-		new_prev := "Prev " + strconv.FormatInt(context.PDFReader.XrefInformation.StartPos, 10)
+		new_prev := "Prev " + strconv.FormatInt(getPrevXrefOffset(context.PDFReader), 10)
 
 		trailer_string := string(trailer_buf)
 		trailer_string = strings.ReplaceAll(trailer_string, root_string, new_root)
@@ -55,6 +55,7 @@ func (context *SignContext) writeTrailer() error {
 			return err
 		}
 	}
+
 	// Write the new xref start position.
 	if _, err := context.OutputBuffer.Write([]byte(strconv.FormatInt(context.NewXrefStart, 10) + "\n")); err != nil {
 		return err

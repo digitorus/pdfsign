@@ -51,16 +51,25 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	catalog_buffer.WriteString("  /AcroForm <<\n")
 	catalog_buffer.WriteString("    /Fields [")
 
-	// Add existing signatures to the AcroForm dictionary
-	for i, sig := range context.existingSignatures {
-		if i > 0 {
-			catalog_buffer.WriteString(" ")
+	// Add existing fields to the AcroForm dictionary
+	fieldsAdded := 0
+	acroForm := root.Key("AcroForm")
+	if !acroForm.IsNull() {
+		fields := acroForm.Key("Fields")
+		if !fields.IsNull() && fields.Kind() == pdf.Array {
+			for i := 0; i < fields.Len(); i++ {
+				if fieldsAdded > 0 {
+					catalog_buffer.WriteString(" ")
+				}
+				ptr := fields.Index(i).GetPtr()
+				catalog_buffer.WriteString(strconv.Itoa(int(ptr.GetID())) + " 0 R")
+				fieldsAdded++
+			}
 		}
-		catalog_buffer.WriteString(strconv.Itoa(int(sig.objectId)) + " 0 R")
 	}
 
 	// Add the visual signature field to the AcroForm dictionary
-	if len(context.existingSignatures) > 0 {
+	if fieldsAdded > 0 {
 		catalog_buffer.WriteString(" ")
 	}
 	catalog_buffer.WriteString(strconv.Itoa(int(context.VisualSignData.objectId)) + " 0 R")
@@ -117,7 +126,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 
 // serializeCatalogEntry takes a pdf.Value and serializes it to the given writer.
 func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32, value pdf.Value) {
-	if ptr := value.GetPtr(); ptr.GetID() != rootObjId {
+	if ptr := value.GetPtr(); ptr.GetID() > 0 && ptr.GetID() != rootObjId {
 		// Indirect object
 		_, _ = fmt.Fprintf(w, "%d %d R", ptr.GetID(), ptr.GetGen())
 		return
