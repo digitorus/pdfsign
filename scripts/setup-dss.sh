@@ -60,10 +60,24 @@ else
     docker run --name "$CONTAINER_NAME" -d -p $PORT:8080 --cpus 4 --memory 4g "$IMAGE_NAME"
 fi
 
-echo "⏳ Waiting for DSS Service to be ready (this may take a minute)..."
-COUNT=0
-# Check both v1 and v2 endpoints for health
-until curl -s --connect-timeout 5 --max-time 10 http://localhost:8080/services/rest/validation/validateSignature -X POST -H "Content-Type: application/json" -d '{"signedDocument":{"bytes":"","name":""}}' | grep -q "simpleReport" 2>/dev/null; do
+until 
+    RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 -o /tmp/dss_response.json -w "%{http_code}" \
+        http://localhost:8080/services/rest/validation/validateSignature \
+        -X POST -H "Content-Type: application/json" \
+        -d '{"signedDocument":{"bytes":"","name":""}}')
+    
+    echo "   [Attempt $((COUNT+1))] Connection check: HTTP $RESPONSE"
+    
+    # We consider the service "ready" if it returns ANY response that looks like it's from the app.
+    # 200 OK is ideal, but even 400 Bad Request with a DSS-related error means the app is up.
+    if [ "$RESPONSE" == "200" ] && grep -q "simpleReport" /tmp/dss_response.json; then
+        true
+    elif [ "$RESPONSE" != "000" ] && [ "$RESPONSE" != "" ] && grep -qE "DSSDocument|simpleReport|errorMessage" /tmp/dss_response.json 2>/dev/null; then
+        echo "   ℹ️  Service is responding with HTTP $RESPONSE. Considering it ready."
+        true
+    else
+        false
+    fi; do
     
     # Check if container is still running
     if ! $TOOL inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q "true"; then
