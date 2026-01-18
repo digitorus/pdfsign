@@ -815,3 +815,85 @@ func TestVisualSignLastPage(t *testing.T) {
 
 	verifySignedFile(t, tmpfile, originalFileName)
 }
+
+func TestSignPDF_AppendToMultiSig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+
+	cert, pkey := sign.LoadCertificateAndKey(t)
+
+	fName := "testfile_multi.pdf"
+	inputPath := filepath.Join("../testfiles", fName)
+	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
+		t.Skipf("%s not found", fName)
+	}
+
+	// This test appends a signature to a file that already contains signatures.
+	// We specifically test that we can successfully add a valid SHA-512 signature
+	// even if the existing signatures use older algorithms (like SHA-1) that might
+	// fail our strict verification checks.
+	outputName := fmt.Sprintf("testfile_multi_Append_%s.pdf", time.Now().Format("20060102150405"))
+	var outputFile *os.File
+	var err error
+	if testing.Verbose() {
+		outputFile, err = os.Create(filepath.Join("../testfiles/success", outputName))
+	} else {
+		outputFile, err = os.CreateTemp("", "test_multi_append")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		outputFile.Close()
+		if !testing.Verbose() {
+			os.Remove(outputFile.Name())
+		}
+	}()
+
+	err = sign.SignFile(inputPath, outputFile.Name(), sign.SignData{
+		Signature: sign.SignDataSignature{
+			CertType: sign.ApprovalSignature,
+		},
+		Signer:             pkey,
+		Certificate:        cert,
+		RevocationData:     revocation.InfoArchival{},
+		RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,
+		DigestAlgorithm:    crypto.SHA512,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Manual Verification looking for valid LAST signature
+	f, err := os.Open(outputFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := pdfsign.Open(f, info.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// TrustSelfSigned(true) is required for test certificates
+	vRes := doc.Verify().TrustSelfSigned(true)
+
+	// We expect verification might fail overall due to existing SHA-1 signatures
+	// matching our strict criteria, but we verify that *our* new signature is valid.
+	signatures := vRes.Signatures()
+	if len(signatures) == 0 {
+		t.Fatal("No signatures found")
+	}
+
+	lastSig := signatures[len(signatures)-1]
+	if !lastSig.Valid {
+		t.Errorf("Last signature should be valid, but got errors: %v", lastSig.Errors)
+	}
+}
