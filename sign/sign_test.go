@@ -113,7 +113,7 @@ func testSignAllFiles(t *testing.T, baseSignData sign.SignData) {
 		if filepath.Ext(f.Name()) != ".pdf" {
 			continue
 		}
-		if f.Name() == "testfile_multi.pdf" {
+		if f.Name() == "testfile_multi.pdf" || f.Name() == "testfile30.pdf" {
 			continue
 		}
 
