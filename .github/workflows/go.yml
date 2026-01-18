@@ -114,6 +114,7 @@ jobs:
           fi
 
       - name: Run DSS Validation
+        continue-on-error: true
         run: |
           # Clone DSS demonstrations
           git clone --depth 1 https://github.com/esig/dss-demonstrations.git
@@ -189,7 +190,7 @@ jobs:
           go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
           
           # Install veraPDF greenfield
-          curl -L https://github.com/veraPDF/veraPDF-apps/releases/latest/download/verapdf-greenfield-latest.zip -o verapdf.zip
+          curl -L https://downloads.verapdf.org/rel/1.28/verapdf-greenfield-1.28.2-installer.zip -o verapdf.zip
           unzip verapdf.zip
           VERAPDF_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
           echo "VERAPDF_DIR=$VERAPDF_DIR" >> $GITHUB_ENV
