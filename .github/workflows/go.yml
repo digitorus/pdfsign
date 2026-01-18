@@ -194,7 +194,7 @@ jobs:
           unzip verapdf.zip
           
           # Create auto-install.xml for headless installation
-          cat <<EOF > auto-install.xml
+          cat <<EOF > "$PWD/auto-install.xml"
           <AutomatedInstallation langpack="eng">
               <com.izforge.izpack.panels.HelloPanel/>
               <com.izforge.izpack.panels.TargetPanel>
@@ -207,7 +207,7 @@ jobs:
           
           # Run installer
           INSTALLER_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
-          $INSTALLER_DIR/verapdf-install auto-install.xml
+          $INSTALLER_DIR/verapdf-install "$PWD/auto-install.xml"
           
           echo "VERAPDF_DIR=verapdf" >> $GITHUB_ENV
           echo "$PWD/verapdf" >> $GITHUB_PATH
