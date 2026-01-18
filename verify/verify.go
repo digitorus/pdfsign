@@ -139,15 +139,16 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 						foundSignature = true
 
 						// Use the new modular signature processing function
-						signer, errorMsg, err := VerifySignature(v, file, size, options)
+						signer, err := VerifySignature(v, file, size, options)
 						if err != nil {
 							// Skip this signature if there's a critical error
 							return true // Continue to next
 						}
 
-						// Set any error message if present
-						if errorMsg != "" && apiResp.Error == "" {
-							apiResp.Error = errorMsg
+						// Set any error message if present (Legacy API support)
+						if len(signer.ValidationErrors) > 0 && apiResp.Error == "" {
+							// For legacy single-string error, we use the first validation error
+							apiResp.Error = signer.ValidationErrors[0].Error()
 						}
 
 						apiResp.Signers = append(apiResp.Signers, *signer)

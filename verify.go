@@ -127,7 +127,7 @@ func (b *VerifyBuilder) execute() {
 		count++
 
 		// Call internal verify logic
-		signer, errorMsg, err := verify.VerifySignature(sig.Object(), b.doc.reader, b.doc.size, vOpts)
+		signer, err := verify.VerifySignature(sig.Object(), b.doc.reader, b.doc.size, vOpts)
 		if err != nil {
 			// Legacy behavior: skip signatures that can't be processed or verified
 			continue
@@ -148,9 +148,9 @@ func (b *VerifyBuilder) execute() {
 			Warnings:       signer.TimeWarnings,
 		}
 
-		// Add error message if any
-		if errorMsg != "" {
-			sigResult.Errors = append(sigResult.Errors, fmt.Errorf("%s", errorMsg))
+		// Add errors if any
+		if len(signer.ValidationErrors) > 0 {
+			sigResult.Errors = append(sigResult.Errors, signer.ValidationErrors...)
 			sigResult.Valid = false
 		}
 

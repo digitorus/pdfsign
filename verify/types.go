@@ -99,6 +99,7 @@ type Signer struct {
 	VerificationTime   *time.Time           `json:"verification_time"`          // Time used for certificate validation
 	TimeSource         string               `json:"time_source"`                // "embedded_timestamp", "signature_time", "current_time"
 	TimeWarnings       []string             `json:"time_warnings,omitempty"`    // WARNINGs about time validation
+	ValidationErrors   []error              `json:"-"`                          // Validation errors encountered
 }
 
 // NewSigner creates a new Signer with default values.

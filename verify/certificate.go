@@ -12,7 +12,7 @@ import (
 )
 
 // buildCertificateChainsWithOptions builds certificate chains with custom verification options
-func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
+func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) (error, error) {
 	// Directory of certificates, including OCSP
 	certPool := x509.NewCertPool()
 	for _, cert := range p7.Certificates {
@@ -95,7 +95,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	}
 
 	// Build certificate chains and verify revocation status
-	var errorMsg string
+	var valErr error
 	trustedIssuer := false
 
 	// If we had parsing errors, include them in the error message
@@ -105,9 +105,9 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 
 	if len(parseErrors) > 0 {
 		if len(parseErrors) == 1 {
-			errorMsg = parseErrors[0]
+			valErr = &RevocationError{Msg: parseErrors[0]}
 		} else {
-			errorMsg = fmt.Sprintf("Multiple parsing errors: %v", parseErrors)
+			valErr = &RevocationError{Msg: fmt.Sprintf("Multiple parsing errors: %v", parseErrors)}
 		}
 	}
 
@@ -196,13 +196,17 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 				if resp.Certificate != nil {
 					err = resp.Certificate.CheckSignatureFrom(issuer)
 					if err != nil {
-						errorMsg = fmt.Sprintf("OCSP signing certificate not from certificate issuer: %v", err)
+						if valErr == nil {
+							valErr = &RevocationError{Msg: fmt.Sprintf("OCSP signing certificate not from certificate issuer: %v", err)}
+						}
 					}
 				} else {
 					// CA Signed response
 					err = resp.CheckSignatureFrom(issuer)
 					if err != nil {
-						errorMsg = fmt.Sprintf("Failed to verify OCSP response signature: %v", err)
+						if valErr == nil {
+							valErr = &RevocationError{Msg: fmt.Sprintf("Failed to verify OCSP response signature: %v", err)}
+						}
 					}
 				}
 			}
@@ -350,7 +354,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	// Set trusted issuer flag based on whether any certificate was verified against system roots
 	signer.TrustedIssuer = trustedIssuer
 
-	return errorMsg, nil
+	return valErr, nil
 }
 
 // validateTimestampCertificate validates the timestamp token's signing certificate

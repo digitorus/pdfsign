@@ -3,6 +3,7 @@ package sign_test
 import (
 	"crypto"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/digitorus/pdfsign"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pdfsign/sign"
+	"github.com/digitorus/pdfsign/verify"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -26,7 +28,7 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 	vRes := doc.Verify().TrustSelfSigned(true)
 	if err := vRes.Err(); err != nil {
 		t.Fatalf("%s: verification failed: %v", tmpfile.Name(), err)
-		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		err2 := copyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
 		if err2 != nil {
 			t.Error(err2)
 		}
@@ -34,7 +36,7 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 
 	if vRes.Count() == 0 {
 		t.Fatalf("%s: no signers found", tmpfile.Name())
-		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		err2 := copyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
 		if err2 != nil {
 			t.Error(err2)
 		}
@@ -44,10 +46,96 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 	if !vRes.Valid() {
 		for _, sig := range vRes.Signatures() {
 			if len(sig.Errors) > 0 {
-				t.Errorf("Signature verification failed: %v", sig.Errors)
+				t.Errorf("%s: signature error: %v", tmpfile.Name(), sig.Errors)
+				err2 := copyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+				if err2 != nil {
+					t.Error(err2)
+				}
 			}
 		}
-		t.Fatalf("%s: signature validation failed", tmpfile.Name())
+	} else {
+		err2 := copyFile(tmpfile.Name(), "../testfiles/success/"+originalFileName)
+		if err2 != nil {
+			t.Error(err2)
+		}
+	}
+}
+
+func copyFile(src, dst string) error {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if !sourceFileStat.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = source.Close() }()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = destination.Close() }()
+	_, err = io.Copy(destination, source)
+	return err
+}
+
+func TestCompatibilityFiles(t *testing.T) {
+	files, err := os.ReadDir("../testfiles/compatibility/")
+	if err != nil {
+		t.Fatalf("Failed to read compatibility directory: %v", err)
+	}
+
+	for _, f := range files {
+		if filepath.Ext(f.Name()) != ".pdf" {
+			continue
+		}
+
+		t.Run(f.Name(), func(t *testing.T) {
+			doc, err := pdfsign.OpenFile(filepath.Join("../testfiles/compatibility", f.Name()))
+			if err != nil {
+				t.Fatalf("%s: %s", f.Name(), err.Error())
+			}
+
+			// For compatibility files, we trust them (often untrusted roots in test env)
+			vRes := doc.Verify().TrustSelfSigned(true)
+			_ = vRes.Err() // We check individual signatures
+
+			if vRes.Count() == 0 {
+				t.Fatalf("No signatures found in %s", f.Name())
+			}
+
+			// We expect these might be "Valid" == false due to errors, so we check Errors list manually
+			for _, sig := range vRes.Signatures() {
+				// Special handling for testfile30.pdf (Adobe 2009 CRL v1)
+				if f.Name() == "testfile30.pdf" {
+					crlErrorFound := false
+					for _, e := range sig.Errors {
+						var revErr *verify.RevocationError
+						if errors.As(e, &revErr) && revErr.Msg == "Failed to parse CRL: x509: unsupported crl version" {
+							crlErrorFound = true
+							continue // We expect and accept this error
+						}
+						// Fail on other errors
+						t.Errorf("Unexpected error in %s: %v", f.Name(), e)
+					}
+					if !crlErrorFound {
+						t.Log("Note: expected CRL error not found for testfile30.pdf (parser improved?)")
+					}
+				} else {
+					// Fallback for other files not yet defined
+					if len(sig.Errors) > 0 {
+						t.Errorf("Unknown compatibility file %s has errors: %v", f.Name(), sig.Errors)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -113,7 +201,7 @@ func testSignAllFiles(t *testing.T, baseSignData sign.SignData) {
 		if filepath.Ext(f.Name()) != ".pdf" {
 			continue
 		}
-		if f.Name() == "testfile_multi.pdf" || f.Name() == "testfile30.pdf" {
+		if f.Name() == "testfile_multi.pdf" {
 			continue
 		}
 
