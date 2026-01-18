@@ -62,6 +62,9 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 }
 
 func copyFile(src, dst string) error {
+	if src == dst {
+		return nil
+	}
 	sourceFileStat, err := os.Stat(src)
 	if err != nil {
 		return err
