@@ -89,6 +89,9 @@ func (b *VerifyBuilder) execute() {
 	if b.allowedAlgorithms != nil {
 		vOpts.AllowedAlgorithms = b.allowedAlgorithms
 	}
+	if b.validationTime != nil {
+		vOpts.CurrentTime = *b.validationTime
+	}
 
 	// Initialization validation
 	if b.doc.rdr == nil {
@@ -148,6 +151,7 @@ func (b *VerifyBuilder) execute() {
 		// Add error message if any
 		if errorMsg != "" {
 			sigResult.Errors = append(sigResult.Errors, fmt.Errorf("%s", errorMsg))
+			sigResult.Valid = false
 		}
 
 		if signer.SignatureTime != nil {

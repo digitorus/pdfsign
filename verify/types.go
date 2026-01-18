@@ -70,6 +70,10 @@ type VerifyOptions struct {
 	// AllowedAlgorithms restricts the permitted public key algorithms (e.g. x509.RSA, x509.ECDSA)
 	// If empty, all algorithms are allowed.
 	AllowedAlgorithms []x509.PublicKeyAlgorithm
+
+	// CurrentTime controls the time used for certificate validation.
+	// If zero, the current time is used.
+	CurrentTime time.Time
 }
 
 type Response struct {
