@@ -60,6 +60,8 @@ else
     docker run --name "$CONTAINER_NAME" -d -p $PORT:8080 --cpus 4 --memory 4g "$IMAGE_NAME"
 fi
 
+echo "⏳ Waiting for DSS Service to be ready (this may take a minute)..."
+COUNT=0
 until 
     RESPONSE=$(curl -s --connect-timeout 5 --max-time 10 -o /tmp/dss_response.json -w "%{http_code}" \
         http://localhost:8080/services/rest/validation/validateSignature \
