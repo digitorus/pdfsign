@@ -28,7 +28,7 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 	vRes := doc.Verify().TrustSelfSigned(true)
 	if err := vRes.Err(); err != nil {
 		t.Fatalf("%s: verification failed: %v", tmpfile.Name(), err)
-		err2 := copyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
 		if err2 != nil {
 			t.Error(err2)
 		}
@@ -36,7 +36,7 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 
 	if vRes.Count() == 0 {
 		t.Fatalf("%s: no signers found", tmpfile.Name())
-		err2 := copyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
 		if err2 != nil {
 			t.Error(err2)
 		}
@@ -47,46 +47,34 @@ func verifySignedFile(t *testing.T, tmpfile *os.File, originalFileName string) {
 		for _, sig := range vRes.Signatures() {
 			if len(sig.Errors) > 0 {
 				t.Errorf("%s: signature error: %v", tmpfile.Name(), sig.Errors)
-				err2 := copyFile(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
+				err2 := os.Rename(tmpfile.Name(), "../testfiles/failed/"+originalFileName)
 				if err2 != nil {
 					t.Error(err2)
 				}
 			}
 		}
 	} else {
-		err2 := copyFile(tmpfile.Name(), "../testfiles/success/"+originalFileName)
+		err2 := os.Rename(tmpfile.Name(), "../testfiles/success/"+originalFileName)
 		if err2 != nil {
 			t.Error(err2)
 		}
 	}
 }
 
-func copyFile(src, dst string) error {
-	if src == dst {
-		return nil
-	}
-	sourceFileStat, err := os.Stat(src)
+func verifyIntermediateFile(t *testing.T, tmpfile *os.File) {
+	doc, err := pdfsign.OpenFile(tmpfile.Name())
 	if err != nil {
-		return err
+		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
 	}
 
-	if !sourceFileStat.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", src)
+	vRes := doc.Verify().TrustSelfSigned(true)
+	if err := vRes.Err(); err != nil {
+		t.Fatalf("%s: verification failed: %v", tmpfile.Name(), err)
 	}
 
-	source, err := os.Open(src)
-	if err != nil {
-		return err
+	if vRes.Count() == 0 {
+		t.Fatalf("%s: no signers found", tmpfile.Name())
 	}
-	defer func() { _ = source.Close() }()
-
-	destination, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = destination.Close() }()
-	_, err = io.Copy(destination, source)
-	return err
 }
 
 func TestCompatibilityFiles(t *testing.T) {
@@ -304,9 +292,7 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	err = sign.SignFile(inputFilePath, tmpfile.Name(), sign.SignData{
@@ -411,9 +397,7 @@ func TestSignPDFWithTwoApproval(t *testing.T) {
 			t.Fatalf("%s", err.Error())
 		}
 		defer func() {
-			if err := os.Remove(approvalTMPFile.Name()); err != nil {
-				t.Errorf("Failed to remove approvalTMPFile: %v", err)
-			}
+			_ = os.Remove(approvalTMPFile.Name())
 		}()
 
 		err = sign.SignFile(tbsFile, approvalTMPFile.Name(), sign.SignData{
@@ -436,7 +420,11 @@ func TestSignPDFWithTwoApproval(t *testing.T) {
 			t.Fatalf("%s: %s", "testfile20.pdf", err.Error())
 		}
 
-		verifySignedFile(t, approvalTMPFile, filepath.Base(tbsFile))
+		if i < 2 {
+			verifyIntermediateFile(t, approvalTMPFile)
+		} else {
+			verifySignedFile(t, approvalTMPFile, filepath.Base(tbsFile))
+		}
 		tbsFile = approvalTMPFile.Name()
 	}
 }
@@ -453,9 +441,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	err = sign.SignFile(tbsFile, tmpfile.Name(), sign.SignData{
@@ -478,7 +464,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
 	}
 
-	verifySignedFile(t, tmpfile, filepath.Base(tbsFile))
+	verifyIntermediateFile(t, tmpfile)
 	tbsFile = tmpfile.Name()
 
 	for i := 1; i <= 2; i++ {
@@ -487,9 +473,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 			t.Fatalf("%s", err.Error())
 		}
 		defer func() {
-			if err := os.Remove(approvalTMPFile.Name()); err != nil {
-				t.Errorf("Failed to remove approvalTMPFile: %v", err)
-			}
+			_ = os.Remove(approvalTMPFile.Name())
 		}()
 
 		err = sign.SignFile(tbsFile, approvalTMPFile.Name(), sign.SignData{
@@ -512,7 +496,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 			t.Fatalf("%s: %s", filepath.Base(tbsFile), err.Error())
 		}
 
-		verifySignedFile(t, approvalTMPFile, filepath.Base(tbsFile))
+		verifyIntermediateFile(t, approvalTMPFile)
 		tbsFile = approvalTMPFile.Name()
 	}
 
@@ -521,9 +505,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(timeStampTMPFile.Name()); err != nil {
-			t.Errorf("Failed to remove timeStampTMPFile: %v", err)
-		}
+		_ = os.Remove(timeStampTMPFile.Name())
 	}()
 
 	err = sign.SignFile(tbsFile, timeStampTMPFile.Name(), sign.SignData{
@@ -547,9 +529,7 @@ func TestTimestampPDFFile(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	err = sign.SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), sign.SignData{
@@ -588,9 +568,7 @@ func TestSignPDFWithImage(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	err = sign.SignFile(inputFilePath, tmpfile.Name(), sign.SignData{
@@ -644,9 +622,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(firstSignature.Name()); err != nil {
-			t.Errorf("Failed to remove firstSignature: %v", err)
-		}
+		_ = os.Remove(firstSignature.Name())
 	}()
 
 	err = sign.SignFile(tbsFile, firstSignature.Name(), sign.SignData{
@@ -677,7 +653,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		t.Fatalf("First signature failed: %s", err.Error())
 	}
 
-	verifySignedFile(t, firstSignature, filepath.Base(tbsFile))
+	verifyIntermediateFile(t, firstSignature)
 
 	// Second signature
 	secondSignature, err := os.CreateTemp("", fmt.Sprintf("%s_second_", t.Name()))
@@ -685,9 +661,7 @@ func TestSignPDFWithTwoImages(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(secondSignature.Name()); err != nil {
-			t.Errorf("Failed to remove secondSignature: %v", err)
-		}
+		_ = os.Remove(secondSignature.Name())
 	}()
 
 	err = sign.SignFile(firstSignature.Name(), secondSignature.Name(), sign.SignData{
@@ -741,9 +715,7 @@ func TestSignPDFWithWatermarkImageJPG(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	err = sign.SignFile(inputFilePath, tmpfile.Name(), sign.SignData{
@@ -798,9 +770,7 @@ func TestSignPDFWithWatermarkImagePNG(t *testing.T) {
 		t.Fatalf("%s", err.Error())
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	err = sign.SignFile(inputFilePath, tmpfile.Name(), sign.SignData{
@@ -857,9 +827,7 @@ func TestVisualSignLastPage(t *testing.T) {
 		t.Fail()
 	}
 	defer func() {
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			t.Errorf("Failed to remove tmpfile: %v", err)
-		}
+		_ = os.Remove(tmpfile.Name())
 	}()
 
 	finfo, err := input_file.Stat()
