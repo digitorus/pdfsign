@@ -166,7 +166,6 @@ jobs:
           retention-days: 7
 
   corpus-test:
-    if: false # TODO: Re-enable once VeraPDF installation is fixed (installer zip logic)
     name: Corpus Security Test
     runs-on: ubuntu-latest
     steps:
@@ -191,11 +190,27 @@ jobs:
           go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
           
           # Install veraPDF greenfield
-          curl -L https://downloads.verapdf.org/rel/1.28/verapdf-greenfield-1.28.2-installer.zip -o verapdf.zip
+          curl -L http://software.verapdf.org/rel/1.28/verapdf-greenfield-1.28.2-installer.zip -o verapdf.zip
           unzip verapdf.zip
-          VERAPDF_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
-          echo "VERAPDF_DIR=$VERAPDF_DIR" >> $GITHUB_ENV
-          echo "$PWD/$VERAPDF_DIR" >> $GITHUB_PATH
+          
+          # Create auto-install.xml for headless installation
+          cat <<EOF > auto-install.xml
+          <AutomatedInstallation langpack="eng">
+              <com.izforge.izpack.panels.HelloPanel/>
+              <com.izforge.izpack.panels.TargetPanel>
+                  <installpath>$PWD/verapdf</installpath>
+              </com.izforge.izpack.panels.TargetPanel>
+              <com.izforge.izpack.panels.InstallPanel/>
+              <com.izforge.izpack.panels.FinishPanel/>
+          </AutomatedInstallation>
+          EOF
+          
+          # Run installer
+          INSTALLER_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
+          $INSTALLER_DIR/verapdf-install auto-install.xml
+          
+          echo "VERAPDF_DIR=verapdf" >> $GITHUB_ENV
+          echo "$PWD/verapdf" >> $GITHUB_PATH
 
       - name: Cache corpus downloads
         uses: actions/cache@v4
