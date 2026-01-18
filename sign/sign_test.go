@@ -845,9 +845,9 @@ func TestSignPDF_AppendToMultiSig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		outputFile.Close()
+		_ = outputFile.Close()
 		if !testing.Verbose() {
-			os.Remove(outputFile.Name())
+			_ = os.Remove(outputFile.Name())
 		}
 	}()
 
@@ -870,7 +870,7 @@ func TestSignPDF_AppendToMultiSig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {

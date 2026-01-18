@@ -48,8 +48,8 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		signer.TimeSource = "signature_time"
 		signer.TimeWarnings = append(signer.TimeWarnings,
 			"Using signature time as fallback - this time is provided by the signatory and should be considered untrusted")
-	} else if !options.CurrentTime.IsZero() {
-		verificationTime = &options.CurrentTime
+	} else if !options.AtTime.IsZero() {
+		verificationTime = &options.AtTime
 	}
 	// If verificationTime is nil, x509.Verify will use current time (default behavior)
 

@@ -45,10 +45,10 @@ func TestVerifyOptions_Constraints(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		outputFile.Close()
-		os.Remove(outputFile.Name())
+		_ = outputFile.Close()
+		_ = os.Remove(outputFile.Name())
 	}()
-	outputFile.Close() // Close so SignFile can open it
+	_ = outputFile.Close() // Close so SignFile can open it
 
 	// Sign with standard RSA 2048 (from test cert) and SHA-256
 	err = sign.SignFile(inputPath, outputFile.Name(), sign.SignData{
@@ -87,10 +87,6 @@ func TestVerifyOptions_Constraints(t *testing.T) {
 				t.Error("Expected validation error for MinRSAKeySize(4096)")
 			}
 		}
-	}
-
-	if !res.Valid() {
-		// ... (existing code, maybe remove or keep?)
 	}
 
 	// 3. Test AllowedAlgorithms failure

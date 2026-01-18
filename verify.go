@@ -90,7 +90,7 @@ func (b *VerifyBuilder) execute() {
 		vOpts.AllowedAlgorithms = b.allowedAlgorithms
 	}
 	if b.validationTime != nil {
-		vOpts.CurrentTime = *b.validationTime
+		vOpts.AtTime = *b.validationTime
 	}
 
 	// Initialization validation

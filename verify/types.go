@@ -71,9 +71,9 @@ type VerifyOptions struct {
 	// If empty, all algorithms are allowed.
 	AllowedAlgorithms []x509.PublicKeyAlgorithm
 
-	// CurrentTime controls the time used for certificate validation.
+	// AtTime controls the time used for certificate validation.
 	// If zero, the current time is used.
-	CurrentTime time.Time
+	AtTime time.Time
 }
 
 type Response struct {
