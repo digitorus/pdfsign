@@ -15,6 +15,6 @@ RUN mvn clean install -pl dss-demo-webapp -am -DskipTests -Dmaven.javadoc.skip=t
 
 EXPOSE 8080
 
-# Run the Spring Boot application directly with Maven
-# We use the specific project folder and skip the problematic execution
-CMD ["mvn", "-pl", "dss-demo-webapp", "spring-boot:run", "-Dmdep.skip=true", "-Dspring-boot.run.jvmArguments=-Xmx1g"]
+# Run the Spring Boot application directly with Java for faster startup
+# We use a shell to find the artifact name with a wildcard
+CMD ["/bin/sh", "-c", "java -Xmx1g -jar dss-demo-webapp/target/dss-demo-webapp-*.war"]

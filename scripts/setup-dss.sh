@@ -63,17 +63,25 @@ fi
 echo "⏳ Waiting for DSS Service to be ready (this may take a minute)..."
 COUNT=0
 # Check both v1 and v2 endpoints for health
-until curl -s http://localhost:8080/services/rest/validation/validateSignature -X POST -H "Content-Type: application/json" -d '{"signedDocument":{"bytes":"","name":""}}' | grep -q "simpleReport" 2>/dev/null || \
-      curl -s http://localhost:8080/services/rest/validation/v2/validateSignature -X POST -H "Content-Type: application/json" -d '{"signedDocument":{"bytes":"","name":""}}' | grep -q "simpleReport" 2>/dev/null; do
+until curl -s --connect-timeout 5 --max-time 10 http://localhost:8080/services/rest/validation/validateSignature -X POST -H "Content-Type: application/json" -d '{"signedDocument":{"bytes":"","name":""}}' | grep -q "simpleReport" 2>/dev/null || \
+      curl -s --connect-timeout 5 --max-time 10 http://localhost:8080/services/rest/validation/v2/validateSignature -X POST -H "Content-Type: application/json" -d '{"signedDocument":{"bytes":"","name":""}}' | grep -q "simpleReport" 2>/dev/null; do
+    
+    # Check if container is still running
+    if ! $TOOL inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q "true"; then
+        echo "❌ Error: Container $CONTAINER_NAME stopped unexpectedly."
+        $TOOL logs "$CONTAINER_NAME"
+        exit 1
+    fi
+
     COUNT=$((COUNT+1))
     echo "   [Attempt $COUNT] Still waiting..."
     sleep 5
     if [ $COUNT -gt 60 ]; then
         echo "❌ Error: DSS Service failed to start within 5 minutes."
-        echo "� DSS Container Logs:"
+        echo "📋 DSS Container Logs:"
         $TOOL logs "$CONTAINER_NAME"
         echo ""
-        echo "📋 Container Status:"
+        echo "� Container Status:"
         $TOOL inspect "$CONTAINER_NAME"
         exit 1
     fi
