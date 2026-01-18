@@ -45,6 +45,14 @@ type VerifyOptions struct {
 	// using the URLs found in certificate extensions
 	EnableExternalRevocationCheck bool
 
+	// ValidateFullChain when true, enforces cryptographic policy constraints (Min...KeySize, AllowedAlgorithms)
+	// on the entire certificate chain.
+	//
+	// Note: Standard x509 verification and revocation checking (OCSP/CRL) are ALWAYS performed on the
+	// entire chain regardless of this setting. This setting strictly controls whether the specific
+	// cryptographic strength policies set in this options struct are applied to intermediate and root CAs.
+	ValidateFullChain bool
+
 	// HTTPClient specifies the HTTP client to use for external revocation checking
 	// If nil, http.DefaultClient will be used
 	HTTPClient *http.Client
@@ -52,6 +60,20 @@ type VerifyOptions struct {
 	// HTTPTimeout specifies the timeout for HTTP requests during external revocation checking
 	// If zero, a default timeout of 10 seconds will be used
 	HTTPTimeout time.Duration
+
+	// MinRSAKeySize constrains the minimum bit size for RSA keys (e.g. 2048, 4096)
+	MinRSAKeySize int
+
+	// MinECDSAKeySize constrains the minimum curve size for ECDSA keys (e.g. 256, 384)
+	MinECDSAKeySize int
+
+	// AllowedAlgorithms restricts the permitted public key algorithms (e.g. x509.RSA, x509.ECDSA)
+	// If empty, all algorithms are allowed.
+	AllowedAlgorithms []x509.PublicKeyAlgorithm
+
+	// AtTime controls the time used for certificate validation.
+	// If zero, the current time is used.
+	AtTime time.Time
 }
 
 type Response struct {
@@ -76,7 +98,15 @@ type Signer struct {
 	TimestampTrusted   bool                 `json:"timestamp_trusted"`          // Whether timestamp certificate chain is trusted
 	VerificationTime   *time.Time           `json:"verification_time"`          // Time used for certificate validation
 	TimeSource         string               `json:"time_source"`                // "embedded_timestamp", "signature_time", "current_time"
-	TimeWarnings       []string             `json:"time_warnings,omitempty"`    // Warnings about time validation
+	TimeWarnings       []string             `json:"time_warnings,omitempty"`    // WARNINGs about time validation
+	ValidationErrors   []error              `json:"-"`                          // Validation errors encountered
+}
+
+// NewSigner creates a new Signer with default values.
+func NewSigner() *Signer {
+	return &Signer{
+		TimeWarnings: []string{},
+	}
 }
 
 type Certificate struct {

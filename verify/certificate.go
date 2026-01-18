@@ -12,7 +12,7 @@ import (
 )
 
 // buildCertificateChainsWithOptions builds certificate chains with custom verification options
-func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) (string, error) {
+func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) (error, error) {
 	// Directory of certificates, including OCSP
 	certPool := x509.NewCertPool()
 	for _, cert := range p7.Certificates {
@@ -48,6 +48,8 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		signer.TimeSource = "signature_time"
 		signer.TimeWarnings = append(signer.TimeWarnings,
 			"Using signature time as fallback - this time is provided by the signatory and should be considered untrusted")
+	} else if !options.AtTime.IsZero() {
+		verificationTime = &options.AtTime
 	}
 	// If verificationTime is nil, x509.Verify will use current time (default behavior)
 
@@ -93,7 +95,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	}
 
 	// Build certificate chains and verify revocation status
-	var errorMsg string
+	var valErr error
 	trustedIssuer := false
 
 	// If we had parsing errors, include them in the error message
@@ -103,9 +105,9 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 
 	if len(parseErrors) > 0 {
 		if len(parseErrors) == 1 {
-			errorMsg = parseErrors[0]
+			valErr = &RevocationError{Msg: parseErrors[0]}
 		} else {
-			errorMsg = fmt.Sprintf("Multiple parsing errors: %v", parseErrors)
+			valErr = &RevocationError{Msg: fmt.Sprintf("Multiple parsing errors: %v", parseErrors)}
 		}
 	}
 
@@ -169,7 +171,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			if resp.Status != ocsp.Good {
 				c.RevocationTime = &resp.RevokedAt
 				// Check if revocation occurred before signing
-				revokedBeforeSigning := isRevokedBeforeSigning(resp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+				revokedBeforeSigning := signer.IsRevokedBeforeSigning(resp.RevokedAt)
 				c.RevokedBeforeSigning = revokedBeforeSigning
 
 				if revokedBeforeSigning {
@@ -194,13 +196,17 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 				if resp.Certificate != nil {
 					err = resp.Certificate.CheckSignatureFrom(issuer)
 					if err != nil {
-						errorMsg = fmt.Sprintf("OCSP signing certificate not from certificate issuer: %v", err)
+						if valErr == nil {
+							valErr = &RevocationError{Msg: fmt.Sprintf("OCSP signing certificate not from certificate issuer: %v", err)}
+						}
 					}
 				} else {
 					// CA Signed response
 					err = resp.CheckSignatureFrom(issuer)
 					if err != nil {
-						errorMsg = fmt.Sprintf("Failed to verify OCSP response signature: %v", err)
+						if valErr == nil {
+							valErr = &RevocationError{Msg: fmt.Sprintf("Failed to verify OCSP response signature: %v", err)}
+						}
 					}
 				}
 			}
@@ -213,7 +219,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			c.RevocationTime = revocationTime
 
 			// Check if revocation occurred before signing
-			revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, signer.VerificationTime, signer.TimeSource)
+			revokedBeforeSigning := signer.IsRevokedBeforeSigning(*revocationTime)
 			c.RevokedBeforeSigning = revokedBeforeSigning
 
 			if revokedBeforeSigning {
@@ -248,7 +254,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 					if externalOCSPResp.Status != ocsp.Good {
 						c.RevocationTime = &externalOCSPResp.RevokedAt
 						// Check if revocation occurred before signing
-						revokedBeforeSigning := isRevokedBeforeSigning(externalOCSPResp.RevokedAt, signer.VerificationTime, signer.TimeSource)
+						revokedBeforeSigning := signer.IsRevokedBeforeSigning(externalOCSPResp.RevokedAt)
 						c.RevokedBeforeSigning = revokedBeforeSigning
 
 						if revokedBeforeSigning {
@@ -277,7 +283,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 					if isRevoked {
 						c.RevocationTime = revocationTime
 						// Check if revocation occurred before signing
-						revokedBeforeSigning := isRevokedBeforeSigning(*revocationTime, signer.VerificationTime, signer.TimeSource)
+						revokedBeforeSigning := signer.IsRevokedBeforeSigning(*revocationTime)
 						c.RevokedBeforeSigning = revokedBeforeSigning
 
 						if revokedBeforeSigning {
@@ -348,7 +354,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	// Set trusted issuer flag based on whether any certificate was verified against system roots
 	signer.TrustedIssuer = trustedIssuer
 
-	return errorMsg, nil
+	return valErr, nil
 }
 
 // validateTimestampCertificate validates the timestamp token's signing certificate
@@ -408,21 +414,21 @@ func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOption
 	return true, ""
 }
 
-// isRevokedBeforeSigning determines if a certificate was revoked before the signing time
-func isRevokedBeforeSigning(revocationTime time.Time, signingTime *time.Time, timeSource string) bool {
+// IsRevokedBeforeSigning determines if a certificate was revoked before the signing time
+func (s *Signer) IsRevokedBeforeSigning(revocationTime time.Time) bool {
 	// If we don't have a reliable signing time, we must assume revocation invalidates the signature
-	if signingTime == nil || timeSource == "current_time" {
+	if s.VerificationTime == nil || s.TimeSource == "current_time" {
 		return true
 	}
 
 	// If we only have signature time (untrusted), we should be conservative
-	if timeSource == "signature_time" {
+	if s.TimeSource == "signature_time" {
 		return true
 	}
 
 	// For embedded timestamps (trusted), we can make a proper determination
-	if timeSource == "embedded_timestamp" {
-		return revocationTime.Before(*signingTime)
+	if s.TimeSource == "embedded_timestamp" {
+		return revocationTime.Before(*s.VerificationTime)
 	}
 
 	// Default to conservative behavior

@@ -1,0 +1,20 @@
+FROM maven:3.9-eclipse-temurin-17
+
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch 6.3 https://github.com/esig/dss-demonstrations.git /app/dss-demonstrations
+
+WORKDIR /app/dss-demonstrations
+
+# Set Maven options for memory and batch mode
+ENV MAVEN_OPTS="-Xmx2048m"
+ENV MAVEN_CLI_OPTS="-B -T 1C"
+
+# Pre-build the project to speed up startup inside the container
+# Skip tests, javadocs, and build only the webapp and its dependencies
+RUN mvn clean install -pl dss-demo-webapp -am -DskipTests -Dmaven.javadoc.skip=true -Dmdep.skip=true
+
+EXPOSE 8080
+
+# Run the Spring Boot application directly with Maven
+# We use the specific project folder and skip the problematic execution
+CMD ["mvn", "-pl", "dss-demo-webapp", "spring-boot:run", "-Dmdep.skip=true", "-Dspring-boot.run.jvmArguments=-Xmx1g"]

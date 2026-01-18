@@ -1,10 +1,39 @@
+# Binaries
+#-------------
+pdfsign
+*.exe
+*.test
+*.prof
+
+# OS specific checks
+#-------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# IDEs
+#-----
 .idea
+.vscode
+*.swp
+
+# Go
+#---
+vendor/
+go.work
+go.work.sum
+
+# Certificates
+#-------------
+certs/*
+
+# Test files
+#-----------
 *.pdf
 *.pdf.*
 !testfile*.pdf
 testfiles/*_signed.pdf
 testfiles/failed/*
 testfiles/success/*
-pdfsign
-certs/*
 tmp/

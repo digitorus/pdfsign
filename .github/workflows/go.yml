@@ -23,6 +23,12 @@ jobs:
         with:
           go-version: ^1.23
 
+      - name: Set up Java (for external validation tools)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Build
         run: go build -v ./...
 
@@ -32,7 +38,7 @@ jobs:
       - name: Install pdfcpu
         run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
 
-      - name: Run PDF Validation
+      - name: Validate signed PDFs with pdfcpu
         run: |
           # Ensure pdfcpu is in PATH
           export PATH=$PATH:$(go env GOPATH)/bin
@@ -107,6 +113,19 @@ jobs:
             echo "✅ All PDF validations passed!"
           fi
 
+      - name: Run DSS Validation
+        run: |
+          # Use the local setup script which uses Docker to avoid dependency issues
+          chmod +x scripts/setup-dss.sh
+          ./scripts/setup-dss.sh
+
+          # Run validation test
+          echo "### DSS Signature Validation Results"
+          DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v ./sign -run TestValidateDSSValidation
+          
+          # Container is started with --rm, so stopping it is enough
+          docker stop dss-validator || true
+
       - name: Upload coverage report
         if: always()
         uses: codecov/codecov-action@v4
@@ -122,3 +141,53 @@ jobs:
           name: test-pdf-artifacts
           path: testfiles/success/
           retention-days: 7
+
+  corpus-test:
+    name: Corpus Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+
+      - name: Set up Java (for external validation tools)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install validators (pdfcpu, Ghostscript, veraPDF)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghostscript
+          go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+          
+          # Install veraPDF greenfield
+          curl -L http://software.verapdf.org/rel/1.28/verapdf-greenfield-1.28.2-installer.zip -o verapdf.zip
+          unzip verapdf.zip
+          
+          # Create auto-install.xml for headless installation
+          printf '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<AutomatedInstallation langpack="eng">\n    <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>\n    <com.izforge.izpack.panels.target.TargetPanel id="install_dir">\n        <installpath>%s/verapdf</installpath>\n    </com.izforge.izpack.panels.target.TargetPanel>\n    <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">\n        <pack index="0" name="veraPDF GUI" selected="true"/>\n        <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>\n        <pack index="2" name="veraPDF Corpus and Validation model" selected="false"/>\n        <pack index="3" name="veraPDF Documentation" selected="true"/>\n        <pack index="4" name="veraPDF Sample Plugins" selected="false"/>\n    </com.izforge.izpack.panels.packs.PacksPanel>\n    <com.izforge.izpack.panels.install.InstallPanel id="install"/>\n    <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>\n</AutomatedInstallation>\n' "$PWD" > "$PWD/auto-install.xml"
+          
+          # Run installer
+          INSTALLER_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
+          $INSTALLER_DIR/verapdf-install "$PWD/auto-install.xml"
+          
+          echo "VERAPDF_DIR=verapdf" >> $GITHUB_ENV
+          echo "$PWD/verapdf" >> $GITHUB_PATH
+
+      - name: Cache corpus downloads
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pdf-corpus
+          key: pdf-corpus-v1
+
+      - name: Run corpus security tests
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin:$PWD/$VERAPDF_DIR
+          # veraPDF script name is usually 'verapdf'
+          PDF_CORPUS_CACHE=/tmp/pdf-corpus go test -v ./sign -run TestSignCorpus -download-corpus -timeout 30m

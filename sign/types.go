@@ -35,6 +35,19 @@ type SignData struct {
 	RevocationFunction RevocationFunction
 	Appearance         Appearance
 
+	// Updates contains raw byte updates for existing PDF objects.
+	// The key is the object ID, use it with SignContext.UpdateObject.
+	Updates map[uint32][]byte
+
+	// PreSignCallback is called before the signature object is written.
+	// It allows adding additional objects (e.g., initials) using the SignContext.
+	// PreSignCallback is called before the signature object is written.
+	// It allows adding additional objects (e.g., initials) using the SignContext.
+	PreSignCallback func(context *SignContext) error
+
+	// CompressLevel determines compression level (zlib) for stream objects.
+	CompressLevel int
+
 	objectId uint32
 }
 
@@ -50,6 +63,10 @@ type Appearance struct {
 
 	Image            []byte // Image data to use as signature appearance
 	ImageAsWatermark bool   // If true, the text will be drawn over the image
+
+	// Renderer allows providing a custom function to generate the appearance stream.
+	// This is used by the pdf package to support complex appearances with multiple elements.
+	Renderer func(context *SignContext, rect [4]float64) ([]byte, error)
 }
 
 type VisualSignData struct {
@@ -112,4 +129,11 @@ type SignContext struct {
 	lastXrefID         uint32
 	newXrefEntries     []xrefEntry
 	updatedXrefEntries []xrefEntry
+
+	// Map of Page Object ID to list of Annotation Object IDs to add.
+	// This allows pre-sign callbacks to register annotations for pages that are also being modified by the signing process.
+	ExtraAnnots map[uint32][]uint32
+
+	// CompressLevel determines compression level (zlib) for stream objects.
+	CompressLevel int
 }

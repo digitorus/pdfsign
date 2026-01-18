@@ -239,6 +239,10 @@ func (context *SignContext) createAppearance(rect [4]float64) ([]byte, error) {
 		return nil, fmt.Errorf("invalid rectangle dimensions: width %.2f and height %.2f must be greater than 0", rectWidth, rectHeight)
 	}
 
+	if context.SignData.Appearance.Renderer != nil {
+		return context.SignData.Appearance.Renderer(context, rect)
+	}
+
 	hasImage := len(context.SignData.Appearance.Image) > 0
 	shouldDisplayText := context.SignData.Appearance.ImageAsWatermark || !hasImage
 
@@ -256,14 +260,14 @@ func (context *SignContext) createAppearance(rect [4]float64) ([]byte, error) {
 			return nil, fmt.Errorf("failed to create image XObject: %w", err)
 		}
 
-		imageObjectId, err := context.addObject(imageBytes)
+		imageObjectId, err := context.AddObject(imageBytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add image object: %w", err)
 		}
 
 		if maskObjectBytes != nil {
 			// Create and add the mask XObject
-			_, err := context.addObject(maskObjectBytes)
+			_, err := context.AddObject(maskObjectBytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to add mask object: %w", err)
 			}
