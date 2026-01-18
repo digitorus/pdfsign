@@ -73,6 +73,17 @@ until curl -s --connect-timeout 5 --max-time 10 http://localhost:8080/services/r
         exit 1
     fi
 
+    # Periodically show the last few lines of logs to see progress in GHA
+    if [ $((COUNT % 3)) -eq 0 ] && [ $COUNT -gt 0 ]; then
+        echo "   📋 Latest logs:"
+        $TOOL logs --tail 2 "$CONTAINER_NAME" | sed 's/^/      /'
+    fi
+
+    # Verify port mapping is active
+    if ! $TOOL port "$CONTAINER_NAME" 8080 >/dev/null 2>&1; then
+        echo "   ⚠️  Warning: Port 8080 is not yet mapped for $CONTAINER_NAME"
+    fi
+
     COUNT=$((COUNT+1))
     echo "   [Attempt $COUNT] Still waiting..."
     sleep 5
