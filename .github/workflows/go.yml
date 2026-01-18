@@ -171,7 +171,7 @@ jobs:
           unzip verapdf.zip
           
           # Create auto-install.xml for headless installation
-          printf '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<AutomatedInstallation langpack="eng">\n    <com.izforge.izpack.panels.HelloPanel/>\n    <com.izforge.izpack.panels.TargetPanel>\n        <installpath>%s/verapdf</installpath>\n    </com.izforge.izpack.panels.TargetPanel>\n    <com.izforge.izpack.panels.InstallPanel/>\n    <com.izforge.izpack.panels.FinishPanel/>\n</AutomatedInstallation>\n' "$PWD" > "$PWD/auto-install.xml"
+          printf '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<AutomatedInstallation langpack="eng">\n    <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>\n    <com.izforge.izpack.panels.target.TargetPanel id="install_dir">\n        <installpath>%s/verapdf</installpath>\n    </com.izforge.izpack.panels.target.TargetPanel>\n    <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">\n        <pack index="0" name="veraPDF GUI" selected="true"/>\n        <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>\n        <pack index="2" name="veraPDF Corpus and Validation model" selected="false"/>\n        <pack index="3" name="veraPDF Documentation" selected="true"/>\n        <pack index="4" name="veraPDF Sample Plugins" selected="false"/>\n    </com.izforge.izpack.panels.packs.PacksPanel>\n    <com.izforge.izpack.panels.install.InstallPanel id="install"/>\n    <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>\n</AutomatedInstallation>\n' "$PWD" > "$PWD/auto-install.xml"
           
           # Run installer
           INSTALLER_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
