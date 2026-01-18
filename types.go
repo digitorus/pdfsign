@@ -399,7 +399,7 @@ type VerifyBuilder struct {
 	externalChecks        bool
 	validateFullChain     bool
 	validateTimestampCert bool
-	validationTime        *time.Time
+	atTime                *time.Time
 	trustSignatureTime    bool
 	requireDigSig         bool
 	requireNonRepud       bool
@@ -462,7 +462,7 @@ func (b *VerifyBuilder) ExternalChecks(enable bool) *VerifyBuilder {
 // AtTime sets the point in time at which the certificate chain's validity should be checked.
 // By default, certificates are checked against the current system time.
 func (b *VerifyBuilder) AtTime(t time.Time) *VerifyBuilder {
-	b.validationTime = &t
+	b.atTime = &t
 	return b
 }
 
