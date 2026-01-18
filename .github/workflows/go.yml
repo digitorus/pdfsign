@@ -114,40 +114,17 @@ jobs:
           fi
 
       - name: Run DSS Validation
-        continue-on-error: true
         run: |
-          # Clone DSS demonstrations
-          git clone --depth 1 https://github.com/esig/dss-demonstrations.git
-          cd dss-demonstrations/dss-demo-webapp
-          
-          # Start DSS Service via Maven
-          mvn spring-boot:run > dss-startup.log 2>&1 &
-          DSS_PID=$!
-          
-          echo "Waiting for DSS Service to start..."
-          # Wait for service to be healthy (up to 5 minutes)
-          for i in {1..60}; do
-            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/services/rest/validation/v2/validateSignature | grep -E "405|415|200" > /dev/null; then
-              echo "DSS Service is up!"
-              break
-            fi
-            echo "Waiting for DSS Service (attempt $i)..."
-            sleep 5
-            if [ $i -eq 60 ]; then
-              echo "❌ DSS Service failed to start"
-              cat dss-startup.log
-              kill $DSS_PID || true
-              exit 1
-            fi
-          done
+          # Use the local setup script which uses Docker to avoid dependency issues
+          chmod +x scripts/setup-dss.sh
+          ./scripts/setup-dss.sh
 
-          cd ../..
           # Run validation test
           echo "### DSS Signature Validation Results"
-          DSS_API_URL=http://localhost:8080/services/rest/validation/v2/validateSignature go test -v ./sign -run TestSignDSSValidation
+          DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v ./sign -run TestSignDSSValidation
           
-          # Cleanup
-          kill $DSS_PID || true
+          # Container is started with --rm, so stopping it is enough
+          docker stop dss-validator || true
 
       - name: Upload coverage report
         if: always()
@@ -194,16 +171,7 @@ jobs:
           unzip verapdf.zip
           
           # Create auto-install.xml for headless installation
-          cat <<EOF > "$PWD/auto-install.xml"
-          <AutomatedInstallation langpack="eng">
-              <com.izforge.izpack.panels.HelloPanel/>
-              <com.izforge.izpack.panels.TargetPanel>
-                  <installpath>$PWD/verapdf</installpath>
-              </com.izforge.izpack.panels.TargetPanel>
-              <com.izforge.izpack.panels.InstallPanel/>
-              <com.izforge.izpack.panels.FinishPanel/>
-          </AutomatedInstallation>
-          EOF
+          printf '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<AutomatedInstallation langpack="eng">\n    <com.izforge.izpack.panels.HelloPanel/>\n    <com.izforge.izpack.panels.TargetPanel>\n        <installpath>%s/verapdf</installpath>\n    </com.izforge.izpack.panels.TargetPanel>\n    <com.izforge.izpack.panels.InstallPanel/>\n    <com.izforge.izpack.panels.FinishPanel/>\n</AutomatedInstallation>\n' "$PWD" > "$PWD/auto-install.xml"
           
           # Run installer
           INSTALLER_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
