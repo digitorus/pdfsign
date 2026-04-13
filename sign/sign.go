@@ -86,6 +86,11 @@ func (context *SignContext) SignPDF() error {
 		context.SignData.Appearance.Page = 1
 	}
 
+	// Reset slices and states that might be polluted from previous run if this is a retry
+	context.newXrefEntries = nil
+	context.updatedXrefEntries = nil
+	context.lastXrefID = 0
+
 	context.OutputBuffer = filebuffer.New([]byte{})
 
 	// Copy old file into new buffer.
