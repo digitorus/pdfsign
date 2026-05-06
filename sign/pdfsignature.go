@@ -325,14 +325,23 @@ func (context *SignContext) createSignature() ([]byte, error) {
 		return nil, fmt.Errorf("new signed data: %w", err)
 	}
 
-	signer_config := pkcs7.SignerInfoConfig{
-		ExtraSignedAttributes: []pkcs7.Attribute{
-			{
-				Type:  asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8},
-				Value: context.SignData.RevocationData,
-			},
-			*signingCertificate,
+	extraAttrs := []pkcs7.Attribute{
+		{
+			Type:  asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8},
+			Value: context.SignData.RevocationData,
 		},
+		*signingCertificate,
+	}
+	// Append caller-supplied custom signed attributes after the
+	// library defaults. They ride inside the cryptographically
+	// protected SignedAttributes set per RFC 5652 §11.2; any
+	// tampering with their values breaks pkcs7.Verify. An empty
+	// slice preserves prior behavior exactly.
+	if len(context.SignData.ExtraSignedAttributes) > 0 {
+		extraAttrs = append(extraAttrs, context.SignData.ExtraSignedAttributes...)
+	}
+	signer_config := pkcs7.SignerInfoConfig{
+		ExtraSignedAttributes: extraAttrs,
 	}
 
 	// Add the first certificate chain without our own certificate.

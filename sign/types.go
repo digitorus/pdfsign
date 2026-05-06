@@ -8,6 +8,7 @@ import (
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
+	"github.com/digitorus/pkcs7"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -34,6 +35,23 @@ type SignData struct {
 	RevocationData     revocation.InfoArchival
 	RevocationFunction RevocationFunction
 	Appearance         Appearance
+
+	// ExtraSignedAttributes lets callers append additional CMS
+	// SignedAttributes (RFC 5652 §11) keyed by custom OIDs to the
+	// PKCS#7 signature, in addition to the library defaults
+	// (Adobe RevocationData OID 1.2.840.113583.1.1.8 and the
+	// signing-certificate-v2 attribute).
+	//
+	// These attributes ride inside the cryptographically protected
+	// SignedAttributes set, so any tampering with their values
+	// breaks pkcs7.Verify. Use cases include embedding a canonical
+	// content hash for downstream tamper detection (ICP-Brasil
+	// DOC-ICP-15.03 §6.4-style integrity attestations) or
+	// transport-specific provenance OIDs.
+	//
+	// An empty slice is the default and preserves the prior
+	// behavior exactly.
+	ExtraSignedAttributes []pkcs7.Attribute
 
 	objectId uint32
 }

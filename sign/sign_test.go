@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pdfsign/verify"
+	"github.com/digitorus/pkcs7"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -278,6 +280,92 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		if info.Signers[0].Location != signerLocation {
 			t.Fatalf("expected %q, got %q", signerLocation, info.Signers[0].Location)
 		}
+	}
+}
+
+// TestSignPDF_ExtraSignedAttributes_AppearInPKCS7 — caller-supplied
+// custom signed attributes must ride inside the cryptographically
+// protected PKCS#7 SignedAttributes set so a downstream
+// pkcs7.UnmarshalSignedAttribute can recover them by OID.
+func TestSignPDF_ExtraSignedAttributes_AppearInPKCS7(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+
+	// A test-only OID under the IANA "private experimental" arc.
+	customOID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
+	customValue := []byte("test content hash")
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
+
+	err = SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), SignData{
+		Signature: SignDataSignature{
+			Info: SignDataSignatureInfo{
+				Name:        "Extra Attrs Tester",
+				Reason:      "Test ExtraSignedAttributes",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+			},
+			CertType:   CertificationSignature,
+			DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		ExtraSignedAttributes: []pkcs7.Attribute{
+			{Type: customOID, Value: customValue},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SignFile: %s", err.Error())
+	}
+
+	// Re-open the signed PDF, walk to the signature dictionary, parse
+	// the PKCS#7 contents, and recover the custom attribute by OID.
+	data, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("read signed file: %s", err.Error())
+	}
+	rdr, err := pdf.NewReader(filebuffer.New(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("pdf.NewReader: %s", err.Error())
+	}
+
+	var sigContents string
+	for _, ent := range rdr.Trailer().Key("Root").Key("AcroForm").Key("Fields").Keys() {
+		_ = ent
+	}
+	// Walk the AcroForm field tree (pdfsign places the signature value
+	// in the first field's /V dict).
+	fields := rdr.Trailer().Key("Root").Key("AcroForm").Key("Fields")
+	for i := 0; i < fields.Len(); i++ {
+		v := fields.Index(i).Key("V")
+		if v.IsNull() {
+			continue
+		}
+		raw := v.Key("Contents").RawString()
+		if raw != "" {
+			sigContents = raw
+			break
+		}
+	}
+	if sigContents == "" {
+		t.Fatal("could not locate /Contents in any signature dict")
+	}
+
+	p7, err := pkcs7.Parse([]byte(sigContents))
+	if err != nil {
+		t.Fatalf("pkcs7.Parse: %s", err.Error())
+	}
+
+	var got []byte
+	if err := p7.UnmarshalSignedAttribute(customOID, &got); err != nil {
+		t.Fatalf("UnmarshalSignedAttribute: %s", err.Error())
+	}
+	if string(got) != string(customValue) {
+		t.Fatalf("attribute value mismatch: want %q, got %q", customValue, got)
 	}
 }
 
