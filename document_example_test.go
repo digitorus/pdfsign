@@ -98,6 +98,53 @@ func ExampleDocument_Sign_multiple() {
 	// Signed by: Bob
 }
 
+// ExampleSignBuilder_Page demonstrates placing signature appearances on
+// specific pages of a multi-page document: an explicit fixed page, and the
+// last page computed dynamically via Reader().NumPage() so it still works
+// if pages are added or removed.
+func ExampleSignBuilder_Page() {
+	doc, err := pdfsign.OpenFile("testfiles/testfile12.pdf")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pki := testpki.NewTestPKI(nil)
+	pki.StartCRLServer()
+	defer pki.Close()
+
+	authorKey, authorCert := pki.IssueLeaf("Author")
+	approverKey, approverCert := pki.IssueLeaf("Approver")
+
+	appearance := pdfsign.NewAppearance(200, 80)
+	appearance.Text("Signed").Position(10, 40)
+
+	lastPage := doc.Reader().NumPage()
+
+	// Sign the first page explicitly.
+	doc.Sign(authorKey, authorCert, pki.Chain()...).
+		Reason("Drafted").
+		Appearance(appearance, 100, 100).
+		Page(1)
+
+	// Sign the last page, whatever it currently is.
+	doc.Sign(approverKey, approverCert, pki.Chain()...).
+		Reason("Approved").
+		Appearance(appearance, 100, 100).
+		Page(lastPage)
+
+	var buf bytes.Buffer
+	if _, err := doc.Write(&buf); err != nil {
+		log.Fatal(err)
+	}
+
+	signedDoc, _ := pdfsign.Open(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	result := signedDoc.Verify().TrustSelfSigned(true)
+	fmt.Printf("Document has %d pages, both signatures valid: %v\n", lastPage, result.Valid())
+
+	// Output:
+	// Document has 2 pages, both signatures valid: true
+}
+
 // ExampleDocument_SetCompression demonstrates how to configure compression levels.
 func ExampleDocument_SetCompression() {
 	testFile := "testfiles/testfile20.pdf"
