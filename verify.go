@@ -12,16 +12,7 @@ import (
 // Verify initializes a VerifyBuilder to configure and execute signature verification.
 // The verification process is lazy and only executes when you access the results (e.g., via Valid() or Signatures()).
 func (d *Document) Verify() *VerifyBuilder {
-	return &VerifyBuilder{
-		doc: d,
-		// SECURE DEFAULT: don't trust self-signed/embedded-root certificates.
-		// Callers must opt in explicitly via TrustSelfSigned(true) or supply
-		// a pool via TrustedRoots.
-		trustEmbedded: false,
-		// skipRevocationCheck/skipOCSP/skipCRL are intentionally left at
-		// their zero value (false): embedded revocation data is consulted
-		// by default and must be explicitly skipped, not explicitly enabled.
-	}
+	return &VerifyBuilder{doc: d}
 }
 
 // execute performs the actual verification if not already done (lazy execution).

@@ -452,23 +452,20 @@ func (b *VerifyBuilder) TrustSelfSigned(trust bool) *VerifyBuilder {
 	return b
 }
 
-// SkipRevocationCheck disables all revocation checks (OCSP and CRL), both
-// embedded and external. Revocation checking against embedded data is
-// performed by default; this is an opt-OUT, not an opt-in.
+// SkipRevocationCheck disables all revocation checks (OCSP and CRL, both
+// embedded and external).
 func (b *VerifyBuilder) SkipRevocationCheck(skip bool) *VerifyBuilder {
 	b.skipRevocationCheck = skip
 	return b
 }
 
 // SkipOCSP disables OCSP (embedded or external) as a revocation source.
-// OCSP is consulted by default; this is an opt-OUT, not an opt-in.
 func (b *VerifyBuilder) SkipOCSP(skip bool) *VerifyBuilder {
 	b.skipOCSP = skip
 	return b
 }
 
 // SkipCRL disables CRL (embedded or external) as a revocation source.
-// CRL is consulted by default; this is an opt-OUT, not an opt-in.
 func (b *VerifyBuilder) SkipCRL(skip bool) *VerifyBuilder {
 	b.skipCRL = skip
 	return b

@@ -27,14 +27,11 @@ func DefaultVerifyOptions() *VerifyOptions {
 			x509.ExtKeyUsageEmailProtection, // Common alternative
 			x509.ExtKeyUsageClientAuth,      // Another common alternative
 		},
-		RequireDigitalSignatureKU:     true,  // Require Digital Signature key usage
-		RequireNonRepudiation:         false, // Don't require Non-Repudiation by default (optional)
-		TrustSignatureTime:            false, // Don't trust signatory-provided time by default
-		ValidateTimestampCertificates: true,  // Always validate timestamp certificates
-		AllowUntrustedRoots:           false, // SECURE DEFAULT: Don't trust embedded certificates as roots
-		// SkipRevocationCheck/SkipOCSP/SkipCRL are intentionally left at
-		// their zero value (false): embedded revocation data is consulted
-		// by default and must be explicitly skipped, not explicitly enabled.
+		RequireDigitalSignatureKU:     true,             // Require Digital Signature key usage
+		RequireNonRepudiation:         false,            // Don't require Non-Repudiation by default (optional)
+		TrustSignatureTime:            false,            // Don't trust signatory-provided time by default
+		ValidateTimestampCertificates: true,             // Always validate timestamp certificates
+		AllowUntrustedRoots:           false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
 		EnableExternalRevocationCheck: false,            // SECURE DEFAULT: Don't make external network calls
 		HTTPClient:                    nil,              // Use default HTTP client
 		HTTPTimeout:                   10 * time.Second, // 10 second timeout for external checks
