@@ -32,6 +32,9 @@ func DefaultVerifyOptions() *VerifyOptions {
 		TrustSignatureTime:            false,            // Don't trust signatory-provided time by default
 		ValidateTimestampCertificates: true,             // Always validate timestamp certificates
 		AllowUntrustedRoots:           false,            // SECURE DEFAULT: Don't trust embedded certificates as roots
+		CheckRevocation:               true,             // Consult embedded revocation data by default
+		AllowOCSP:                     true,             // Allow OCSP as a revocation source
+		AllowCRL:                      true,             // Allow CRL as a revocation source
 		EnableExternalRevocationCheck: false,            // SECURE DEFAULT: Don't make external network calls
 		HTTPClient:                    nil,              // Use default HTTP client
 		HTTPTimeout:                   10 * time.Second, // 10 second timeout for external checks

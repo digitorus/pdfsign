@@ -37,7 +37,10 @@ func ExampleDocument_Verify() {
 
 	// Configure verification with chainable methods
 	// Access .Valid() triggers lazy execution
+	// TrustSelfSigned(true) is required here because the example signs with a
+	// self-signed test CA that isn't in the system trust store.
 	result := doc.Verify().
+		TrustSelfSigned(true).
 		TrustSignatureTime(true).
 		MinRSAKeySize(2048).
 		AllowedAlgorithms(x509.ECDSA)

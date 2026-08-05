@@ -3,6 +3,7 @@ package sign_test
 import (
 	"crypto"
 	"crypto/x509"
+	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pdfsign/sign"
 	"github.com/digitorus/pdfsign/verify"
+	"github.com/digitorus/pkcs7"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -336,6 +338,74 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		if sigs[0].Location != signerLocation {
 			t.Fatalf("expected %q, got %q", signerLocation, sigs[0].Location)
 		}
+	}
+}
+
+// TestSignPDF_ExtraSignedAttributes_AppearInPKCS7 verifies that
+// caller-supplied custom signed attributes ride inside the
+// cryptographically protected PKCS#7 SignedAttributes set so a
+// downstream pkcs7.UnmarshalSignedAttribute can recover them by OID.
+func TestSignPDF_ExtraSignedAttributes_AppearInPKCS7(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+
+	// A test-only OID under the IANA "private experimental" arc.
+	customOID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
+	customValue := []byte("test content hash")
+
+	tmpfile, err := os.CreateTemp("", t.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	defer func() { _ = os.Remove(tmpfile.Name()) }()
+
+	err = sign.SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), sign.SignData{
+		Signature: sign.SignDataSignature{
+			Info: sign.SignDataSignatureInfo{
+				Name:        "Extra Attrs Tester",
+				Reason:      "Test ExtraSignedAttributes",
+				ContactInfo: "None",
+				Date:        time.Now().Local(),
+			},
+			CertType:   sign.CertificationSignature,
+			DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		ExtraSignedAttributes: []pkcs7.Attribute{
+			{Type: customOID, Value: customValue},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SignFile: %s", err.Error())
+	}
+
+	doc, err := pdfsign.OpenFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("%s: %s", tmpfile.Name(), err.Error())
+	}
+
+	var found bool
+	for sig, err := range doc.Signatures() {
+		if err != nil {
+			t.Fatalf("signature iteration: %s", err.Error())
+		}
+		p7, err := pkcs7.Parse(sig.Contents())
+		if err != nil {
+			t.Fatalf("pkcs7.Parse: %s", err.Error())
+		}
+
+		var got []byte
+		if err := p7.UnmarshalSignedAttribute(customOID, &got); err != nil {
+			continue
+		}
+		if string(got) != string(customValue) {
+			t.Fatalf("attribute value mismatch: want %q, got %q", customValue, got)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("custom signed attribute not found in any signature")
 	}
 }
 

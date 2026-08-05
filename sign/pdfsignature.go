@@ -350,6 +350,14 @@ func (context *SignContext) createSignature() ([]byte, error) {
 	// Signing Certificate (required for AdES)
 	extraAttributes = append(extraAttributes, *signingCertificate)
 
+	// Append caller-supplied custom signed attributes after the library
+	// defaults. They ride inside the cryptographically protected
+	// SignedAttributes set per RFC 5652 §11.2; any tampering with their
+	// values breaks pkcs7.Verify. An empty slice preserves prior behavior.
+	if len(context.SignData.ExtraSignedAttributes) > 0 {
+		extraAttributes = append(extraAttributes, context.SignData.ExtraSignedAttributes...)
+	}
+
 	signer_config := pkcs7.SignerInfoConfig{
 		ExtraSignedAttributes: extraAttributes,
 	}
@@ -423,27 +431,18 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	code := 0
-
-	if resp != nil {
-		code = resp.StatusCode
+	if err != nil {
+		return nil, fmt.Errorf("POST %s failed: %w", context.SignData.TSA.URL, err)
 	}
-
-	if err != nil || (code < 200 || code > 299) {
-		if err == nil {
-			defer func() {
-				_ = resp.Body.Close()
-			}()
-			body, _ := io.ReadAll(resp.Body)
-			return nil, errors.New("non success response (" + strconv.Itoa(code) + "): " + string(body))
-		}
-
-		return nil, errors.New("non success response (" + strconv.Itoa(code) + ")")
-	}
-
 	defer func() {
 		_ = resp.Body.Close()
 	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, errors.New("non success response (" + strconv.Itoa(resp.StatusCode) + "): " + string(body))
+	}
+
 	timestamp_response_body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)

@@ -85,31 +85,40 @@ func TestCryptoAlgorithms(t *testing.T) {
 				t.Fatalf("failed to open signed pdf for verification: %v", err)
 			}
 
-			// Configure verification based on profile
+			// Configure verification based on profile.
+			// TrustSelfSigned(true) is required because this test signs with a
+			// self-signed test CA that isn't in the system trust store; the
+			// test is only checking cryptographic/key-size correctness here.
 			var verifyResult *pdfsign.VerifyBuilder
 			switch tc.profile {
 			case testpki.RSA_2048:
 				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.RSA).
 					MinRSAKeySize(2048)
 			case testpki.RSA_3072:
 				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.RSA).
 					MinRSAKeySize(3072)
 			case testpki.RSA_4096:
 				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.RSA).
 					MinRSAKeySize(4096)
 			case testpki.ECDSA_P256:
 				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.ECDSA).
 					MinECDSAKeySize(256)
 			case testpki.ECDSA_P384:
 				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.ECDSA).
 					MinECDSAKeySize(384)
 			case testpki.ECDSA_P521:
 				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.ECDSA).
 					MinECDSAKeySize(521)
 			}

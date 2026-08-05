@@ -165,7 +165,12 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 
 			page_buffer.WriteString("  ]\n")
 		default:
-			page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, page.Key(key).String()))
+			val := page.Key(key)
+			if val.Kind() == pdf.String {
+				page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, pdfString(val.RawString())))
+			} else {
+				page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, val.String()))
+			}
 		}
 	}
 

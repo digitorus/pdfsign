@@ -1,10 +1,12 @@
 package pdfsign
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"time"
 
+	pdflib "github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/internal/render"
 	"github.com/digitorus/pdfsign/sign"
 )
@@ -18,7 +20,17 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 		Document:   d,
 	}
 
-	for _, sb := range d.pendingSigns {
+	// currentReader/currentSize/currentRdr track the input for the next
+	// signing pass. When multiple signatures are staged, each pass must
+	// build its incremental update on top of the PREVIOUS pass's signed
+	// output, not the document's original unsigned bytes, or the writer
+	// ends up with N unrelated single-signature copies concatenated
+	// together instead of one document with N chained signatures.
+	var currentReader io.ReaderAt = io.NewSectionReader(d.reader, 0, d.size)
+	currentSize := d.size
+	currentRdr := d.rdr
+
+	for i, sb := range d.pendingSigns {
 		// Validate Format
 		switch sb.format {
 		case PAdES_B_LTA, C2PA, JAdES_B_T:
@@ -120,12 +132,30 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 		}
 
 		// Execute signing using existing sign package.
-		// Wrap the document reader as a ReadSeeker so signing always executes
+		// Wrap the current reader as a ReadSeeker so signing always executes
 		// for any io.ReaderAt implementation (not just *os.File).
-		rs := io.NewSectionReader(d.reader, 0, d.size)
-		err = sign.SignWithData(rs, output, d.rdr, d.size, signData)
+		rs := io.NewSectionReader(currentReader, 0, currentSize)
+
+		isLast := i == len(d.pendingSigns)-1
+		var buf bytes.Buffer
+		err = sign.SignWithData(rs, &buf, currentRdr, currentSize, signData)
 		if err != nil {
 			return nil, err
+		}
+
+		if isLast {
+			if _, err := output.Write(buf.Bytes()); err != nil {
+				return nil, fmt.Errorf("failed to write signed document: %w", err)
+			}
+		} else {
+			signedBytes := buf.Bytes()
+			newRdr, err := pdflib.NewReader(bytes.NewReader(signedBytes), int64(len(signedBytes)))
+			if err != nil {
+				return nil, fmt.Errorf("failed to re-open intermediate signed document: %w", err)
+			}
+			currentReader = bytes.NewReader(signedBytes)
+			currentSize = int64(len(signedBytes))
+			currentRdr = newRdr
 		}
 
 		// Build result info

@@ -238,8 +238,9 @@ func TestIntegration_Sign(t *testing.T) {
 		t.Fatalf("failed to open signed PDF: %v", err)
 	}
 
-	// Verify
-	verifyResult := signedDoc.Verify()
+	// Verify. TrustSelfSigned(true) because this test signs with a
+	// self-signed cert not in the system trust store.
+	verifyResult := signedDoc.Verify().TrustSelfSigned(true)
 	if verifyResult.Err() != nil {
 		t.Fatalf("failed to verify: %v", verifyResult.Err())
 	}

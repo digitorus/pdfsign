@@ -2,6 +2,7 @@ package verify
 
 import (
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,13 +13,28 @@ import (
 )
 
 // buildCertificateChainsWithOptions builds certificate chains with custom verification options.
-// It returns a single (non-fatal) validation error that the caller may append to the signer's
-// ValidationErrors. The error captures revocation data parse failures and OCSP/CRL signature
-// issues but does not stop certificate chain building.
+// It returns a validation error (possibly a joined error) that the caller should append to the
+// signer's ValidationErrors. This covers an untrusted/unverifiable chain for the leaf (signer)
+// certificate, revocation data parse failures, and OCSP/CRL signature issues. None of these stop
+// certificate chain building for the remaining certificates.
 func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions) error {
+	// PDF signing certificates conventionally carry the Document Signing EKU
+	// (1.2.840.113583.1.1.8 / RFC 9336, OID 1.3.6.1.5.5.7.3.36), which Go's
+	// x509 package does not recognize as a named ExtKeyUsage constant. Go
+	// parses it into Certificate.UnknownExtKeyUsage rather than ExtKeyUsage,
+	// and Certificate.Verify's built-in KeyUsages gate only ever matches
+	// against the recognized ExtKeyUsage slice: a leaf whose only EKU lives
+	// in UnknownExtKeyUsage fails that gate for *any* requested KeyUsages,
+	// including ExtKeyUsageAny. So chain-trust verification (is this cert
+	// issued by something we trust?) is done here against EKU-stripped
+	// clones of every certificate, which sidesteps that gate entirely. EKU
+	// *policy* (is this cert allowed to sign PDFs?) is a separate concern,
+	// already handled below via validateKeyUsage on the original certs.
+	stripped := make([]*x509.Certificate, len(p7.Certificates))
 	certPool := x509.NewCertPool()
-	for _, cert := range p7.Certificates {
-		certPool.AddCert(cert)
+	for i, cert := range p7.Certificates {
+		stripped[i] = stripEKUForChainTrust(cert)
+		certPool.AddCert(stripped[i])
 	}
 
 	verificationTime := resolveVerificationTime(signer, options)
@@ -26,13 +42,11 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	ocspStatus, crlStatus, valErr := parseEmbeddedRevocationData(revInfo)
 
 	trustedIssuer := false
-	verificationEKUs := getVerificationEKUs()
 
 	createVerifyOptions := func(roots, intermediates *x509.CertPool) x509.VerifyOptions {
 		opts := x509.VerifyOptions{
 			Roots:         roots,
 			Intermediates: intermediates,
-			KeyUsages:     verificationEKUs,
 		}
 		if verificationTime != nil {
 			opts.CurrentTime = *verificationTime
@@ -40,29 +54,45 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		return opts
 	}
 
-	for _, cert := range p7.Certificates {
+	for i, cert := range p7.Certificates {
 		var c Certificate
 		c.Certificate = cert
 
 		c.KeyUsageValid, c.KeyUsageError, c.ExtKeyUsageValid, c.ExtKeyUsageError = validateKeyUsage(cert, options)
 
-		chain, err := cert.Verify(createVerifyOptions(nil, certPool))
+		var chainBroken bool
+		chain, err := stripped[i].Verify(createVerifyOptions(options.TrustedRoots, certPool))
 		if err == nil {
 			trustedIssuer = true
 		} else if options.AllowUntrustedRoots {
-			altChain, verifyErr := cert.Verify(createVerifyOptions(certPool, certPool))
+			altChain, verifyErr := stripped[i].Verify(createVerifyOptions(certPool, certPool))
 			if verifyErr != nil {
 				c.VerifyError = err.Error()
+				chainBroken = true
 			} else {
 				chain = altChain
 				err = nil
 			}
 		} else {
 			c.VerifyError = err.Error()
+			chainBroken = true
 		}
 
 		if err != nil {
 			c.VerifyError = err.Error()
+		}
+
+		// The signer's own (leaf) certificate is always p7.Certificates[0].
+		// An untrusted or unverifiable chain for it is a real validation
+		// failure, not just informational: without it, Valid() would report
+		// true for a signature whose certificate chain trusts nothing.
+		if i == 0 && chainBroken {
+			chainErr := &ValidationError{Msg: fmt.Sprintf("certificate chain could not be verified: %s", c.VerifyError)}
+			if valErr != nil {
+				valErr = errors.Join(chainErr, valErr)
+			} else {
+				valErr = chainErr
+			}
 		}
 
 		// Apply embedded and external revocation status checks
@@ -75,6 +105,19 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 
 	signer.TrustedIssuer = trustedIssuer
 	return valErr
+}
+
+// stripEKUForChainTrust returns a shallow copy of cert with its Extended Key
+// Usage fields cleared. It exists solely to sidestep a Go x509 limitation
+// (see the comment in buildCertificateChainsWithOptions): the copy is only
+// ever used for the chain-trust cert.Verify() call, never stored or used for
+// EKU policy decisions, signature checks, or anything else, so clearing
+// these fields cannot weaken any other part of verification.
+func stripEKUForChainTrust(cert *x509.Certificate) *x509.Certificate {
+	clone := *cert
+	clone.ExtKeyUsage = nil
+	clone.UnknownExtKeyUsage = nil
+	return &clone
 }
 
 // resolveVerificationTime determines the time to use for certificate chain
@@ -186,8 +229,13 @@ func applyRevocationStatus(
 	var valErr error
 	serialStr := fmt.Sprintf("%x", cert.SerialNumber)
 
+	if !options.CheckRevocation {
+		c.RevocationWarning = buildRevocationWarning(cert, c, options)
+		return nil
+	}
+
 	// Embedded OCSP
-	if resp, ok := ocspStatus[serialStr]; ok {
+	if resp, ok := ocspStatus[serialStr]; options.AllowOCSP && ok {
 		c.OCSPResponse = resp
 		c.OCSPEmbedded = true
 
@@ -211,18 +259,18 @@ func applyRevocationStatus(
 	}
 
 	// Embedded CRL
-	if revocationTime, ok := crlStatus[serialStr]; ok && revocationTime != nil {
+	if revocationTime, ok := crlStatus[serialStr]; options.AllowCRL && ok && revocationTime != nil {
 		c.CRLEmbedded = true
 		c.RevocationTime = revocationTime
 		applyRevocationImpact(signer, c, *revocationTime)
-	} else if len(ocspStatus) == 0 && len(crlStatus) > 0 {
+	} else if options.AllowCRL && len(ocspStatus) == 0 && len(crlStatus) > 0 {
 		// CRL is embedded but this certificate is not listed (not revoked)
 		c.CRLEmbedded = true
 	}
 
 	// External checks
 	if options.EnableExternalRevocationCheck {
-		if !c.OCSPEmbedded && len(cert.OCSPServer) > 0 && len(chain) > 0 && len(chain[0]) > 1 {
+		if options.AllowOCSP && !c.OCSPEmbedded && len(cert.OCSPServer) > 0 && len(chain) > 0 && len(chain[0]) > 1 {
 			issuer := chain[0][1]
 			if extResp, err := performExternalOCSPCheck(cert, issuer, options); err == nil {
 				c.OCSPResponse = extResp
@@ -234,7 +282,7 @@ func applyRevocationStatus(
 			}
 		}
 
-		if !c.CRLEmbedded && len(cert.CRLDistributionPoints) > 0 {
+		if options.AllowCRL && !c.CRLEmbedded && len(cert.CRLDistributionPoints) > 0 {
 			if revocationTime, isRevoked, err := performExternalCRLCheck(cert, options); err == nil {
 				c.CRLExternal = true
 				if isRevoked {
@@ -355,6 +403,7 @@ func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOption
 
 	// Verify the timestamp certificate chain against system trusted roots
 	opts := x509.VerifyOptions{
+		Roots:         options.TrustedRoots,
 		Intermediates: certPool,
 		CurrentTime:   ts.Time, // Use timestamp time for validation
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping},

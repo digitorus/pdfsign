@@ -34,10 +34,14 @@ type verifyOptions struct {
 // The verification process is lazy and only executes when you access the results (e.g., via Valid() or Signatures()).
 func (d *Document) Verify() *VerifyBuilder {
 	return &VerifyBuilder{
-		doc:           d,
-		allowOCSP:     true,
-		allowCRL:      true,
-		trustEmbedded: true,
+		doc: d,
+		// SECURE DEFAULT: don't trust self-signed/embedded-root certificates.
+		// Callers must opt in explicitly via TrustSelfSigned(true) or supply
+		// a pool via TrustedRoots.
+		trustEmbedded:   false,
+		checkRevocation: true,
+		allowOCSP:       true,
+		allowCRL:        true,
 	}
 }
 
@@ -64,6 +68,10 @@ func (b *VerifyBuilder) execute() {
 	}
 
 	vOpts.AllowUntrustedRoots = b.trustEmbedded
+	vOpts.TrustedRoots = b.trustedRoots
+	vOpts.CheckRevocation = b.checkRevocation
+	vOpts.AllowOCSP = b.allowOCSP
+	vOpts.AllowCRL = b.allowCRL
 	vOpts.EnableExternalRevocationCheck = b.externalChecks
 	vOpts.ValidateFullChain = b.validateFullChain
 	vOpts.ValidateTimestampCertificates = b.validateTimestampCert

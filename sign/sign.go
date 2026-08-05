@@ -101,7 +101,10 @@ func (context *SignContext) SignPDF() error {
 	// set defaults
 	context.applyDefaults()
 
-	for retry := 0; retry < 5; retry++ {
+	const maxRetries = 5
+	succeeded := false
+
+	for retry := 0; retry < maxRetries; retry++ {
 		context.resetContext()
 
 		// Copy old file into new buffer.
@@ -150,7 +153,12 @@ func (context *SignContext) SignPDF() error {
 		}
 
 		// Success!
+		succeeded = true
 		break
+	}
+
+	if !succeeded {
+		return fmt.Errorf("failed to fit signature into allocated buffer after %d attempts", maxRetries)
 	}
 
 	// Write final output

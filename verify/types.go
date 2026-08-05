@@ -41,6 +41,23 @@ type VerifyOptions struct {
 	// Only enable this for testing or when you explicitly trust the embedded certificates
 	AllowUntrustedRoots bool
 
+	// TrustedRoots, if non-nil, is the pool of root certificates used to verify the
+	// signer's certificate chain, instead of the system root pool. Checked before
+	// falling back to AllowUntrustedRoots.
+	TrustedRoots *x509.CertPool
+
+	// CheckRevocation is a master switch for revocation checking. When false, no
+	// embedded or external OCSP/CRL data is consulted regardless of AllowOCSP/AllowCRL.
+	CheckRevocation bool
+
+	// AllowOCSP allows OCSP data (embedded or, if EnableExternalRevocationCheck is
+	// set, fetched externally) to be used for revocation checking.
+	AllowOCSP bool
+
+	// AllowCRL allows CRL data (embedded or, if EnableExternalRevocationCheck is
+	// set, fetched externally) to be used for revocation checking.
+	AllowCRL bool
+
 	// EnableExternalRevocationCheck when true, performs external OCSP and CRL checks
 	// using the URLs found in certificate extensions
 	EnableExternalRevocationCheck bool

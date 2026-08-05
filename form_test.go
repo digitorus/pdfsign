@@ -237,8 +237,10 @@ func TestForm_Permissions_Implementation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify
-	results := doc1Mod.Verify()
+	// Verify. TrustSelfSigned(true) isolates the check to DocMDP permission
+	// enforcement rather than chain-of-trust (this test signs with a
+	// self-signed cert not in the system trust store).
+	results := doc1Mod.Verify().TrustSelfSigned(true)
 	if results.Err() != nil {
 		t.Logf("Verify error (unexpected): %v", results.Err())
 	}
@@ -263,7 +265,7 @@ func TestForm_Permissions_Implementation(t *testing.T) {
 	_, _ = doc2.Write(out2Mod)
 
 	doc2Mod, _ := Open(bytes.NewReader(out2Mod.Bytes()), int64(out2Mod.Len()))
-	results2 := doc2Mod.Verify()
+	results2 := doc2Mod.Verify().TrustSelfSigned(true)
 
 	if len(results2.Signatures()) == 0 {
 		t.Fatal("No signatures found")

@@ -249,12 +249,13 @@ func TestSignPDFImpl(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to open signed PDF: %v", err)
 		}
-		res := doc.Verify()
+		// TrustSelfSigned(true) because this test signs with a self-signed
+		// cert not in the system trust store; it only checks cryptographic
+		// validity here, not chain-of-trust.
+		res := doc.Verify().TrustSelfSigned(true)
 		if res.Err() != nil {
 			t.Fatalf("Verification failed to run: %v", res.Err())
 		}
-		// Since we didn't provide a chain/trust, it might be cryptographically valid but untrusted.
-		// We want to at least see that a signature was found.
 		if res.Count() == 0 {
 			t.Error("No signature found in signed PDF")
 		}
