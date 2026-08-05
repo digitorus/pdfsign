@@ -168,6 +168,11 @@ func TestSignPDFImpl(t *testing.T) {
 		panic("os.Exit called")
 	}
 
+	// Save/restore package-level flag vars this test mutates directly, so it
+	// can't leak state into other tests in this package's test binary.
+	origInfoName, origCertType := InfoName, CertType
+	defer func() { InfoName, CertType = origInfoName, origCertType }()
+
 	// Use real test PDF
 	testFilePath := "../testfiles/testfile20.pdf"
 	if _, err := os.Stat(testFilePath); os.IsNotExist(err) {
@@ -271,6 +276,11 @@ func TestSignPDFImpl_TimeStamp(t *testing.T) {
 	origExit := osExit
 	defer func() { osExit = origExit }()
 	osExit = func(code int) { panic("os.Exit called") }
+
+	// Save/restore package-level flag vars this test mutates directly, so it
+	// can't leak state into other tests in this package's test binary.
+	origCertType, origTSA := CertType, TSA
+	defer func() { CertType, TSA = origCertType, origTSA }()
 
 	// Use real test PDF
 	testFilePath := "../testfiles/testfile20.pdf"

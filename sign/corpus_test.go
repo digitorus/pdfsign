@@ -377,7 +377,7 @@ func signPDFFile(t *testing.T, inputPath, outputPath string, cert interface{}, k
 func validateFileWithPdfcpu(t *testing.T, path string) bool {
 	t.Helper()
 
-	cmd := exec.Command("pdfcpu", "validate", "-mode", "relaxed", path)
+	cmd := exec.Command("pdfcpu", "validate", "--mode", "relaxed", path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Logf("pdfcpu validation output: %s", string(output))

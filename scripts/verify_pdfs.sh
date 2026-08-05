@@ -54,10 +54,10 @@ for pdf in "$DIR"/*.pdf; do
     fi
 
     echo -n "Checking $filename... "
-    if pdfcpu validate -mode=strict "$pdf" > /dev/null 2>&1; then
+    if pdfcpu validate -m strict "$pdf" > /dev/null 2>&1; then
         echo "OK (Strict)"
     else
-        if pdfcpu validate -mode=relaxed "$pdf" > /dev/null 2>&1; then
+        if pdfcpu validate -m relaxed "$pdf" > /dev/null 2>&1; then
             echo "OK (Relaxed - Input likely had issues)"
         else
             echo "FAIL"

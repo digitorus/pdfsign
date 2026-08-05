@@ -14,6 +14,7 @@ import (
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign"
+	"github.com/digitorus/pdfsign/internal/testpki"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pdfsign/sign"
 	"github.com/digitorus/pdfsign/verify"
@@ -247,7 +248,7 @@ func TestSignPDF(t *testing.T) {
 			DocMDPPerm: sign.AllowFillingExistingFormFieldsAndSignaturesPerms,
 		},
 		TSA: sign.TSA{
-			URL: "http://timestamp.digicert.com",
+			URL: testpki.StartMockTSA(t),
 		},
 		RevocationData:     revocation.InfoArchival{},
 		RevocationFunction: sign.DefaultEmbedRevocationStatusFunction,
@@ -584,7 +585,7 @@ func TestSignPDFWithCertificationApprovalAndTimeStamp(t *testing.T) {
 		},
 		DigestAlgorithm: crypto.SHA512,
 		TSA: sign.TSA{
-			URL: "http://timestamp.entrust.net/TSS/RFC3161sha2TS",
+			URL: testpki.StartMockTSA(t),
 		},
 	})
 	if err != nil {
@@ -608,7 +609,7 @@ func TestTimestampPDFFile(t *testing.T) {
 		},
 		DigestAlgorithm: crypto.SHA512,
 		TSA: sign.TSA{
-			URL: "http://timestamp.entrust.net/TSS/RFC3161sha2TS",
+			URL: testpki.StartMockTSA(t),
 		},
 	})
 	if err != nil {

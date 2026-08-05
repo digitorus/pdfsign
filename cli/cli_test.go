@@ -87,12 +87,31 @@ func TestSignCommandValidation(t *testing.T) {
 }
 
 func TestSignCommand_FlagParsing(t *testing.T) {
-	// Save and restore os.Args and original SignPDF
+	// Save and restore os.Args, original SignPDF, and the package-level flag
+	// vars. SignCommand() registers flags with flag.StringVar, which resets
+	// each bound variable to its default (e.g. TSA to
+	// "https://freetsa.org/tsr") as soon as the flag is registered, before
+	// Parse() even runs. Without saving/restoring these, this test would
+	// permanently clobber InfoName/InfoLocation/InfoReason/InfoContact/TSA/
+	// CertType for every other test in this package that runs afterward in
+	// the same test binary.
 	origArgs := os.Args
 	origSignPDF := SignPDF
+	origInfoName := InfoName
+	origInfoLocation := InfoLocation
+	origInfoReason := InfoReason
+	origInfoContact := InfoContact
+	origTSA := TSA
+	origCertType := CertType
 	defer func() {
 		os.Args = origArgs
 		SignPDF = origSignPDF
+		InfoName = origInfoName
+		InfoLocation = origInfoLocation
+		InfoReason = origInfoReason
+		InfoContact = origInfoContact
+		TSA = origTSA
+		CertType = origCertType
 	}()
 
 	called := false

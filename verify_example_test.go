@@ -37,10 +37,12 @@ func ExampleDocument_Verify() {
 
 	// Configure verification with chainable methods
 	// Access .Valid() triggers lazy execution
-	// TrustSelfSigned(true) is required here because the example signs with a
-	// self-signed test CA that isn't in the system trust store.
+	// TrustedRoots is used here (rather than the TrustSelfSigned(true)
+	// escape hatch) to exercise real chain-of-trust validation against the
+	// example's test CA root, the way a caller with a real private root CA
+	// would.
 	result := doc.Verify().
-		TrustSelfSigned(true).
+		TrustedRoots(pki.RootPool()).
 		TrustSignatureTime(true).
 		MinRSAKeySize(2048).
 		AllowedAlgorithms(x509.ECDSA)

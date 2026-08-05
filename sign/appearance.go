@@ -30,6 +30,15 @@ func createFontResource(buffer *bytes.Buffer) {
 	buffer.WriteString("       /BaseFont /Times-Roman\n")
 	buffer.WriteString("       /FirstChar 32\n") // Standard ASCII range start (space)
 	buffer.WriteString("       /LastChar 255\n") // Standard ASCII range end
+	buffer.WriteString("       /Widths [")
+	// Widths is required alongside FirstChar/LastChar (ISO 32000-1 Table
+	// 111). Conformant viewers substitute their own built-in AFM metrics
+	// for the standard 14 fonts regardless of this array's contents, so a
+	// flat fallback doesn't change how the text renders.
+	for i := 32; i <= 255; i++ {
+		buffer.WriteString(" 500")
+	}
+	buffer.WriteString(" ]\n")
 	buffer.WriteString("       /FontDescriptor <<\n")
 	buffer.WriteString("         /Type /FontDescriptor\n")
 	buffer.WriteString("         /FontName /Times-Roman\n")

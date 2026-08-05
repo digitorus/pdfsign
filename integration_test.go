@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/digitorus/pdfsign"
+	"github.com/digitorus/pdfsign/internal/testpki"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pdfsign/sign"
 )
@@ -560,8 +561,7 @@ func TestIntegration(t *testing.T) {
 			Name:        "SignatureTimestamp",
 			Description: "Signature with embedded timestamp",
 			SignAction: func(t *testing.T, doc *pdfsign.Document, c *x509.Certificate, chain [][]*x509.Certificate, k interface{}) error {
-				// Note: Depends on external TSA service availability
-				tsaURL := "http://timestamp.digicert.com"
+				tsaURL := testpki.StartMockTSA(t)
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Timestamped Signature").
 					Timestamp(tsaURL)
@@ -572,8 +572,7 @@ func TestIntegration(t *testing.T) {
 			Name:        "DocumentTimestamp",
 			Description: "Document-level timestamp",
 			SignAction: func(t *testing.T, doc *pdfsign.Document, c *x509.Certificate, chain [][]*x509.Certificate, k interface{}) error {
-				// Note: Depends on external TSA service availability
-				tsaURL := "http://timestamp.digicert.com"
+				tsaURL := testpki.StartMockTSA(t)
 				doc.Timestamp(tsaURL)
 				return nil
 			},

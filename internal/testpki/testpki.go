@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/digitorus/timestamp"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -166,6 +167,69 @@ func NewTestPKIWithConfig(t *testing.T, config TestPKIConfig) *TestPKI {
 		IntermediateCerts: intermediateCerts,
 		Profile:           config.Profile,
 	}
+}
+
+// StartMockTSA starts a local RFC 3161 Time-Stamp Authority so tests don't
+// depend on live third-party services (freetsa.org, timestamp.digicert.com,
+// timestamp.entrust.net, ...), which are slow, rate-limited, and blocked
+// outright in network-restricted CI/sandboxed environments. It returns the
+// server's URL; the server is closed automatically via t.Cleanup.
+func StartMockTSA(t *testing.T) string {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		Fail(t, "mock TSA: generate key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Mock TSA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping},
+		BasicConstraintsValid: true,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	if err != nil {
+		Fail(t, "mock TSA: create certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		Fail(t, "mock TSA: parse certificate: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req, err := timestamp.ParseRequest(body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		ts := &timestamp.Timestamp{
+			HashAlgorithm:     req.HashAlgorithm,
+			HashedMessage:     req.HashedMessage,
+			Time:              time.Now(),
+			Policy:            asn1.ObjectIdentifier{1, 2, 3, 4, 5},
+			AddTSACertificate: true,
+		}
+		resp, err := ts.CreateResponseWithOpts(cert, key, crypto.SHA256)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/timestamp-reply")
+		_, _ = w.Write(resp)
+	}))
+	t.Cleanup(server.Close)
+
+	return server.URL
 }
 
 // StartCRLServer generates a valid CRL and starts a mock HTTP server serving it.
@@ -317,6 +381,16 @@ func (p *TestPKI) Chain() []*x509.Certificate {
 	}
 	chain = append(chain, p.RootCert)
 	return chain
+}
+
+// RootPool returns an x509.CertPool containing only this PKI's root CA
+// certificate, for tests that want to verify a real chain of trust (e.g. via
+// VerifyBuilder.TrustedRoots) instead of using TrustSelfSigned(true), which
+// bypasses chain trust validation entirely.
+func (p *TestPKI) RootPool() *x509.CertPool {
+	pool := x509.NewCertPool()
+	pool.AddCert(p.RootCert)
+	return pool
 }
 
 // Close stops the mock server.
