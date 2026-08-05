@@ -22,7 +22,7 @@ func ExampleDocument_Verify() {
 	docToSign, _ := pdfsign.OpenFile("testfiles/testfile_form.pdf")
 	appearance := pdfsign.NewAppearance(200, 80)
 	appearance.Text("Digitally Signed").Position(10, 40)
-	docToSign.Sign(key, cert, pki.Chain()...).Appearance(appearance, 1, 100, 100)
+	docToSign.Sign(key, cert, pki.Chain()...).Appearance(appearance, 100, 100)
 
 	var signedBuffer bytes.Buffer
 	if _, err := docToSign.Write(&signedBuffer); err != nil {

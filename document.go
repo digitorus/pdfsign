@@ -30,6 +30,15 @@ import (
 )
 
 // Document represents a PDF document that can be signed, verified, or modified.
+//
+// Concurrency: a Document (and the SignBuilder(s) returned by Sign) is a
+// sequential staging area, not safe for concurrent use - build it up from a
+// single goroutine, then call Write. This differs from VerifyBuilder (see
+// its doc comment), which is safe to query concurrently once configured;
+// staging signing operations is inherently a mutable, ordered process (each
+// Sign call appends to the document's pending operations), so unlike
+// verification there's no natural "configure once, read many times from
+// many goroutines" use case to make safe.
 type Document struct {
 	reader io.ReaderAt
 	size   int64
@@ -135,7 +144,7 @@ func (d *Document) Sign(signer crypto.Signer, cert *x509.Certificate, intermedia
 func (d *Document) Timestamp(tsaURL string) *SignBuilder {
 	return d.Sign(nil, nil).
 		Type(DocumentTimestamp).
-		tsaURL(tsaURL)
+		Timestamp(tsaURL)
 }
 
 // Write executes all staged operations and writes the signed document.

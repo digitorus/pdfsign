@@ -37,7 +37,7 @@ func TestImage_Registration(t *testing.T) {
 	pki.StartCRLServer()
 	defer pki.Close()
 	key, cert := pki.IssueLeaf("Render User")
-	doc.Sign(key, cert).Appearance(app, 1, 100, 100)
+	doc.Sign(key, cert).Appearance(app, 100, 100)
 
 	out := new(bytes.Buffer)
 	if _, err := doc.Write(out); err != nil {
@@ -64,7 +64,7 @@ func TestImage_Negatives(t *testing.T) {
 		pki.StartCRLServer()
 		defer pki.Close()
 		key, cert := pki.IssueLeaf("Empty User")
-		doc.Sign(key, cert).Appearance(app, 1, 10, 10)
+		doc.Sign(key, cert).Appearance(app, 10, 10)
 		if _, err := doc.Write(new(bytes.Buffer)); err == nil {
 			t.Error("Expected error for empty image data")
 		}
@@ -81,7 +81,7 @@ func TestImage_Negatives(t *testing.T) {
 		pki.StartCRLServer()
 		defer pki.Close()
 		key, cert := pki.IssueLeaf("Bad User")
-		doc.Sign(key, cert).Appearance(app, 1, 10, 10)
+		doc.Sign(key, cert).Appearance(app, 10, 10)
 		if _, err := doc.Write(new(bytes.Buffer)); err == nil {
 			t.Error("Expected error for unsupported image format")
 		}
@@ -104,7 +104,7 @@ func TestImage_Negatives(t *testing.T) {
 		pki.StartCRLServer()
 		defer pki.Close()
 		key, cert := pki.IssueLeaf("PNG User")
-		doc.Sign(key, cert).Appearance(app, 1, 10, 10)
+		doc.Sign(key, cert).Appearance(app, 10, 10)
 
 		// Currently code falls through for PNG and tries to embed
 		// It might succeed embedding raw bytes, or fail later.

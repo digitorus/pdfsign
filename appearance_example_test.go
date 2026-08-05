@@ -59,7 +59,7 @@ func ExampleAppearance_advanced() {
 		Position(220, 40)
 
 	// Sign the document with this appearance
-	docToSign.Sign(key, cert, pki.Chain()...).Appearance(app, 1, 100, 300)
+	docToSign.Sign(key, cert, pki.Chain()...).Appearance(app, 100, 300)
 
 	// Write signature
 	var signedBuffer bytes.Buffer
@@ -105,7 +105,7 @@ func ExampleAppearance_Standard() {
 	defer pki.Close()
 	key, cert := pki.IssueLeaf("Standard Signer")
 	docToSign, _ := pdfsign.OpenFile("testfiles/testfile_form.pdf")
-	docToSign.Sign(key, cert).Appearance(app, 1, 100, 100)
+	docToSign.Sign(key, cert).Appearance(app, 100, 100)
 
 	var buf bytes.Buffer
 	_, _ = docToSign.Write(&buf)

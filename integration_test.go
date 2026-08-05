@@ -107,7 +107,7 @@ func TestIntegration(t *testing.T) {
 				// Position at (100, 100)
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Standard Visible Signature (Big Text)").
-					Appearance(appearance, 1, 100, 100)
+					Appearance(appearance, 100, 100)
 				return nil
 			},
 		},
@@ -136,7 +136,7 @@ func TestIntegration(t *testing.T) {
 				// Position at (100, 300)
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Multi-Color Visual Verify").
-					Appearance(appearance, 1, 100, 300)
+					Appearance(appearance, 100, 300)
 				return nil
 			},
 		},
@@ -152,7 +152,7 @@ func TestIntegration(t *testing.T) {
 				// Position at (100, 100)
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Visible Image Signature").
-					Appearance(appearance, 1, 100, 100)
+					Appearance(appearance, 100, 100)
 				return nil
 			},
 		},
@@ -180,7 +180,7 @@ func TestIntegration(t *testing.T) {
 					Reason("Mixed Content Signature").
 					Location("New York, USA").
 					Contact("admin@example.com").
-					Appearance(appearance, 1, 50, 400)
+					Appearance(appearance, 50, 400)
 				return nil
 			},
 		},
@@ -195,7 +195,7 @@ func TestIntegration(t *testing.T) {
 					Reason("Compliance Check").
 					Location("New York, USA").
 					Contact("admin@example.com").
-					Appearance(appearance, 1, 200, 50)
+					Appearance(appearance, 200, 50)
 				return nil
 			},
 		},
@@ -221,7 +221,7 @@ func TestIntegration(t *testing.T) {
 
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Vector Shapes Signature").
-					Appearance(appearance, 1, 100, 100)
+					Appearance(appearance, 100, 100)
 				return nil
 			},
 		},
@@ -245,7 +245,7 @@ func TestIntegration(t *testing.T) {
 
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("PDF Embedding Test").
-					Appearance(appearance, 1, 100, 300)
+					Appearance(appearance, 100, 300)
 				return nil
 			},
 		},
@@ -264,7 +264,7 @@ func TestIntegration(t *testing.T) {
 
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Signed with Initials").
-					Appearance(appearance, 1, 100, 100)
+					Appearance(appearance, 100, 100)
 
 				// Initials: BottomRight, 20pt margin, Big Font "INTL"
 				initApp := pdfsign.NewAppearance(100, 50)
@@ -299,7 +299,7 @@ func TestIntegration(t *testing.T) {
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("First Signature (Alice)").
 					Location("London").
-					Appearance(appAlice, 1, 50, 600)
+					Appearance(appAlice, 50, 600)
 
 				// 2. Bob
 				appBob := pdfsign.NewAppearance(200, 50)
@@ -307,7 +307,7 @@ func TestIntegration(t *testing.T) {
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Second Signature (Bob)").
 					Location("Paris").
-					Appearance(appBob, 1, 300, 600)
+					Appearance(appBob, 300, 600)
 
 				return nil
 			},
@@ -325,7 +325,7 @@ func TestIntegration(t *testing.T) {
 					SignerName("My Organization Inc.").
 					Reason("Official Seal").
 					Contact("info@myorg.com").
-					Appearance(appSeal, 1, 400, 50)
+					Appearance(appSeal, 400, 50)
 				return nil
 			},
 		},
@@ -344,7 +344,7 @@ func TestIntegration(t *testing.T) {
 				// x=350, y=50, w=200, h=80
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("I agree to terms").
-					Appearance(appearance, 1, 350, 50)
+					Appearance(appearance, 350, 50)
 				return nil
 			},
 		},
@@ -367,7 +367,7 @@ func TestIntegration(t *testing.T) {
 				// Place at Bottom Left for variety/standard
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Custom Font Signature").
-					Appearance(appearance, 1, 50, 50)
+					Appearance(appearance, 50, 50)
 				return nil
 			},
 		},
@@ -389,7 +389,7 @@ func TestIntegration(t *testing.T) {
 				// Bottom Center-ish
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Standard Handwriting Font").
-					Appearance(appearance, 1, 200, 50)
+					Appearance(appearance, 200, 50)
 				return nil
 			},
 		},
@@ -408,7 +408,7 @@ func TestIntegration(t *testing.T) {
 				// Place seal at top right
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Verified with Transparent Seal").
-					Appearance(appSeal, 1, 400, 600)
+					Appearance(appSeal, 400, 600)
 				return nil
 			},
 		},
@@ -439,7 +439,7 @@ func TestIntegration(t *testing.T) {
 				// Let's just create a valid PDF with compression disabled to prove it works without error.
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Uncompressed Signature").
-					Appearance(app, 1, 100, 100)
+					Appearance(app, 100, 100)
 
 				return nil
 			},
@@ -490,7 +490,7 @@ func TestIntegration(t *testing.T) {
 
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Final Agreement").
-					Appearance(appSig, 1, 300, 100)
+					Appearance(appSig, 300, 100)
 
 				return nil
 			},
@@ -519,7 +519,7 @@ func TestIntegration(t *testing.T) {
 				// Place seal roughly over that area
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Stamped Over").
-					Appearance(appSeal, 1, 440, 20) // Overlapping
+					Appearance(appSeal, 440, 20) // Overlapping
 
 				return nil
 			},
@@ -533,7 +533,7 @@ func TestIntegration(t *testing.T) {
 				app1.Text("Signer 1").Font(nil, 12)
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("First Signer").
-					Appearance(app1, 1, 50, 600)
+					Appearance(app1, 50, 600)
 
 				// In this library, Sign() builds the structure.
 				// The doc.Write() writes it.
@@ -552,7 +552,7 @@ func TestIntegration(t *testing.T) {
 				app2.Text("Signer 2").Font(nil, 12)
 				doc.Sign(signerKey, c).CertificateChains(chain).
 					Reason("Second Signer").
-					Appearance(app2, 1, 350, 600)
+					Appearance(app2, 350, 600)
 
 				return nil
 			},
@@ -596,7 +596,7 @@ func TestIntegration(t *testing.T) {
 					SignerName("LTV User").
 					CertificateChains(chain).
 					// Providing just the cert. The library should fetch CRL from the cert's CDP.
-					Appearance(pdfsign.NewAppearance(200, 50), 1, 100, 100)
+					Appearance(pdfsign.NewAppearance(200, 50), 100, 100)
 
 				// Verify that the CRL was actually fetched
 				// Default behavior: Try OCSP (fails in mock), then CRL (succeeds).
@@ -617,7 +617,7 @@ func TestIntegration(t *testing.T) {
 					Reason("LTV Prefer CRL").
 					CertificateChains(chain).
 					PreferCRL(true).
-					Appearance(pdfsign.NewAppearance(200, 50), 1, 100, 200)
+					Appearance(pdfsign.NewAppearance(200, 50), 100, 200)
 
 				return nil
 			},
@@ -640,7 +640,7 @@ func TestIntegration(t *testing.T) {
 						// We can call the default one but force verify something
 						return sign.DefaultEmbedRevocationStatusFunction(cert, issuer, i)
 					}).
-					Appearance(pdfsign.NewAppearance(200, 50), 1, 100, 300)
+					Appearance(pdfsign.NewAppearance(200, 50), 100, 300)
 
 				return nil
 			},
@@ -658,7 +658,7 @@ func TestIntegration(t *testing.T) {
 				doc.Sign(k.(crypto.Signer), c).
 					Reason("LTV Fallback").
 					CertificateChains(chain).
-					Appearance(pdfsign.NewAppearance(200, 50), 1, 100, 100)
+					Appearance(pdfsign.NewAppearance(200, 50), 100, 100)
 
 				return nil
 			},

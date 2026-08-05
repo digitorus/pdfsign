@@ -206,7 +206,7 @@ func TestIntegration_Sign(t *testing.T) {
 		Reason("Integration test").
 		Location("Amsterdam").
 		SignerName("Test Signer").
-		Appearance(appearance, 1, 400, 50)
+		Appearance(appearance, 400, 50)
 
 	// Create output file
 	tmpfile, err := os.CreateTemp("", "signed-*.pdf")

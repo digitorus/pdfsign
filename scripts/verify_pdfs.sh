@@ -25,32 +25,10 @@ for pdf in "$DIR"/*.pdf; do
 
     filename=$(basename "$pdf")
 
-    # Skip files that are expected to fail or known issues
+    # Skip files that are expected to fail
     if [[ "$filename" == *"FormFillAPI.pdf" ]]; then
         echo "Skipping $filename (Expected Failure for API Test)"
         continue
-    fi
-    # Specific WithInitials failures due to complex input structure
-    if [[ "$filename" == "testfile12_WithInitials.pdf" ]]; then
-      echo "Skipping $filename (Known Issue: Input file structure incompatible with manual object reconstruction)"
-      continue
-    fi
-     if [[ "$filename" == "testfile16_WithInitials.pdf" ]]; then
-      echo "Skipping $filename (Known Issue: Input file structure incompatible with manual object reconstruction)"
-      continue
-    fi
-    # ContractFlow and StampOverlay also use Initials, so they fail on the same files
-    if [[ "$filename" == *"testfile12_ContractFlow.pdf"* ]] || [[ "$filename" == *"testfile12_StampOverlay.pdf"* ]]; then
-       echo "Skipping $filename (Known Issue: Input file structure incompatible with manual object reconstruction)"
-      continue
-    fi
-    if [[ "$filename" == *"testfile16_ContractFlow.pdf"* ]] || [[ "$filename" == *"testfile16_StampOverlay.pdf"* ]]; then
-       echo "Skipping $filename (Known Issue: Input file structure incompatible with manual object reconstruction)"
-      continue
-    fi
-    if [[ "$filename" == *"testfile_multi_WithInitials.pdf"* ]] || [[ "$filename" == *"testfile_multi_ContractFlow.pdf"* ]] || [[ "$filename" == *"testfile_multi_StampOverlay.pdf"* ]]; then
-       echo "Skipping $filename (Known Issue: Input file structure incompatible with manual object reconstruction)"
-      continue
     fi
 
     echo -n "Checking $filename... "

@@ -3,6 +3,7 @@ package pdfsign
 import (
 	"crypto"
 	"crypto/x509"
+	"sync"
 	"time"
 
 	"github.com/digitorus/pdfsign/extract"
@@ -307,35 +308,41 @@ func (b *SignBuilder) Format(f Format) *SignBuilder {
 // Example:
 //
 //	// Place signature at (20mm, 50mm)
-//	builder.Unit(pdfsign.Millimeter).Appearance(app, 1, 20, 50)
+//	builder.Unit(pdfsign.Millimeter).Appearance(app, 20, 50)
 func (b *SignBuilder) Unit(u float64) *SignBuilder {
 	b.unit = u
 	return b
 }
 
-// Appearance sets the visual appearance of the signature widget.
-// The appearance can include text, images, or graphics.
+// Appearance sets the visual appearance of the signature widget and its
+// position on the page. The appearance can include text, images, or
+// graphics.
 //
-//   - page: The page number to place the signature on (starting from 1 for the first page).
 //   - x, y: The coordinates in the current Unit (default is PDF points).
 //     (0, 0) is usually the bottom-left corner of the page.
-func (b *SignBuilder) Appearance(a *Appearance, page int, x, y float64) *SignBuilder {
+//
+// Placed on page 1 by default; use Page to place it on a different page.
+func (b *SignBuilder) Appearance(a *Appearance, x, y float64) *SignBuilder {
 	b.appearance = a
-	b.appPage = page
+	if b.appPage == 0 {
+		b.appPage = 1
+	}
 	b.appX = x
 	b.appY = y
+	return b
+}
+
+// Page sets the page number (starting from 1 for the first page) that the
+// appearance configured via Appearance is placed on. Defaults to 1 if not
+// called. Can be chained before or after Appearance.
+func (b *SignBuilder) Page(page int) *SignBuilder {
+	b.appPage = page
 	return b
 }
 
 // Timestamp enables RFC 3161 timestamping using the provided Time Stamp Authority (TSA) URL.
 // The timestamp is embedded in the signature to prove the time of signing.
 func (b *SignBuilder) Timestamp(url string) *SignBuilder {
-	b.tsa = url
-	return b
-}
-
-// tsaURL is internal method to set TSA URL.
-func (b *SignBuilder) tsaURL(url string) *SignBuilder {
 	b.tsa = url
 	return b
 }
@@ -389,6 +396,16 @@ func (b *SignBuilder) PreferCRL(prefer bool) *SignBuilder {
 
 // VerifyBuilder provides a fluent API for configuring and executing PDF signature verification.
 // Verification is performed lazily when result accessor methods (Valid, Signatures, Err) are called.
+//
+// Concurrency: configure a VerifyBuilder from a single goroutine, the same
+// way you would build up any other value. Once configuration is done, the
+// result accessor methods (Valid, Signatures, Document, Err, Count) are safe
+// to call concurrently from multiple goroutines - verification runs exactly
+// once no matter how many goroutines call them, and every caller observes
+// the same completed result. Calling a configuration method (TrustedRoots,
+// TrustSelfSigned, Strict, ...) concurrently with another call, or after an
+// accessor has already triggered verification, is not safe and has no effect
+// on a verification that has already run.
 type VerifyBuilder struct {
 	doc                   *Document
 	trustedRoots          *x509.CertPool
@@ -408,8 +425,11 @@ type VerifyBuilder struct {
 	minECDSAKeySize       int
 	allowedAlgorithms     []x509.PublicKeyAlgorithm
 
-	// Lazy execution state
-	executed   bool
+	// Lazy execution state. once guarantees execute() runs exactly once even
+	// if Valid()/Signatures()/Err()/etc. are called concurrently from
+	// multiple goroutines on the same *VerifyBuilder; the fields below must
+	// only be written inside the function passed to once.Do.
+	once       sync.Once
 	signatures []SignatureVerifyResult
 	document   DocumentInfo
 	err        error

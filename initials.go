@@ -175,6 +175,21 @@ func (d *Document) addAnnotToPage(context *sign.SignContext, page pdf.Value, ann
 	var buf bytes.Buffer
 	buf.WriteString("<<\n")
 
+	// pageObjID is used to distinguish a genuine indirect reference from a
+	// value embedded inline in the page dict (e.g. a literal MediaBox array
+	// or an inline Resources dict). Value.GetPtr() returns the ID of the
+	// object a value was last dereferenced *into*; for a value that was
+	// never behind a reference at all (a plain array element, an inline
+	// dict), it reports the ID of the *containing* object instead of zero,
+	// which is indistinguishable from a genuine self-reference unless we
+	// explicitly check for it. Without this check, inline values (Resources,
+	// Rotate, MediaBox/CropBox entries, ...) were being corrupted into
+	// self-referencing pointers back at the page object itself.
+	pageObjID := page.GetPtr().GetID()
+	isRef := func(ptr pdf.Ptr) bool {
+		return ptr.GetID() > 0 && ptr.GetID() != pageObjID
+	}
+
 	for _, key := range page.Keys() {
 		if key == "Annots" {
 			continue
@@ -191,8 +206,7 @@ func (d *Document) addAnnotToPage(context *sign.SignContext, page pdf.Value, ann
 			buf.WriteString("[")
 			for i := 0; i < val.Len(); i++ {
 				v := val.Index(i)
-				ptr := v.GetPtr()
-				if ptr.GetID() > 0 {
+				if ptr := v.GetPtr(); isRef(ptr) {
 					fmt.Fprintf(&buf, " %d %d R", ptr.GetID(), ptr.GetGen())
 				} else {
 					fmt.Fprintf(&buf, " %v", v.Float64())
@@ -201,7 +215,7 @@ func (d *Document) addAnnotToPage(context *sign.SignContext, page pdf.Value, ann
 			buf.WriteString(" ]\n")
 		} else {
 			ptr := val.GetPtr()
-			if ptr.GetID() > 0 {
+			if isRef(ptr) {
 				fmt.Fprintf(&buf, "%d %d R\n", ptr.GetID(), ptr.GetGen())
 			} else {
 				str := val.String()
@@ -221,14 +235,12 @@ func (d *Document) addAnnotToPage(context *sign.SignContext, page pdf.Value, ann
 	annots := page.Key("Annots")
 	if annots.Kind() == pdf.Array {
 		for i := 0; i < annots.Len(); i++ {
-			ptr := annots.Index(i).GetPtr()
-			if ptr.GetID() > 0 {
+			if ptr := annots.Index(i).GetPtr(); isRef(ptr) {
 				fmt.Fprintf(&buf, " %d %d R", ptr.GetID(), ptr.GetGen())
 			}
 		}
 	} else if annots.Kind() != 0 {
-		ptr := annots.GetPtr()
-		if ptr.GetID() > 0 {
+		if ptr := annots.GetPtr(); isRef(ptr) {
 			fmt.Fprintf(&buf, " %d %d R", ptr.GetID(), ptr.GetGen())
 		}
 	}
@@ -237,6 +249,5 @@ func (d *Document) addAnnotToPage(context *sign.SignContext, page pdf.Value, ann
 
 	buf.WriteString(">>")
 
-	ptr := page.GetPtr()
-	return context.UpdateObject(ptr.GetID(), buf.Bytes())
+	return context.UpdateObject(pageObjID, buf.Bytes())
 }

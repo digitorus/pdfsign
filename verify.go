@@ -25,13 +25,15 @@ func (d *Document) Verify() *VerifyBuilder {
 }
 
 // execute performs the actual verification if not already done (lazy execution).
-// Results are stored in the builder's internal fields.
+// Results are stored in the builder's internal fields. Safe to call
+// concurrently from multiple goroutines on the same *VerifyBuilder: the
+// underlying work runs exactly once (guarded by b.once), and every caller
+// waiting on that call sees its results once it returns.
 func (b *VerifyBuilder) execute() {
-	if b.executed {
-		return
-	}
-	b.executed = true
+	b.once.Do(b.doExecute)
+}
 
+func (b *VerifyBuilder) doExecute() {
 	// Helper to create internal options
 	vOpts := &verify.VerifyOptions{
 		RequiredEKUs: []x509.ExtKeyUsage{

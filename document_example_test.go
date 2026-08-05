@@ -36,7 +36,7 @@ func ExampleDocument_Sign() {
 	doc.Sign(key, cert, pki.Chain()...).
 		Reason("Contract Agreement").
 		Location("New York").
-		Appearance(appearance, 1, 100, 100)
+		Appearance(appearance, 100, 100)
 
 	_, err = doc.Write(&buf)
 	if err != nil {
@@ -53,6 +53,49 @@ func ExampleDocument_Sign() {
 
 	// Output:
 	// Successfully signed and verified: Example Signer
+}
+
+// ExampleDocument_Sign_multiple demonstrates staging more than one signature
+// on the same document. Each call to Sign() stages an independent signing
+// operation; nothing is executed yet. Write() then applies every staged
+// signature in the order Sign() was called, each one an incremental update
+// chained on top of the previous signature's output - the same as an
+// approver countersigning a document someone else already signed.
+func ExampleDocument_Sign_multiple() {
+	doc, err := pdfsign.OpenFile("testfiles/testfile_form.pdf")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pki := testpki.NewTestPKI(nil)
+	pki.StartCRLServer()
+	defer pki.Close()
+
+	aliceKey, aliceCert := pki.IssueLeaf("Alice")
+	bobKey, bobCert := pki.IssueLeaf("Bob")
+
+	// Stage Alice's signature, then Bob's. Order matters: Bob's signature
+	// will be applied on top of Alice's, not the other way around.
+	doc.Sign(aliceKey, aliceCert, pki.Chain()...).Reason("First approval")
+	doc.Sign(bobKey, bobCert, pki.Chain()...).Reason("Second approval")
+
+	var buf bytes.Buffer
+	if _, err := doc.Write(&buf); err != nil {
+		log.Fatal(err)
+	}
+
+	signedDoc, _ := pdfsign.Open(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	result := signedDoc.Verify().TrustSelfSigned(true)
+
+	fmt.Printf("Found %d signatures, all valid: %v\n", result.Count(), result.Valid())
+	for _, sig := range result.Signatures() {
+		fmt.Printf("Signed by: %s\n", sig.SignerName)
+	}
+
+	// Output:
+	// Found 2 signatures, all valid: true
+	// Signed by: Alice
+	// Signed by: Bob
 }
 
 // ExampleDocument_SetCompression demonstrates how to configure compression levels.
@@ -131,7 +174,7 @@ func ExampleDocument_AddFont() {
 	pki.StartCRLServer()
 	defer pki.Close()
 	key, cert := pki.IssueLeaf("Custom Font Signer")
-	doc.Sign(key, cert).Appearance(appearance, 1, 100, 100)
+	doc.Sign(key, cert).Appearance(appearance, 100, 100)
 
 	var buf bytes.Buffer
 	if _, err := doc.Write(&buf); err != nil {

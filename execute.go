@@ -13,7 +13,12 @@ import (
 
 // Write finalizes the document by executing all staged operations (signatures, form filling, initials).
 // It performs incremental updates to the PDF and writes the resulting bytes to the provided writer.
-// If multiple signatures were staged, they are applied one after another.
+//
+// Calling Sign() more than once before Write() stages multiple signatures;
+// each is applied in the order Sign() was called, as an incremental update
+// chained on top of the previous signature's output (e.g. an approver
+// countersigning a document someone else already signed). See
+// ExampleDocument_Sign_multiple.
 func (d *Document) Write(output io.Writer) (*Result, error) {
 	result := &Result{
 		Signatures: make([]SignatureInfo, 0, len(d.pendingSigns)),

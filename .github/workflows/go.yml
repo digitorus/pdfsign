@@ -79,18 +79,6 @@ jobs:
               continue
             fi
 
-            # Known issue: adding initials (directly, or via scenarios that
-            # also add initials) produces a page tree with a missing page
-            # node Type on at least one kid. Tracked separately; see
-            # scripts/verify_pdfs.sh for the matching skip list.
-            case "$filename" in
-              *_WithInitials.pdf|*_ContractFlow.pdf|*_StampOverlay.pdf)
-                echo "--------------------------------------------------"
-                echo "⏭️  $filename (skipped - known issue: initials annotation page tree Type)"
-                continue
-                ;;
-            esac
-
             echo "--------------------------------------------------"
             echo "📄 Validating: $filename"
             
