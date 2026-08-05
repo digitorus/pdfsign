@@ -229,13 +229,13 @@ func applyRevocationStatus(
 	var valErr error
 	serialStr := fmt.Sprintf("%x", cert.SerialNumber)
 
-	if !options.CheckRevocation {
+	if options.SkipRevocationCheck {
 		c.RevocationWarning = buildRevocationWarning(cert, c, options)
 		return nil
 	}
 
 	// Embedded OCSP
-	if resp, ok := ocspStatus[serialStr]; options.AllowOCSP && ok {
+	if resp, ok := ocspStatus[serialStr]; !options.SkipOCSP && ok {
 		c.OCSPResponse = resp
 		c.OCSPEmbedded = true
 
@@ -259,18 +259,18 @@ func applyRevocationStatus(
 	}
 
 	// Embedded CRL
-	if revocationTime, ok := crlStatus[serialStr]; options.AllowCRL && ok && revocationTime != nil {
+	if revocationTime, ok := crlStatus[serialStr]; !options.SkipCRL && ok && revocationTime != nil {
 		c.CRLEmbedded = true
 		c.RevocationTime = revocationTime
 		applyRevocationImpact(signer, c, *revocationTime)
-	} else if options.AllowCRL && len(ocspStatus) == 0 && len(crlStatus) > 0 {
+	} else if !options.SkipCRL && len(ocspStatus) == 0 && len(crlStatus) > 0 {
 		// CRL is embedded but this certificate is not listed (not revoked)
 		c.CRLEmbedded = true
 	}
 
 	// External checks
 	if options.EnableExternalRevocationCheck {
-		if options.AllowOCSP && !c.OCSPEmbedded && len(cert.OCSPServer) > 0 && len(chain) > 0 && len(chain[0]) > 1 {
+		if !options.SkipOCSP && !c.OCSPEmbedded && len(cert.OCSPServer) > 0 && len(chain) > 0 && len(chain[0]) > 1 {
 			issuer := chain[0][1]
 			if extResp, err := performExternalOCSPCheck(cert, issuer, options); err == nil {
 				c.OCSPResponse = extResp
@@ -282,7 +282,7 @@ func applyRevocationStatus(
 			}
 		}
 
-		if options.AllowCRL && !c.CRLEmbedded && len(cert.CRLDistributionPoints) > 0 {
+		if !options.SkipCRL && !c.CRLEmbedded && len(cert.CRLDistributionPoints) > 0 {
 			if revocationTime, isRevoked, err := performExternalCRLCheck(cert, options); err == nil {
 				c.CRLExternal = true
 				if isRevoked {

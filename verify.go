@@ -9,27 +9,6 @@ import (
 	"github.com/digitorus/pdfsign/verify"
 )
 
-// VerifyOption is a functional option for configuring verification.
-type VerifyOption func(*verifyOptions)
-
-type verifyOptions struct {
-	trustedRoots       *x509.CertPool
-	trustEmbedded      bool
-	checkRevocation    bool
-	allowOCSP          bool
-	allowCRL           bool
-	externalChecks     bool
-	validateFullChain  bool
-	validationTime     *time.Time
-	trustSignatureTime bool
-	requireDigSig      bool
-	requireNonRepud    bool
-	allowedEKUs        []x509.ExtKeyUsage
-	minRSAKeySize      int
-	minECDSAKeySize    int
-	allowedAlgorithms  []x509.PublicKeyAlgorithm
-}
-
 // Verify initializes a VerifyBuilder to configure and execute signature verification.
 // The verification process is lazy and only executes when you access the results (e.g., via Valid() or Signatures()).
 func (d *Document) Verify() *VerifyBuilder {
@@ -38,10 +17,10 @@ func (d *Document) Verify() *VerifyBuilder {
 		// SECURE DEFAULT: don't trust self-signed/embedded-root certificates.
 		// Callers must opt in explicitly via TrustSelfSigned(true) or supply
 		// a pool via TrustedRoots.
-		trustEmbedded:   false,
-		checkRevocation: true,
-		allowOCSP:       true,
-		allowCRL:        true,
+		trustEmbedded: false,
+		// skipRevocationCheck/skipOCSP/skipCRL are intentionally left at
+		// their zero value (false): embedded revocation data is consulted
+		// by default and must be explicitly skipped, not explicitly enabled.
 	}
 }
 
@@ -69,9 +48,9 @@ func (b *VerifyBuilder) execute() {
 
 	vOpts.AllowUntrustedRoots = b.trustEmbedded
 	vOpts.TrustedRoots = b.trustedRoots
-	vOpts.CheckRevocation = b.checkRevocation
-	vOpts.AllowOCSP = b.allowOCSP
-	vOpts.AllowCRL = b.allowCRL
+	vOpts.SkipRevocationCheck = b.skipRevocationCheck
+	vOpts.SkipOCSP = b.skipOCSP
+	vOpts.SkipCRL = b.skipCRL
 	vOpts.EnableExternalRevocationCheck = b.externalChecks
 	vOpts.ValidateFullChain = b.validateFullChain
 	vOpts.ValidateTimestampCertificates = b.validateTimestampCert
@@ -197,123 +176,6 @@ func parseDocumentInfo(v pdf.Value, info *DocumentInfo) {
 // parseDate parses PDF formatted dates (D:YYYYMMDDHHmmSSOHH'mm')
 func parseDate(v string) (time.Time, error) {
 	return time.Parse("D:20060102150405Z07'00'", v)
-}
-
-// TrustedRoots sets the trusted root certificate pool.
-func TrustedRoots(pool *x509.CertPool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.trustedRoots = pool
-	}
-}
-
-// TrustSelfSigned allows verification to succeed for self-signed certificates
-// or certificates signed by untrusted CAs embedded in the PDF.
-// Deprecated: Use the fluent API doc.Verify().TrustSelfSigned(true) instead.
-func TrustSelfSigned(trust bool) VerifyOption {
-	return func(c *verifyOptions) {
-		c.trustEmbedded = trust
-	}
-}
-
-// CheckRevocation enables revocation checking.
-func CheckRevocation(check bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.checkRevocation = check
-	}
-}
-
-// AllowOCSP allows OCSP for revocation checking.
-func AllowOCSP(allow bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.allowOCSP = allow
-	}
-}
-
-// AllowCRL allows CRL for revocation checking.
-func AllowCRL(allow bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.allowCRL = allow
-	}
-}
-
-// ExternalChecks enables external network calls for revocation.
-func ExternalChecks(enable bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.externalChecks = enable
-	}
-}
-
-// AtTime sets the time at which to validate certificates.
-func AtTime(t time.Time) VerifyOption {
-	return func(o *verifyOptions) {
-		o.validationTime = &t
-	}
-}
-
-// ValidateFullChain sets whether to enforce cryptographic policy constraints (key size, algorithms) on the entire chain.
-//
-// By default (false), these constraints are only enforced on the leaf (signer) certificate.
-// Revocation and standard trust verification are always performed on the full chain.
-func ValidateFullChain(validate bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.validateFullChain = validate
-	}
-}
-
-// TrustSignatureTime sets whether to trust the signature time.
-func TrustSignatureTime(trust bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.trustSignatureTime = trust
-	}
-}
-
-// RequireDigitalSignature requires the Digital Signature key usage bit.
-func RequireDigitalSignature(require bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.requireDigSig = require
-	}
-}
-
-// RequireNonRepudiation requires the Non-Repudiation key usage bit.
-func RequireNonRepudiation(require bool) VerifyOption {
-	return func(o *verifyOptions) {
-		o.requireNonRepud = require
-	}
-}
-
-// AllowedEKUs sets the allowed Extended Key Usages.
-func AllowedEKUs(ekus ...x509.ExtKeyUsage) VerifyOption {
-	return func(o *verifyOptions) {
-		o.allowedEKUs = ekus
-	}
-}
-
-// MinRSAKeySize constrains the minimum bit size for RSA keys.
-func MinRSAKeySize(bits int) VerifyOption {
-	return func(o *verifyOptions) {
-		o.minRSAKeySize = bits
-	}
-}
-
-// MinECDSAKeySize constrains the minimum curve size for ECDSA keys.
-func MinECDSAKeySize(bits int) VerifyOption {
-	return func(o *verifyOptions) {
-		o.minECDSAKeySize = bits
-	}
-}
-
-// AllowedAlgorithms restricts the permitted public key algorithms (e.g. x509.RSA, x509.ECDSA).
-func AllowedAlgorithms(algos ...x509.PublicKeyAlgorithm) VerifyOption {
-	return func(o *verifyOptions) {
-		o.allowedAlgorithms = algos
-	}
-}
-
-// VerifyResult contains the result of verification.
-type VerifyResult struct {
-	Valid      bool
-	Signatures []SignatureVerifyResult
-	Document   DocumentInfo
 }
 
 // SignatureVerifyResult contains verification result for a single signature.

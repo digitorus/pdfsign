@@ -393,9 +393,9 @@ type VerifyBuilder struct {
 	doc                   *Document
 	trustedRoots          *x509.CertPool
 	trustEmbedded         bool
-	checkRevocation       bool
-	allowOCSP             bool
-	allowCRL              bool
+	skipRevocationCheck   bool
+	skipOCSP              bool
+	skipCRL               bool
 	externalChecks        bool
 	validateFullChain     bool
 	validateTimestampCert bool
@@ -432,22 +432,25 @@ func (b *VerifyBuilder) TrustSelfSigned(trust bool) *VerifyBuilder {
 	return b
 }
 
-// CheckRevocation enables or disables all revocation checks (OCSP and CRL).
-// If enabled, the library will attempt to verify if the certificate has been revoked.
-func (b *VerifyBuilder) CheckRevocation(check bool) *VerifyBuilder {
-	b.checkRevocation = check
+// SkipRevocationCheck disables all revocation checks (OCSP and CRL), both
+// embedded and external. Revocation checking against embedded data is
+// performed by default; this is an opt-OUT, not an opt-in.
+func (b *VerifyBuilder) SkipRevocationCheck(skip bool) *VerifyBuilder {
+	b.skipRevocationCheck = skip
 	return b
 }
 
-// AllowOCSP allows OCSP for revocation checking.
-func (b *VerifyBuilder) AllowOCSP(allow bool) *VerifyBuilder {
-	b.allowOCSP = allow
+// SkipOCSP disables OCSP (embedded or external) as a revocation source.
+// OCSP is consulted by default; this is an opt-OUT, not an opt-in.
+func (b *VerifyBuilder) SkipOCSP(skip bool) *VerifyBuilder {
+	b.skipOCSP = skip
 	return b
 }
 
-// AllowCRL allows CRL for revocation checking.
-func (b *VerifyBuilder) AllowCRL(allow bool) *VerifyBuilder {
-	b.allowCRL = allow
+// SkipCRL disables CRL (embedded or external) as a revocation source.
+// CRL is consulted by default; this is an opt-OUT, not an opt-in.
+func (b *VerifyBuilder) SkipCRL(skip bool) *VerifyBuilder {
+	b.skipCRL = skip
 	return b
 }
 
@@ -526,8 +529,8 @@ func (b *VerifyBuilder) AllowedAlgorithms(algos ...x509.PublicKeyAlgorithm) *Ver
 }
 
 // Strict is a convenience method that enables all security and revocation checks.
-// It sets:
-//   - `CheckRevocation(true)`
+// Revocation checking against embedded data is already on by default; Strict
+// additionally sets:
 //   - `ExternalChecks(true)`
 //   - `ValidateFullChain(true)`
 //   - `RequireDigitalSignature(true)`

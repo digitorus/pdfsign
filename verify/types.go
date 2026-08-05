@@ -46,17 +46,22 @@ type VerifyOptions struct {
 	// falling back to AllowUntrustedRoots.
 	TrustedRoots *x509.CertPool
 
-	// CheckRevocation is a master switch for revocation checking. When false, no
-	// embedded or external OCSP/CRL data is consulted regardless of AllowOCSP/AllowCRL.
-	CheckRevocation bool
+	// Embedded revocation data (and, if EnableExternalRevocationCheck is set,
+	// externally fetched data) is consulted by default; these are opt-OUT
+	// switches, not opt-in ones, so the zero value of VerifyOptions is the
+	// secure, fully-checked configuration.
 
-	// AllowOCSP allows OCSP data (embedded or, if EnableExternalRevocationCheck is
-	// set, fetched externally) to be used for revocation checking.
-	AllowOCSP bool
+	// SkipRevocationCheck disables all revocation checking (OCSP and CRL,
+	// embedded and external) when true. Takes precedence over SkipOCSP/SkipCRL.
+	SkipRevocationCheck bool
 
-	// AllowCRL allows CRL data (embedded or, if EnableExternalRevocationCheck is
-	// set, fetched externally) to be used for revocation checking.
-	AllowCRL bool
+	// SkipOCSP disables OCSP data (embedded or externally fetched) as a
+	// revocation source when true.
+	SkipOCSP bool
+
+	// SkipCRL disables CRL data (embedded or externally fetched) as a
+	// revocation source when true.
+	SkipCRL bool
 
 	// EnableExternalRevocationCheck when true, performs external OCSP and CRL checks
 	// using the URLs found in certificate extensions

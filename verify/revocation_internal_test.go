@@ -9,9 +9,11 @@ import (
 	"math/big"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
+	"golang.org/x/crypto/ocsp"
 )
 
 // MockRoundTripper allows mocking HTTP responses
@@ -327,4 +329,64 @@ func TestBuildChains_ErrorHandling(t *testing.T) {
 	if err == nil {
 		t.Error("Expected non-nil error for unparseable OCSP/CRL data")
 	}
+}
+
+// TestApplyRevocationStatus_ZeroValueOptionsChecksEmbeddedData proves that a
+// bare, zero-value VerifyOptions{} (i.e. a caller who never touches
+// SkipRevocationCheck/SkipOCSP/SkipCRL at all) still consults embedded OCSP
+// and CRL data. These are opt-OUT switches: the secure, fully-checked
+// configuration must be reachable without setting anything.
+func TestApplyRevocationStatus_ZeroValueOptionsChecksEmbeddedData(t *testing.T) {
+	cert := &x509.Certificate{SerialNumber: big.NewInt(42)}
+	serialStr := "2a" // hex of 42
+
+	ocspStatus := map[string]*ocsp.Response{
+		serialStr: {SerialNumber: big.NewInt(42), Status: ocsp.Good},
+	}
+	crlStatus := map[string]*time.Time{}
+
+	signer := NewSigner()
+	var c Certificate
+	options := &VerifyOptions{} // zero value: nothing set
+
+	if err := applyRevocationStatus(cert, nil, ocspStatus, crlStatus, signer, &c, options); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !c.OCSPEmbedded {
+		t.Error("expected embedded OCSP to be consulted with zero-value VerifyOptions, but OCSPEmbedded is false")
+	}
+}
+
+// TestApplyRevocationStatus_SkipFlags proves the Skip* flags actually
+// disable revocation checking (i.e. they are not no-ops either).
+func TestApplyRevocationStatus_SkipFlags(t *testing.T) {
+	cert := &x509.Certificate{SerialNumber: big.NewInt(42)}
+	serialStr := "2a"
+	ocspStatus := map[string]*ocsp.Response{
+		serialStr: {SerialNumber: big.NewInt(42), Status: ocsp.Good},
+	}
+
+	t.Run("SkipOCSP disables OCSP only", func(t *testing.T) {
+		signer := NewSigner()
+		var c Certificate
+		options := &VerifyOptions{SkipOCSP: true}
+		if err := applyRevocationStatus(cert, nil, ocspStatus, map[string]*time.Time{}, signer, &c, options); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if c.OCSPEmbedded {
+			t.Error("expected OCSPEmbedded to stay false when SkipOCSP is set")
+		}
+	})
+
+	t.Run("SkipRevocationCheck disables everything", func(t *testing.T) {
+		signer := NewSigner()
+		var c Certificate
+		options := &VerifyOptions{SkipRevocationCheck: true}
+		if err := applyRevocationStatus(cert, nil, ocspStatus, map[string]*time.Time{}, signer, &c, options); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if c.OCSPEmbedded {
+			t.Error("expected OCSPEmbedded to stay false when SkipRevocationCheck is set")
+		}
+	})
 }
