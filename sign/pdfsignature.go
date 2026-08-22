@@ -20,9 +20,10 @@ import (
 	cryptobyte_asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
-// defaultTSATimeout bounds a TSA request when SignData.Context carries no
-// deadline of its own, so an unresponsive TSA can't hang Sign() forever.
-const defaultTSATimeout = 30 * time.Second
+// defaultHTTPTimeout bounds TSA and revocation requests when the caller's
+// context carries no deadline of its own, so an unresponsive server can't
+// hang Sign() forever.
+const defaultHTTPTimeout = 30 * time.Second
 
 const signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
@@ -477,7 +478,7 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 
 	client := &http.Client{}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		client.Timeout = defaultTSATimeout
+		client.Timeout = defaultHTTPTimeout
 	}
 	resp, err := client.Do(req)
 	if err != nil {

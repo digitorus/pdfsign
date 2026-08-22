@@ -69,11 +69,10 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 
 		// Use default revocation function if none provided
 		if signData.RevocationFunction == nil {
-			// configure defaults based on format
-			embedRevocation := true
-			if sb.format == PAdES_B {
-				embedRevocation = false
-			}
+			// PAdES baseline signatures carry no validation material in the
+			// CMS: B-T extends B-B with trusted time only; at B-LT it belongs
+			// in the DSS dictionary instead.
+			embedRevocation := sb.format != PAdES_B && sb.format != PAdES_B_T
 
 			// Create a default revocation function with options
 			// By default we try both (EnableOCSP=true, EnableCRL=true) to maximize compatibility,
@@ -85,6 +84,7 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 				PreferCRL:     sb.preferCRL, // Use builder preference
 				StopOnSuccess: true,         // Stop after first success to save space
 				Cache:         sb.revocationCache,
+				Context:       sb.ctx, // Bound OCSP/CRL requests
 			})
 		}
 

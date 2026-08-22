@@ -1,6 +1,7 @@
 package sign
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
@@ -13,6 +14,21 @@ import (
 	"github.com/digitorus/pdfsign/revocation"
 	"golang.org/x/crypto/ocsp"
 )
+
+// httpGet fetches url bounded by ctx, falling back to defaultHTTPTimeout when
+// ctx carries no deadline, so certificate-supplied endpoints can't hang Sign().
+func httpGet(ctx context.Context, url string) (*http.Response, error) {
+	ctx = ensureContext(ctx)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		client.Timeout = defaultHTTPTimeout
+	}
+	return client.Do(req)
+}
 
 // RevocationCache interfaces caching for revocation data.
 type RevocationCache interface {
@@ -45,7 +61,7 @@ func (c *MemoryCache) Put(key string, data []byte) {
 	c.items[key] = data
 }
 
-func embedOCSPRevocationStatus(cert, issuer *x509.Certificate, i *revocation.InfoArchival, cache RevocationCache) error {
+func embedOCSPRevocationStatus(ctx context.Context, cert, issuer *x509.Certificate, i *revocation.InfoArchival, cache RevocationCache) error {
 	req, err := ocsp.CreateRequest(cert, issuer, nil)
 	if err != nil {
 		return err
@@ -60,7 +76,7 @@ func embedOCSPRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Inf
 		}
 	}
 
-	resp, err := http.Get(ocspUrl)
+	resp, err := httpGet(ctx, ocspUrl)
 	if err != nil {
 		return err
 	}
@@ -93,7 +109,7 @@ func embedOCSPRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Inf
 
 // embedCRLRevocationStatus requires an issuer as it needs to implement the
 // the interface, a nil argment might be given if the issuer is not known.
-func embedCRLRevocationStatus(cert, issuer *x509.Certificate, i *revocation.InfoArchival, cache RevocationCache) error {
+func embedCRLRevocationStatus(ctx context.Context, cert, issuer *x509.Certificate, i *revocation.InfoArchival, cache RevocationCache) error {
 	crlUrl := cert.CRLDistributionPoints[0]
 	if cache != nil {
 		if data, ok := cache.Get(crlUrl); ok {
@@ -101,7 +117,7 @@ func embedCRLRevocationStatus(cert, issuer *x509.Certificate, i *revocation.Info
 		}
 	}
 
-	resp, err := http.Get(crlUrl)
+	resp, err := httpGet(ctx, crlUrl)
 	if err != nil {
 		return err
 	}
@@ -149,6 +165,7 @@ type RevocationOptions struct {
 	PreferCRL     bool            // If true, try CRL before OCSP.
 	StopOnSuccess bool            // If true, stop after successfully embedding one status.
 	Cache         RevocationCache // Optional cache for revocation data.
+	Context       context.Context // Bounds OCSP/CRL requests; nil means context.Background().
 }
 
 // NewRevocationFunction creates a RevocationFunction with the specified options.
@@ -157,7 +174,7 @@ func NewRevocationFunction(opts RevocationOptions) RevocationFunction {
 		// Wrapper for OCSP that returns (embedded, error)
 		tryOCSP := func() (bool, error) {
 			if opts.EmbedOCSP && issuer != nil && len(cert.OCSPServer) > 0 {
-				err := embedOCSPRevocationStatus(cert, issuer, i, opts.Cache)
+				err := embedOCSPRevocationStatus(opts.Context, cert, issuer, i, opts.Cache)
 				return err == nil, err
 			}
 			return false, nil
@@ -166,7 +183,7 @@ func NewRevocationFunction(opts RevocationOptions) RevocationFunction {
 		// Wrapper for CRL that returns (embedded, error)
 		tryCRL := func() (bool, error) {
 			if opts.EmbedCRL && len(cert.CRLDistributionPoints) > 0 {
-				err := embedCRLRevocationStatus(cert, issuer, i, opts.Cache)
+				err := embedCRLRevocationStatus(opts.Context, cert, issuer, i, opts.Cache)
 				return err == nil, err
 			}
 			return false, nil
