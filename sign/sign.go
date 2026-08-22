@@ -104,6 +104,10 @@ func (context *SignContext) SignPDF() error {
 	// set defaults
 	context.applyDefaults()
 
+	if err := context.validateSignData(); err != nil {
+		return err
+	}
+
 	const maxRetries = 5
 	succeeded := false
 
@@ -193,6 +197,19 @@ func (context *SignContext) applyDefaults() {
 		context.SignData.Appearance.Page = 1
 	}
 	context.SignData.Context = ensureContext(context.SignData.Context)
+}
+
+// validateSignData rejects parameters that cannot produce a conformant signature.
+func (context *SignContext) validateSignData() error {
+	if context.SignData.SubFilter == SubFilterETSICAdESDetached {
+		// ETSI EN 319 142-1, 6.2.1: MD5 shall not be used; TS 119 312 excludes SHA-1.
+		switch context.SignData.DigestAlgorithm {
+		case crypto.MD5, crypto.SHA1:
+			return fmt.Errorf("digest algorithm %s cannot be used for PAdES baseline signatures, use SHA-256 or stronger", context.SignData.DigestAlgorithm)
+		}
+	}
+
+	return nil
 }
 
 // ensureContext returns ctx, defaulting to context.Background() when nil.

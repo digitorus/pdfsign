@@ -33,7 +33,12 @@ func (context *SignContext) createSignaturePlaceholder() ([]byte, error) {
 	signature_buffer.WriteString("<<\n")
 	signature_buffer.WriteString(" /Type /Sig\n")
 	signature_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
-	signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
+	switch context.SignData.SubFilter {
+	case SubFilterETSICAdESDetached:
+		signature_buffer.WriteString(" /SubFilter /ETSI.CAdES.detached\n")
+	default:
+		signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
+	}
 
 	signature_buffer.WriteString(context.createPropBuild())
 
@@ -197,8 +202,17 @@ func (context *SignContext) createSignaturePlaceholder() ([]byte, error) {
 	//
 	// A timestamp can be embedded in a CMS binary data object (see 12.8.3.3, "CMS
 	// (PKCS #7) signatures").
-	if context.SignData.TSA.URL == "" && !context.SignData.Signature.Info.Date.IsZero() {
-		dateTime, err := pdfDateTime(context.SignData.Signature.Info.Date)
+	signingDate := context.SignData.Signature.Info.Date
+	isPAdES := context.SignData.SubFilter == SubFilterETSICAdESDetached
+	if isPAdES && signingDate.IsZero() {
+		// PAdES requires a claimed signing time in /M.
+		signingDate = time.Now()
+	}
+
+	// /M is mandatory for PAdES (ETSI EN 319 142-1, table 1); the legacy
+	// profile omits it when an embedded timestamp is present.
+	if (isPAdES || context.SignData.TSA.URL == "") && !signingDate.IsZero() {
+		dateTime, err := pdfDateTime(signingDate)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode signing date: %w", err)
 		}
@@ -274,8 +288,9 @@ func (context *SignContext) createSigningCertificateAttribute() (*pkcs7.Attribut
 	b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // SigningCertificate
 		b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // []ESSCertID, []ESSCertIDv2
 			b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // ESSCertID, ESSCertIDv2
-				// Explicitly include AlgorithmIdentifier for SHA256 (and others), but NOT for SHA1 (V1 structure)
-				if context.SignData.DigestAlgorithm.HashFunc() != crypto.SHA1 {
+				// No AlgorithmIdentifier for v1 (SHA-1) or the v2 DEFAULT
+				// id-sha256, which DER forbids encoding (RFC 5035; X.690, 11.5).
+				if hashFunc := context.SignData.DigestAlgorithm.HashFunc(); hashFunc != crypto.SHA1 && hashFunc != crypto.SHA256 {
 					b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // AlgorithmIdentifier
 						b.AddASN1ObjectIdentifier(getOIDFromHashAlgorithm(context.SignData.DigestAlgorithm))
 					})
@@ -385,6 +400,8 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	signer_config := pkcs7.SignerInfoConfig{
 		ExtraSignedAttributes: extraAttributes,
+		// PAdES forbids the signing-time attribute; /M carries the claimed time.
+		SkipSigningTime: context.SignData.SubFilter == SubFilterETSICAdESDetached,
 	}
 
 	// Add the first certificate chain without our own certificate.

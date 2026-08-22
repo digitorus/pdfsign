@@ -58,6 +58,15 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 			Context:            sb.ctx,
 		}
 
+		// PAdES_B/B_T produce ETSI EN 319 142-1 baseline signatures; other
+		// formats keep the legacy profile, document timestamps ETSI.RFC3161.
+		if sb.sigType != DocumentTimestamp {
+			switch sb.format {
+			case PAdES_B, PAdES_B_T:
+				signData.SubFilter = sign.SubFilterETSICAdESDetached
+			}
+		}
+
 		// Use default revocation function if none provided
 		if signData.RevocationFunction == nil {
 			// configure defaults based on format

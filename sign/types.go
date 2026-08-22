@@ -59,6 +59,9 @@ type SignData struct {
 	// behavior exactly.
 	ExtraSignedAttributes []pkcs7.Attribute
 
+	// SubFilter selects the signature encoding; the zero value keeps the legacy profile.
+	SubFilter SubFilter
+
 	// Context bounds the TSA HTTP request made when TSA.URL is set. If nil,
 	// context.Background() is used. Cancelling it aborts an in-flight TSA
 	// request immediately.
@@ -93,6 +96,17 @@ type VisualSignData struct {
 type InfoData struct {
 	ObjectId uint32
 }
+
+// SubFilter names the encoding of the signature value (ISO 32000-2, table 255).
+type SubFilter uint
+
+const (
+	// SubFilterAdbePKCS7Detached is the legacy /adbe.pkcs7.detached profile (default).
+	SubFilterAdbePKCS7Detached SubFilter = iota
+
+	// SubFilterETSICAdESDetached produces a PAdES baseline signature (ETSI EN 319 142-1).
+	SubFilterETSICAdESDetached
+)
 
 //go:generate stringer -type=CertType
 type CertType uint

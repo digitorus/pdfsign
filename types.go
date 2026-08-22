@@ -53,8 +53,9 @@ const (
 type Format int
 
 const (
-	// DefaultFormat allows the library to choose the best available format (currently PAdES-B-LT).
-	// This format embeds revocation information (OCSP/CRL) to ensure long-term validation support.
+	// DefaultFormat keeps the legacy /adbe.pkcs7.detached profile with embedded
+	// revocation info (OCSP/CRL). It is not PAdES: it carries a CMS signing-time
+	// attribute, which the baseline profiles forbid.
 	DefaultFormat Format = iota
 
 	// PAdES_B (Baseline-Basic) creates a lightweight signature containing only the signer's
@@ -71,6 +72,9 @@ const (
 	// (OCSP responses and/or CRLs) into the signature. This allows the signature to be validated
 	// even if the original CA services are offline or the certificate has expired (provided
 	// the revocation data was valid at signing time).
+	//
+	// Currently still the legacy profile: the DSS dictionary that B-LT
+	// requires is not written yet.
 	PAdES_B_LT
 
 	// PAdES_B_LTA (Baseline-Long-Term-Availability) is not yet supported.
