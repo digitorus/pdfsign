@@ -236,3 +236,63 @@ func ExampleDocument_AddFont() {
 
 	// Output: Successfully signed and verified with custom font
 }
+
+// ExampleSignBuilder_Format creates a PAdES B-B signature (ETSI EN 319 142-1)
+// with Format(PAdES_B). The unsupported levels PAdES_B_LT and PAdES_B_LTA are
+// rejected by Write until DSS support is implemented.
+func ExampleSignBuilder_Format() {
+	doc, err := pdfsign.OpenFile("testfiles/testfile_form.pdf")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pki := testpki.NewTestPKI(nil)
+	pki.StartCRLServer()
+	defer pki.Close()
+	key, cert := pki.IssueLeaf("Example Signer")
+
+	doc.Sign(key, cert, pki.Chain()...).Format(pdfsign.PAdES_B)
+
+	var buf bytes.Buffer
+	if _, err := doc.Write(&buf); err != nil {
+		log.Fatal(err)
+	}
+
+	signedDoc, _ := pdfsign.Open(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	result := signedDoc.Verify().TrustSelfSigned(true)
+
+	fmt.Printf("valid: %t, PAdES: %t\n", result.Valid(),
+		bytes.Contains(buf.Bytes(), []byte("/SubFilter /ETSI.CAdES.detached")))
+	// Output:
+	// valid: true, PAdES: true
+}
+
+// ExampleSignBuilder_Format_padesBT creates a PAdES B-T signature: B-B plus a
+// signature-time-stamp from the TSA that Format(PAdES_B_T) requires.
+func ExampleSignBuilder_Format_padesBT() {
+	doc, err := pdfsign.OpenFile("testfiles/testfile_form.pdf")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pki := testpki.NewTestPKI(nil)
+	pki.StartCRLServer()
+	defer pki.Close()
+	key, cert := pki.IssueLeaf("Example Signer")
+
+	tsaURL := testpki.StartMockTSA(nil) // replace with your TSA URL
+	doc.Sign(key, cert, pki.Chain()...).Format(pdfsign.PAdES_B_T).Timestamp(tsaURL)
+
+	var buf bytes.Buffer
+	if _, err := doc.Write(&buf); err != nil {
+		log.Fatal(err)
+	}
+
+	signedDoc, _ := pdfsign.Open(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	result := signedDoc.Verify().TrustSelfSigned(true)
+
+	fmt.Printf("valid: %t, PAdES: %t\n", result.Valid(),
+		bytes.Contains(buf.Bytes(), []byte("/SubFilter /ETSI.CAdES.detached")))
+	// Output:
+	// valid: true, PAdES: true
+}

@@ -174,8 +174,12 @@ func NewTestPKIWithConfig(t *testing.T, config TestPKIConfig) *TestPKI {
 // timestamp.entrust.net, ...), which are slow, rate-limited, and blocked
 // outright in network-restricted CI/sandboxed environments. It returns the
 // server's URL; the server is closed automatically via t.Cleanup.
+// A nil t is allowed (e.g. for examples); the server then lives until the
+// process exits instead of being closed via t.Cleanup.
 func StartMockTSA(t *testing.T) string {
-	t.Helper()
+	if t != nil {
+		t.Helper()
+	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -238,7 +242,9 @@ func StartMockTSA(t *testing.T) string {
 		w.Header().Set("Content-Type", "application/timestamp-reply")
 		_, _ = w.Write(resp)
 	}))
-	t.Cleanup(server.Close)
+	if t != nil {
+		t.Cleanup(server.Close)
+	}
 
 	return server.URL
 }
