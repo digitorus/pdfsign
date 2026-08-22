@@ -38,12 +38,15 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 	for i, sb := range d.pendingSigns {
 		// Validate Format
 		switch sb.format {
-		case PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T:
-			return nil, fmt.Errorf("signature format %v is not currently supported", sb.format)
+		case DefaultFormat, PAdES_B:
 		case PAdES_B_T:
 			if sb.tsa == "" {
 				return nil, fmt.Errorf("PAdES_B_T format requires a Timestamp Authority (TSA) URL")
 			}
+		case PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T:
+			return nil, fmt.Errorf("signature format %v is not currently supported", sb.format)
+		default:
+			return nil, fmt.Errorf("unknown signature format value: %d", sb.format)
 		}
 
 		// Convert SignBuilder to sign.SignData

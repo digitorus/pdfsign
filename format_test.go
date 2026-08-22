@@ -68,9 +68,9 @@ func TestFormat_Enforcement(t *testing.T) {
 		}
 	})
 
-	// 2. Test Unsupported Formats
+	// 2. Test unsupported and unknown formats
 	t.Run("Unsupported_Formats", func(t *testing.T) {
-		formats := []Format{PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T}
+		formats := []Format{PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T, Format(99)}
 		for _, f := range formats {
 			doc.pendingSigns = nil
 			doc.Sign(key, cert).Format(f)
