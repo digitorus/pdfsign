@@ -252,18 +252,16 @@ func (p *TestPKI) StartCRLServer() {
 	issuerCert := p.IntermediateCerts[lastIdx]
 	issuerKey := p.IntermediateKeys[lastIdx]
 
-	revokedCerts := []pkix.RevokedCertificate{
-		{
-			SerialNumber:   big.NewInt(9999),
-			RevocationTime: time.Now(),
-		},
-	}
-
 	crlTemplate := &x509.RevocationList{
-		Number:              big.NewInt(1),
-		ThisUpdate:          time.Now(),
-		NextUpdate:          time.Now().Add(24 * time.Hour),
-		RevokedCertificates: revokedCerts,
+		Number:     big.NewInt(1),
+		ThisUpdate: time.Now(),
+		NextUpdate: time.Now().Add(24 * time.Hour),
+		RevokedCertificateEntries: []x509.RevocationListEntry{
+			{
+				SerialNumber:   big.NewInt(9999),
+				RevocationTime: time.Now(),
+			},
+		},
 	}
 
 	crlBytes, err := x509.CreateRevocationList(rand.Reader, crlTemplate, issuerCert, issuerKey)

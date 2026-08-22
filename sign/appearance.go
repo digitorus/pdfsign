@@ -94,8 +94,8 @@ func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 	imageObject.WriteString("<<\n")
 	imageObject.WriteString("  /Type /XObject\n")
 	imageObject.WriteString("  /Subtype /Image\n")
-	imageObject.WriteString(fmt.Sprintf("  /Width %d\n", width))
-	imageObject.WriteString(fmt.Sprintf("  /Height %d\n", height))
+	fmt.Fprintf(&imageObject, "  /Width %d\n", width)
+	fmt.Fprintf(&imageObject, "  /Height %d\n", height)
 	imageObject.WriteString("  /ColorSpace /DeviceRGB\n")
 	imageObject.WriteString("  /BitsPerComponent 8\n")
 
@@ -137,7 +137,7 @@ func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 				return nil, nil, fmt.Errorf("failed to create alpha mask: %w", err)
 			}
 
-			imageObject.WriteString(fmt.Sprintf("  /SMask %d 0 R\n", context.getNextObjectID()+1)) // the smask will be placed after the image
+			fmt.Fprintf(&imageObject, "  /SMask %d 0 R\n", context.getNextObjectID()+1) // the smask will be placed after the image
 		}
 	default:
 		return nil, nil, fmt.Errorf("unsupported image format: %s", format)
@@ -145,7 +145,7 @@ func (context *SignContext) createImageXObject() ([]byte, []byte, error) {
 
 	compressedRgbData := compressData(rgbData.Bytes())
 
-	imageObject.WriteString(fmt.Sprintf("  /Length %d\n", len(compressedRgbData)))
+	fmt.Fprintf(&imageObject, "  /Length %d\n", len(compressedRgbData))
 	imageObject.WriteString(">>\n")
 	imageObject.WriteString("stream\n")
 	imageObject.Write(compressedRgbData)
@@ -176,12 +176,12 @@ func (context *SignContext) createAlphaMask(width, height int, alphaData []byte)
 	maskObject.WriteString("<<\n")
 	maskObject.WriteString("  /Type /XObject\n")
 	maskObject.WriteString("  /Subtype /Image\n")
-	maskObject.WriteString(fmt.Sprintf("  /Width %d\n", width))
-	maskObject.WriteString(fmt.Sprintf("  /Height %d\n", height))
+	fmt.Fprintf(&maskObject, "  /Width %d\n", width)
+	fmt.Fprintf(&maskObject, "  /Height %d\n", height)
 	maskObject.WriteString("  /ColorSpace /DeviceGray\n")
 	maskObject.WriteString("  /BitsPerComponent 8\n")
 	maskObject.WriteString("  /Filter /FlateDecode\n")
-	maskObject.WriteString(fmt.Sprintf("  /Length %d\n", len(alphaData)))
+	fmt.Fprintf(&maskObject, "  /Length %d\n", len(alphaData))
 	maskObject.WriteString(">>\n")
 	maskObject.WriteString("stream\n")
 	maskObject.Write(alphaData)

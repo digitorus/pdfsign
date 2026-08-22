@@ -48,21 +48,15 @@ func ExtractPageAsXObject(data []byte, pageNum int) (contentStream []byte, bbox 
 		// Multiple content streams
 		for i := 0; i < contents.Len(); i++ {
 			stream := contents.Index(i)
-			reader := stream.Reader()
-			if reader != nil {
-				if _, err := io.Copy(&buf, reader); err != nil {
-					return nil, bbox, fmt.Errorf("failed to copy content stream: %w", err)
-				}
-				buf.WriteString("\n")
+			if _, err := io.Copy(&buf, stream.Reader()); err != nil {
+				return nil, bbox, fmt.Errorf("failed to copy content stream: %w", err)
 			}
+			buf.WriteString("\n")
 		}
 	} else {
 		// Single content stream
-		reader := contents.Reader()
-		if reader != nil {
-			if _, err := io.Copy(&buf, reader); err != nil {
-				return nil, bbox, fmt.Errorf("failed to copy content stream: %w", err)
-			}
+		if _, err := io.Copy(&buf, contents.Reader()); err != nil {
+			return nil, bbox, fmt.Errorf("failed to copy content stream: %w", err)
 		}
 	}
 

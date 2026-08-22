@@ -30,14 +30,8 @@ jobs:
           # Require: The version of golangci-lint to use.
           # When `install-mode` is `binary` (default) the value can be v1.2 or v1.2.3 or `latest` to use the latest version.
           # When `install-mode` is `goinstall` the value can be v1.2.3, `latest`, or the hash of a commit.
-          version: v2.7.0
-
-          # golangci-lint's own released binaries are still built with an
-          # older Go toolchain than this repo's `go 1.27.0` directive, which
-          # golangci-lint refuses to run under. goinstall builds the binary
-          # from source with the Go toolchain actions/setup-go just installed
-          # above, avoiding the mismatch.
-          install-mode: goinstall
+          # v2.13.0 is the first release built with and supporting Go 1.27.
+          version: v2.13.1
 
           # Optional: working directory, useful for monorepos
           # working-directory: somedir
