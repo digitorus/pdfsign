@@ -38,7 +38,7 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 	for i, sb := range d.pendingSigns {
 		// Validate Format
 		switch sb.format {
-		case PAdES_B_LTA, C2PA, JAdES_B_T:
+		case PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T:
 			return nil, fmt.Errorf("signature format %v is not currently supported", sb.format)
 		case PAdES_B_T:
 			if sb.tsa == "" {

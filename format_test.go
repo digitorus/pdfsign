@@ -35,7 +35,7 @@ func TestFormat_Enforcement(t *testing.T) {
 
 	// 2. Test Unsupported Formats
 	t.Run("Unsupported_Formats", func(t *testing.T) {
-		formats := []Format{PAdES_B_LTA, C2PA, JAdES_B_T}
+		formats := []Format{PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T}
 		for _, f := range formats {
 			doc.pendingSigns = nil
 			doc.Sign(key, cert).Format(f)
@@ -77,22 +77,7 @@ func TestFormat_Enforcement(t *testing.T) {
 		}
 	})
 
-	// 5. Test PAdES_B_LT (legacy profile until DSS support is added)
-	t.Run("PAdES_B_LT_Success", func(t *testing.T) {
-		doc.pendingSigns = nil
-		doc.Sign(key, cert).Format(PAdES_B_LT)
-
-		var buf bytes.Buffer
-		_, err := doc.Write(&buf)
-		if err != nil {
-			t.Errorf("Expected success for PAdES_B_LT, got error: %v", err)
-		}
-		if !bytes.Contains(buf.Bytes(), []byte("/SubFilter /adbe.pkcs7.detached")) {
-			t.Error("PAdES_B_LT output does not use the legacy SubFilter adbe.pkcs7.detached")
-		}
-	})
-
-	// 6. Test DefaultFormat (legacy profile)
+	// 5. Test DefaultFormat (legacy profile)
 	t.Run("DefaultFormat_Legacy", func(t *testing.T) {
 		doc.pendingSigns = nil
 		doc.Sign(key, cert).Format(DefaultFormat)
@@ -107,7 +92,7 @@ func TestFormat_Enforcement(t *testing.T) {
 		}
 	})
 
-	// 7. Document timestamps always use ETSI.RFC3161
+	// 6. Document timestamps always use ETSI.RFC3161
 	t.Run("DocumentTimestamp_RFC3161", func(t *testing.T) {
 		doc.pendingSigns = nil
 		doc.Timestamp(testpki.StartMockTSA(t)).Format(PAdES_B_T)

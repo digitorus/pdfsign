@@ -73,8 +73,7 @@ const (
 	// even if the original CA services are offline or the certificate has expired (provided
 	// the revocation data was valid at signing time).
 	//
-	// Currently still the legacy profile: the DSS dictionary that B-LT
-	// requires is not written yet.
+	// Not yet supported: rejected until the DSS dictionary it requires is written.
 	PAdES_B_LT
 
 	// PAdES_B_LTA (Baseline-Long-Term-Availability) is not yet supported.
@@ -300,9 +299,9 @@ func (b *SignBuilder) Permission(p Permission) *SignBuilder {
 	return b
 }
 
-// Format configures the signature format (e.g., PAdES_B, PAdES_B_LT).
+// Format configures the signature format (e.g., PAdES_B).
 // This determines whether revocation info is embedded (LTV) and other compliance features.
-// Default is PAdES_B_LT-like behavior (revocation embedded) if not specified.
+// DefaultFormat (revocation embedded) is used if not specified.
 func (b *SignBuilder) Format(f Format) *SignBuilder {
 	b.format = f
 	return b
