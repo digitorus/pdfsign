@@ -139,9 +139,14 @@ jobs:
           chmod +x scripts/setup-dss.sh
           ./scripts/setup-dss.sh
 
-          # Run validation test
+          # Run validation tests sequentially, not as one multi-package
+          # invocation: both packages write to testfiles/success and the sign
+          # package's TestMain clears it, so parallel package execution would
+          # race. sign runs first; the root package then adds its dss_*
+          # artifacts, which survive for the artifact upload step.
           echo "### DSS Signature Validation Results"
           DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v ./sign -run TestValidateDSSValidation
+          DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v . -run TestValidateDSSPAdESLevels
           
           # Container is started with --rm, so stopping it is enough
           docker stop dss-validator || true

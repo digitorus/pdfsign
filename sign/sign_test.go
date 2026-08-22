@@ -1168,7 +1168,7 @@ func TestSignPDFPAdESBaseline(t *testing.T) {
 
 	assertPAdESBaseline(t, incrementalUpdate)
 
-	verifySignedFile(t, tmpfile, filepath.Base(inputFilePath))
+	verifySignedFile(t, tmpfile, "testfile20_PAdES_B.pdf")
 }
 
 // TestSignPDFPAdESBaselineWithTimestamp: a signature-time-stamp does not
@@ -1220,7 +1220,7 @@ func TestSignPDFPAdESBaselineWithTimestamp(t *testing.T) {
 		t.Error("signature-time-stamp message imprint does not cover the CMS signature value")
 	}
 
-	verifySignedFile(t, tmpfile, filepath.Base(inputFilePath))
+	verifySignedFile(t, tmpfile, "testfile20_PAdES_B_T.pdf")
 }
 
 func TestSignPDFPAdESRejectsWeakDigest(t *testing.T) {
