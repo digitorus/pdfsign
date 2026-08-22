@@ -201,6 +201,12 @@ func (context *SignContext) applyDefaults() {
 
 // validateSignData rejects parameters that cannot produce a conformant signature.
 func (context *SignContext) validateSignData() error {
+	switch context.SignData.SubFilter {
+	case SubFilterAdbePKCS7Detached, SubFilterETSICAdESDetached:
+	default:
+		return fmt.Errorf("unsupported SubFilter value: %d", context.SignData.SubFilter)
+	}
+
 	if context.SignData.SubFilter == SubFilterETSICAdESDetached {
 		// ETSI EN 319 142-1, 6.2.1: MD5 shall not be used; TS 119 312 excludes SHA-1.
 		switch context.SignData.DigestAlgorithm {

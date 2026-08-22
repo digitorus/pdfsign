@@ -34,10 +34,12 @@ func (context *SignContext) createSignaturePlaceholder() ([]byte, error) {
 	signature_buffer.WriteString(" /Type /Sig\n")
 	signature_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
 	switch context.SignData.SubFilter {
+	case SubFilterAdbePKCS7Detached:
+		signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
 	case SubFilterETSICAdESDetached:
 		signature_buffer.WriteString(" /SubFilter /ETSI.CAdES.detached\n")
 	default:
-		signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
+		return nil, fmt.Errorf("unsupported SubFilter value: %d", context.SignData.SubFilter)
 	}
 
 	signature_buffer.WriteString(context.createPropBuild())

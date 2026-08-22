@@ -1259,6 +1259,36 @@ func TestSignPDFPAdESRejectsWeakDigest(t *testing.T) {
 	}
 }
 
+// TestSignPDFRejectsUnknownSubFilter: an unknown SubFilter must fail instead
+// of silently downgrading to the legacy profile.
+func TestSignPDFRejectsUnknownSubFilter(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+
+	tmpfile, err := os.CreateTemp(t.TempDir(), "unknownsubfilter")
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	err = sign.SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), sign.SignData{
+		Signature: sign.SignDataSignature{
+			CertType: sign.ApprovalSignature,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		SubFilter:       sign.SubFilter(99),
+	})
+	if err == nil {
+		t.Fatal("signing with an unknown SubFilter succeeded, want an error")
+	}
+	if !strings.Contains(err.Error(), "unsupported SubFilter") {
+		t.Fatalf("got error %q, want the SubFilter rejection", err.Error())
+	}
+}
+
 // TestSignPDFPAdESDefaultSigningDate: /M shall be present even when the
 // caller provides no signing date.
 func TestSignPDFPAdESDefaultSigningDate(t *testing.T) {
