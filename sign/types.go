@@ -104,7 +104,10 @@ const (
 	// SubFilterAdbePKCS7Detached is the legacy /adbe.pkcs7.detached profile (default).
 	SubFilterAdbePKCS7Detached SubFilter = iota
 
-	// SubFilterETSICAdESDetached produces a PAdES baseline signature (ETSI EN 319 142-1).
+	// SubFilterETSICAdESDetached selects the /ETSI.CAdES.detached encoding and
+	// its ETSI EN 319 142-1 baseline defaults (no CMS signing-time, /M entry,
+	// digest checks). Callers remain responsible for keeping anything they add
+	// themselves, such as ExtraSignedAttributes, within the profile.
 	SubFilterETSICAdESDetached
 )
 
