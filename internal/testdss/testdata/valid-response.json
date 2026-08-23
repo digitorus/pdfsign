@@ -1,0 +1,27 @@
+{
+  "simpleReport": {
+    "valid": false,
+    "signaturesCount": 1,
+    "validSignaturesCount": 0,
+    "signatureOrTimestampOrEvidenceRecord": [
+      {
+        "signature": {
+          "signatureFormat": "PAdES-BASELINE-B",
+          "indication": "INDETERMINATE",
+          "subIndication": "NO_CERTIFICATE_CHAIN_FOUND"
+        }
+      },
+      {
+        "timestamp": {
+          "indication": "INDETERMINATE"
+        }
+      }
+    ]
+  },
+  "detailedReport": {
+    "status": "available"
+  },
+  "diagnosticData": {
+    "UsedValidationPolicy": "default"
+  }
+}
