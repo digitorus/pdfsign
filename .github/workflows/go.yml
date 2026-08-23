@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go 1.x
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version: '1.27.x'
 
       - name: Set up Java (for external validation tools)
         uses: actions/setup-java@v4
@@ -139,9 +139,10 @@ jobs:
           chmod +x scripts/setup-dss.sh
           ./scripts/setup-dss.sh
 
-          # Run validation test
+          # The DSS tests use isolated outputs and a shared validation client,
+          # so both packages can be validated in one invocation.
           echo "### DSS Signature Validation Results"
-          DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v ./sign -run TestValidateDSSValidation
+          DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v ./sign . -run TestValidateDSS
           
           # Container is started with --rm, so stopping it is enough
           docker stop dss-validator || true
@@ -172,7 +173,7 @@ jobs:
       - name: Set up Go 1.x
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version: '1.27.x'
 
       - name: Set up Java (for external validation tools)
         uses: actions/setup-java@v4

@@ -2,6 +2,9 @@ package sign
 
 import (
 	"bytes"
+	"compress/zlib"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -286,9 +289,39 @@ func TestWriteXrefTypeStream(t *testing.T) {
 		return
 	}
 
-	got := context.OutputBuffer.Buff.String()
-	expect := "\n\n5 0 obj\n<< /Type /XRef\n  /Length 22\n  /Filter /FlateDecode\n  /W [ 1 4 1 ]\n  /Prev 0\n  /Size 3\n  /Index [ 3 2 ]\n  /Root 0 0 R\n>>\nstream\nx\x9cbd``Ha\x00\x91'\x18\x00\x01\x00\x00\xff\xff\x04\xce\x01/\nendstream\nendobj\n"
-	if got != expect {
-		t.Errorf("writeXref() output = %q, want %q", got, expect)
+	got := context.OutputBuffer.Buff.Bytes()
+
+	// Compressed bytes vary across Go releases, so assert the dictionary and
+	// the decompressed payload instead.
+	header, rest, found := bytes.Cut(got, []byte("stream\n"))
+	if !found {
+		t.Fatalf("writeXref() output = %q, want it to contain a stream", got)
+	}
+	suffix := []byte("\nendstream\nendobj\n")
+	if !bytes.HasSuffix(rest, suffix) {
+		t.Fatalf("writeXref() output = %q, want it to end with %q", got, suffix)
+	}
+	payload := rest[:len(rest)-len(suffix)]
+
+	expectHeader := fmt.Sprintf("\n\n5 0 obj\n<< /Type /XRef\n  /Length %d\n  /Filter /FlateDecode\n  /W [ 1 4 1 ]\n  /Prev 0\n  /Size 3\n  /Index [ 3 2 ]\n  /Root 0 0 R\n>>\n", len(payload))
+	if string(header) != expectHeader {
+		t.Errorf("writeXref() dictionary = %q, want %q", header, expectHeader)
+	}
+
+	zr, err := zlib.NewReader(bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("stream payload is not valid zlib data: %v", err)
+	}
+	entries, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("failed to decompress stream payload: %v", err)
+	}
+	// Two /W [ 1 4 1 ] entries: type, 4-byte big-endian offset, generation.
+	expectEntries := []byte{
+		1, 0, 0, 0, 100, 0,
+		1, 0, 0, 0, 200, 0,
+	}
+	if !bytes.Equal(entries, expectEntries) {
+		t.Errorf("decoded xref stream = %v, want %v", entries, expectEntries)
 	}
 }

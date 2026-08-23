@@ -1,8 +1,8 @@
 github.com/digitorus/pdf v0.2.0 h1:VTH4wOsVqIcV3CHeh8kahHDtvPmlK3jjRMIGhLXn4K4=
 github.com/digitorus/pdf v0.2.0/go.mod h1:hAVtI9P/OwJ4Hk+xoxxpLfBL3KHFpEFfcKMAnv02F80=
 github.com/digitorus/pkcs7 v0.0.0-20230713084857-e76b763bdc49/go.mod h1:SKVExuS+vpu2l9IoOc0RwqE7NYnb0JlcFHFnEJkVDzc=
-github.com/digitorus/pkcs7 v0.0.0-20250730155240-ffadbf3f398c h1:g349iS+CtAvba7i0Ee9EP1TlTZ9w+UncBY6HSmsFZa0=
-github.com/digitorus/pkcs7 v0.0.0-20250730155240-ffadbf3f398c/go.mod h1:mCGGmWkOQvEuLdIRfPIpXViBfpWto4AhwtJlAvo62SQ=
+github.com/digitorus/pkcs7 v0.0.0-20260821105541-05f79448fa77 h1:ellGgwdFy8F+Fn/AElhKzTysK1/Js7S9ZmMnSu2gSS0=
+github.com/digitorus/pkcs7 v0.0.0-20260821105541-05f79448fa77/go.mod h1:OQvyvldkvDCxGsUPLSibXqM4B/Pz5RaXQP4CPo5LXs4=
 github.com/digitorus/timestamp v0.0.0-20250524132541-c45532741eea h1:ALRwvjsSP53QmnN3Bcj0NpR8SsFLnskny/EIMebAk1c=
 github.com/digitorus/timestamp v0.0.0-20250524132541-c45532741eea/go.mod h1:GvWntX9qiTlOud0WkQ6ewFm0LPy5JUR1Xo0Ngbd1w6Y=
 github.com/mattetti/filebuffer v1.0.1 h1:gG7pyfnSIZCxdoKq+cPa8T0hhYtD9NxCdI4D7PTjRLM=

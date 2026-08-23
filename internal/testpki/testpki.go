@@ -174,8 +174,20 @@ func NewTestPKIWithConfig(t *testing.T, config TestPKIConfig) *TestPKI {
 // timestamp.entrust.net, ...), which are slow, rate-limited, and blocked
 // outright in network-restricted CI/sandboxed environments. It returns the
 // server's URL; the server is closed automatically via t.Cleanup.
+// A nil t is allowed (e.g. for examples); the server then lives until the
+// process exits instead of being closed via t.Cleanup.
 func StartMockTSA(t *testing.T) string {
-	t.Helper()
+	return StartMockTSAWithResponse(t, nil)
+}
+
+// StartMockTSAWithResponse is StartMockTSA with a test-only hook that can
+// alter the otherwise valid response before it is signed. It is used to prove
+// requesters reject RFC 3161 responses that are validly encoded and signed but
+// do not match their request.
+func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *timestamp.Timestamp)) string {
+	if t != nil {
+		t.Helper()
+	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -227,7 +239,11 @@ func StartMockTSA(t *testing.T) string {
 			HashedMessage:     req.HashedMessage,
 			Time:              time.Now(),
 			Policy:            asn1.ObjectIdentifier{1, 2, 3, 4, 5},
+			Nonce:             req.Nonce,
 			AddTSACertificate: true,
+		}
+		if mutate != nil {
+			mutate(req, ts)
 		}
 		resp, err := ts.CreateResponseWithOpts(cert, key, crypto.SHA256)
 		if err != nil {
@@ -238,7 +254,9 @@ func StartMockTSA(t *testing.T) string {
 		w.Header().Set("Content-Type", "application/timestamp-reply")
 		_, _ = w.Write(resp)
 	}))
-	t.Cleanup(server.Close)
+	if t != nil {
+		t.Cleanup(server.Close)
+	}
 
 	return server.URL
 }
@@ -252,18 +270,16 @@ func (p *TestPKI) StartCRLServer() {
 	issuerCert := p.IntermediateCerts[lastIdx]
 	issuerKey := p.IntermediateKeys[lastIdx]
 
-	revokedCerts := []pkix.RevokedCertificate{
-		{
-			SerialNumber:   big.NewInt(9999),
-			RevocationTime: time.Now(),
-		},
-	}
-
 	crlTemplate := &x509.RevocationList{
-		Number:              big.NewInt(1),
-		ThisUpdate:          time.Now(),
-		NextUpdate:          time.Now().Add(24 * time.Hour),
-		RevokedCertificates: revokedCerts,
+		Number:     big.NewInt(1),
+		ThisUpdate: time.Now(),
+		NextUpdate: time.Now().Add(24 * time.Hour),
+		RevokedCertificateEntries: []x509.RevocationListEntry{
+			{
+				SerialNumber:   big.NewInt(9999),
+				RevocationTime: time.Now(),
+			},
+		},
 	}
 
 	crlBytes, err := x509.CreateRevocationList(rand.Reader, crlTemplate, issuerCert, issuerKey)

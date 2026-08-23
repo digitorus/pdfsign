@@ -53,24 +53,29 @@ const (
 type Format int
 
 const (
-	// DefaultFormat allows the library to choose the best available format (currently PAdES-B-LT).
-	// This format embeds revocation information (OCSP/CRL) to ensure long-term validation support.
+	// DefaultFormat keeps the legacy /adbe.pkcs7.detached profile with embedded
+	// revocation info (OCSP/CRL). It is not PAdES: it carries a CMS signing-time
+	// attribute, which the baseline profiles forbid.
 	DefaultFormat Format = iota
 
-	// PAdES_B (Baseline-Basic) creates a lightweight signature containing only the signer's
-	// certificate and the signed hash. It DOES NOT embed revocation information.
-	// Use this if you need minimal file size or if the signature is short-lived.
+	// PAdES_B (PAdES Baseline B-B) selects the supported ETSI signature
+	// construction rules. It does not by itself establish certificate trust,
+	// legal qualification, or compliance of caller-controlled inputs.
+	// It does not embed revocation information.
 	PAdES_B
 
-	// PAdES_B_T (Baseline-Timestamp) extends PAdES-B by requiring a timestamp from a
-	// trusted Timestamp Authority (TSA). This proves the signature existed at a specific time.
-	// Requires a TSA URL to be configured.
+	// PAdES_B_T (Baseline-Timestamp) extends PAdES-B-B by requiring a timestamp from a
+	// Time Stamp Authority (TSA). The response is cryptographically checked and
+	// bound to the request, but callers remain responsible for selecting a TSA
+	// whose certificate and policy they trust. Requires a TSA URL to be configured.
 	PAdES_B_T
 
 	// PAdES_B_LT (Baseline-Long-Term) extends PAdES-B-T by embedding validation material
 	// (OCSP responses and/or CRLs) into the signature. This allows the signature to be validated
 	// even if the original CA services are offline or the certificate has expired (provided
 	// the revocation data was valid at signing time).
+	//
+	// Not yet supported: rejected until the DSS dictionary it requires is written.
 	PAdES_B_LT
 
 	// PAdES_B_LTA (Baseline-Long-Term-Availability) is not yet supported.
@@ -82,6 +87,10 @@ const (
 
 	// JAdES_B_T is JAdES Baseline B-T level (not yet supported).
 	JAdES_B_T
+
+	// PAdES_B_B is the standards-aligned name for PAdES_B. PAdES_B is retained
+	// for source compatibility.
+	PAdES_B_B = PAdES_B
 )
 
 // Compliance represents PDF/A compliance levels.
@@ -247,7 +256,9 @@ type SignBuilder struct {
 	ctx             context.Context
 }
 
-// RevocationCache sets the cache for revocation data (CRL/OCSP).
+// RevocationCache sets the cache for revocation data (CRL/OCSP) used by the
+// legacy DefaultFormat handler. PAdES_B and PAdES_B_T do not fetch or embed
+// revocation data by default.
 func (b *SignBuilder) RevocationCache(cache sign.RevocationCache) *SignBuilder {
 	b.revocationCache = cache
 	return b
@@ -296,9 +307,9 @@ func (b *SignBuilder) Permission(p Permission) *SignBuilder {
 	return b
 }
 
-// Format configures the signature format (e.g., PAdES_B, PAdES_B_LT).
+// Format configures the signature format (e.g., PAdES_B).
 // This determines whether revocation info is embedded (LTV) and other compliance features.
-// Default is PAdES_B_LT-like behavior (revocation embedded) if not specified.
+// DefaultFormat (revocation embedded) is used if not specified.
 func (b *SignBuilder) Format(f Format) *SignBuilder {
 	b.format = f
 	return b
@@ -342,8 +353,10 @@ func (b *SignBuilder) Page(page int) *SignBuilder {
 	return b
 }
 
-// Timestamp enables RFC 3161 timestamping using the provided Time Stamp Authority (TSA) URL.
-// The timestamp is embedded in the signature to prove the time of signing.
+// Timestamp enables RFC 3161 timestamping using the provided Time Stamp
+// Authority (TSA) URL. The response signature and request binding are checked;
+// selecting and trusting the TSA and its policy remain caller responsibilities.
+// The timestamp is embedded in the signature to provide evidence of signing time.
 func (b *SignBuilder) Timestamp(url string) *SignBuilder {
 	b.tsa = url
 	return b
@@ -356,12 +369,13 @@ func (b *SignBuilder) TimestampAuth(username, password string) *SignBuilder {
 	return b
 }
 
-// Context bounds the TSA HTTP request made when Timestamp() is used:
-// cancelling ctx aborts an in-flight request immediately. Use this to tie
-// signing to a caller's own deadline or cancellation signal (e.g. an
+// Context bounds external HTTP requests made while signing: TSA requests from
+// Timestamp() and OCSP/CRL requests made by the builder's default revocation
+// handler. Cancelling ctx aborts an in-flight request immediately. Use this to
+// tie signing to a caller's own deadline or cancellation signal (e.g. an
 // incoming HTTP request's context, or os/signal.NotifyContext). If not set,
-// the request runs under context.Background(), bounded by an internal
-// default timeout.
+// requests run under context.Background(), bounded by an internal default
+// timeout. A custom RevocationFunction remains responsible for its own context.
 func (b *SignBuilder) Context(ctx context.Context) *SignBuilder {
 	b.ctx = ctx
 	return b
@@ -393,15 +407,19 @@ func (b *SignBuilder) C2PAClaimGenerator(generator string) *SignBuilder {
 	return b
 }
 
-// RevocationFunction sets a custom function to handle revocation fetching (CRL/OCSP).
-// If not set, the library will attempt to fetch from distribution points via HTTP.
+// RevocationFunction sets a custom function to handle revocation fetching
+// (CRL/OCSP). If not set, the library uses its built-in handler. PAdES_B and
+// PAdES_B_T reject functions that add Adobe revocation information to the CMS;
+// PAdES validation material belongs in the PDF DSS dictionary at B-LT or later.
 func (b *SignBuilder) RevocationFunction(fn sign.RevocationFunction) *SignBuilder {
 	b.revocationFunc = fn
 	return b
 }
 
-// PreferCRL sets whether to prefer CRL over OCSP for revocation checks.
-// By default, the library prefers OCSP (if available) as it produces smaller signatures.
+// PreferCRL sets whether the legacy DefaultFormat handler prefers CRL over
+// OCSP for revocation checks. By default, it prefers OCSP (if available) as it
+// produces smaller signatures. PAdES_B and PAdES_B_T do not fetch or embed
+// revocation data by default.
 func (b *SignBuilder) PreferCRL(prefer bool) *SignBuilder {
 	b.preferCRL = prefer
 	return b

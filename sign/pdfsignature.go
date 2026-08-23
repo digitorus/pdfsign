@@ -3,6 +3,7 @@ package sign
 import (
 	"bytes"
 	"crypto"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"time"
@@ -20,9 +22,17 @@ import (
 	cryptobyte_asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
-// defaultTSATimeout bounds a TSA request when SignData.Context carries no
-// deadline of its own, so an unresponsive TSA can't hang Sign() forever.
-const defaultTSATimeout = 30 * time.Second
+// defaultHTTPTimeout bounds TSA and revocation requests when the caller's
+// context carries no deadline of its own, so an unresponsive server can't
+// hang Sign() forever.
+const defaultHTTPTimeout = 30 * time.Second
+
+// maxTSAResponseSize bounds untrusted RFC 3161 response bodies. Timestamp
+// responses are normally only a few KiB; this leaves ample room for complete
+// certificate chains without allowing an endpoint to exhaust caller memory.
+const maxTSAResponseSize int64 = 4 << 20 // 4 MiB
+
+const maxTSAErrorResponseSize int64 = 64 << 10 // 64 KiB
 
 const signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
@@ -33,7 +43,14 @@ func (context *SignContext) createSignaturePlaceholder() ([]byte, error) {
 	signature_buffer.WriteString("<<\n")
 	signature_buffer.WriteString(" /Type /Sig\n")
 	signature_buffer.WriteString(" /Filter /Adobe.PPKLite\n")
-	signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
+	switch context.SignData.SubFilter {
+	case SubFilterAdbePKCS7Detached:
+		signature_buffer.WriteString(" /SubFilter /adbe.pkcs7.detached\n")
+	case SubFilterETSICAdESDetached:
+		signature_buffer.WriteString(" /SubFilter /ETSI.CAdES.detached\n")
+	default:
+		return nil, fmt.Errorf("unsupported SubFilter value: %d", context.SignData.SubFilter)
+	}
 
 	signature_buffer.WriteString(context.createPropBuild())
 
@@ -197,8 +214,17 @@ func (context *SignContext) createSignaturePlaceholder() ([]byte, error) {
 	//
 	// A timestamp can be embedded in a CMS binary data object (see 12.8.3.3, "CMS
 	// (PKCS #7) signatures").
-	if context.SignData.TSA.URL == "" && !context.SignData.Signature.Info.Date.IsZero() {
-		dateTime, err := pdfDateTime(context.SignData.Signature.Info.Date)
+	signingDate := context.SignData.Signature.Info.Date
+	isPAdES := context.SignData.SubFilter == SubFilterETSICAdESDetached
+	if isPAdES && signingDate.IsZero() {
+		// PAdES requires a claimed signing time in /M.
+		signingDate = time.Now()
+	}
+
+	// /M is mandatory for PAdES (ETSI EN 319 142-1, table 1); the legacy
+	// profile omits it when an embedded timestamp is present.
+	if (isPAdES || context.SignData.TSA.URL == "") && !signingDate.IsZero() {
+		dateTime, err := pdfDateTime(signingDate)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode signing date: %w", err)
 		}
@@ -250,6 +276,9 @@ func (context *SignContext) fetchRevocationData() error {
 							return err
 						}
 					}
+					if err := context.validateRevocationData(); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -274,8 +303,9 @@ func (context *SignContext) createSigningCertificateAttribute() (*pkcs7.Attribut
 	b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // SigningCertificate
 		b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // []ESSCertID, []ESSCertIDv2
 			b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // ESSCertID, ESSCertIDv2
-				// Explicitly include AlgorithmIdentifier for SHA256 (and others), but NOT for SHA1 (V1 structure)
-				if context.SignData.DigestAlgorithm.HashFunc() != crypto.SHA1 {
+				// No AlgorithmIdentifier for v1 (SHA-1) or the v2 DEFAULT
+				// id-sha256, which DER forbids encoding (RFC 5035; X.690, 11.5).
+				if hashFunc := context.SignData.DigestAlgorithm.HashFunc(); hashFunc != crypto.SHA1 && hashFunc != crypto.SHA256 {
 					b.AddASN1(cryptobyte_asn1.SEQUENCE, func(b *cryptobyte.Builder) { // AlgorithmIdentifier
 						b.AddASN1ObjectIdentifier(getOIDFromHashAlgorithm(context.SignData.DigestAlgorithm))
 					})
@@ -385,6 +415,8 @@ func (context *SignContext) createSignature() ([]byte, error) {
 
 	signer_config := pkcs7.SignerInfoConfig{
 		ExtraSignedAttributes: extraAttributes,
+		// PAdES forbids the signing-time attribute; /M carries the claimed time.
+		SkipSigningTime: context.SignData.SubFilter == SubFilterETSICAdESDetached,
 	}
 
 	// Add the first certificate chain without our own certificate.
@@ -432,11 +464,24 @@ func (context *SignContext) createSignature() ([]byte, error) {
 }
 
 func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {
+	requestHash := context.SignData.DigestAlgorithm
+	if requestHash == 0 {
+		requestHash = crypto.SHA256
+	}
+
+	nonceLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	nonce, err := rand.Int(rand.Reader, nonceLimit)
+	if err != nil {
+		return nil, fmt.Errorf("generate timestamp nonce: %w", err)
+	}
+
 	sign_reader := bytes.NewReader(sign_content)
-	ts_request, err := timestamp.CreateRequest(sign_reader, &timestamp.RequestOptions{
-		Hash:         context.SignData.DigestAlgorithm,
+	requestOptions := &timestamp.RequestOptions{
+		Hash:         requestHash,
 		Certificates: true,
-	})
+		Nonce:        nonce,
+	}
+	ts_request, err := timestamp.CreateRequest(sign_reader, requestOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -458,7 +503,7 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 
 	client := &http.Client{}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		client.Timeout = defaultTSATimeout
+		client.Timeout = defaultHTTPTimeout
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -469,16 +514,56 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTSAErrorResponseSize))
 		return nil, errors.New("non success response (" + strconv.Itoa(resp.StatusCode) + "): " + string(body))
 	}
 
-	timestamp_response_body, err := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxTSAResponseSize {
+		return nil, fmt.Errorf("timestamp response declares Content-Length %d, exceeding the %d byte limit", resp.ContentLength, maxTSAResponseSize)
+	}
+
+	timestamp_response_body, err := io.ReadAll(io.LimitReader(resp.Body, maxTSAResponseSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+	if int64(len(timestamp_response_body)) > maxTSAResponseSize {
+		return nil, fmt.Errorf("timestamp response exceeds the %d byte limit", maxTSAResponseSize)
+	}
+
+	ts, err := timestamp.ParseResponse(timestamp_response_body)
+	if err != nil {
+		return nil, fmt.Errorf("parse timestamp response: %w", err)
+	}
+	if err := validateTimestampResponse(ts, sign_content, requestOptions); err != nil {
+		return nil, err
+	}
 
 	return timestamp_response_body, nil
+}
+
+// validateTimestampResponse enforces the RFC 3161 request/response binding at
+// the shared HTTP boundary. timestamp.ParseResponse verifies the CMS signature
+// when the requested TSA certificate is present; the caller must still verify
+// that the token contains the requested algorithm, imprint, and nonce.
+func validateTimestampResponse(ts *timestamp.Timestamp, content []byte, request *timestamp.RequestOptions) error {
+	if len(ts.Certificates) == 0 {
+		return errors.New("timestamp response does not include the requested TSA certificate")
+	}
+	if ts.HashAlgorithm != request.Hash {
+		return fmt.Errorf("timestamp response hash algorithm %s does not match requested algorithm %s", ts.HashAlgorithm, request.Hash)
+	}
+
+	imprint := request.Hash.New()
+	_, _ = imprint.Write(content)
+	if !bytes.Equal(ts.HashedMessage, imprint.Sum(nil)) {
+		return errors.New("timestamp response message imprint does not match the requested data")
+	}
+
+	if request.Nonce != nil && (ts.Nonce == nil || ts.Nonce.Cmp(request.Nonce) != 0) {
+		return errors.New("timestamp response nonce does not match the request")
+	}
+
+	return nil
 }
 
 func (context *SignContext) replaceSignature() error {

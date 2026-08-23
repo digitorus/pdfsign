@@ -38,12 +38,15 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 	for i, sb := range d.pendingSigns {
 		// Validate Format
 		switch sb.format {
-		case PAdES_B_LTA, C2PA, JAdES_B_T:
-			return nil, fmt.Errorf("signature format %v is not currently supported", sb.format)
+		case DefaultFormat, PAdES_B:
 		case PAdES_B_T:
 			if sb.tsa == "" {
 				return nil, fmt.Errorf("PAdES_B_T format requires a Timestamp Authority (TSA) URL")
 			}
+		case PAdES_B_LT, PAdES_B_LTA, C2PA, JAdES_B_T:
+			return nil, fmt.Errorf("signature format %v is not currently supported", sb.format)
+		default:
+			return nil, fmt.Errorf("unknown signature format value: %d", sb.format)
 		}
 
 		// Convert SignBuilder to sign.SignData
@@ -58,13 +61,22 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 			Context:            sb.ctx,
 		}
 
+		// PAdES_B/B_T select the supported ETSI EN 319 142-1 construction
+		// rules; other formats keep the legacy profile, document timestamps
+		// ETSI.RFC3161.
+		if sb.sigType != DocumentTimestamp {
+			switch sb.format {
+			case PAdES_B, PAdES_B_T:
+				signData.SubFilter = sign.SubFilterETSICAdESDetached
+			}
+		}
+
 		// Use default revocation function if none provided
 		if signData.RevocationFunction == nil {
-			// configure defaults based on format
-			embedRevocation := true
-			if sb.format == PAdES_B {
-				embedRevocation = false
-			}
+			// PAdES baseline signatures carry no validation material in the
+			// CMS: B-T extends B-B with trusted time only; at B-LT it belongs
+			// in the DSS dictionary instead.
+			embedRevocation := sb.format != PAdES_B && sb.format != PAdES_B_T
 
 			// Create a default revocation function with options
 			// By default we try both (EnableOCSP=true, EnableCRL=true) to maximize compatibility,
@@ -76,6 +88,7 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 				PreferCRL:     sb.preferCRL, // Use builder preference
 				StopOnSuccess: true,         // Stop after first success to save space
 				Cache:         sb.revocationCache,
+				Context:       sb.ctx, // Bound OCSP/CRL requests
 			})
 		}
 

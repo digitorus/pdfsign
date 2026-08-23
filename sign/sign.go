@@ -104,6 +104,10 @@ func (context *SignContext) SignPDF() error {
 	// set defaults
 	context.applyDefaults()
 
+	if err := context.validateSignData(); err != nil {
+		return err
+	}
+
 	const maxRetries = 5
 	succeeded := false
 
@@ -193,6 +197,40 @@ func (context *SignContext) applyDefaults() {
 		context.SignData.Appearance.Page = 1
 	}
 	context.SignData.Context = ensureContext(context.SignData.Context)
+}
+
+// validateSignData rejects parameters that cannot produce a conformant signature.
+func (context *SignContext) validateSignData() error {
+	switch context.SignData.SubFilter {
+	case SubFilterAdbePKCS7Detached, SubFilterETSICAdESDetached:
+	default:
+		return fmt.Errorf("unsupported SubFilter value: %d", context.SignData.SubFilter)
+	}
+
+	if context.SignData.SubFilter == SubFilterETSICAdESDetached {
+		// ETSI EN 319 142-1, 6.2.1: MD5 shall not be used; TS 119 312 excludes SHA-1.
+		switch context.SignData.DigestAlgorithm {
+		case crypto.MD5, crypto.SHA1:
+			return fmt.Errorf("digest algorithm %s cannot be used for PAdES baseline signatures, use SHA-256 or stronger", context.SignData.DigestAlgorithm)
+		}
+
+		if err := context.validateRevocationData(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateRevocationData prevents the legacy Adobe CMS attribute from being
+// combined with the ETSI PAdES subfilter. Validation material for PAdES belongs
+// in the PDF DSS dictionary at B-LT and later levels.
+func (context *SignContext) validateRevocationData() error {
+	if context.SignData.SubFilter == SubFilterETSICAdESDetached &&
+		(len(context.SignData.RevocationData.CRL) > 0 || len(context.SignData.RevocationData.OCSP) > 0) {
+		return fmt.Errorf("PAdES baseline signatures cannot embed Adobe revocation information; add validation material to the PDF DSS dictionary at B-LT or later")
+	}
+	return nil
 }
 
 // ensureContext returns ctx, defaulting to context.Background() when nil.

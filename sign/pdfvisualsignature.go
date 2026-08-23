@@ -39,7 +39,7 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber uint3
 
 	if visible {
 		// Set the position and size of the signature field if visible.
-		visual_signature.WriteString(fmt.Sprintf("  /Rect [%f %f %f %f]\n", rect[0], rect[1], rect[2], rect[3]))
+		fmt.Fprintf(&visual_signature, "  /Rect [%f %f %f %f]\n", rect[0], rect[1], rect[2], rect[3])
 
 		appearance, err := context.createAppearance(rect)
 		if err != nil {
@@ -53,7 +53,7 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber uint3
 
 		// An appearance dictionary specifying how the annotation
 		// shall be presented visually on the page (see 12.5.5, "Appearance streams").
-		visual_signature.WriteString(fmt.Sprintf("  /AP << /N %d 0 R >>\n", appearanceObjectId))
+		fmt.Fprintf(&visual_signature, "  /AP << /N %d 0 R >>\n", appearanceObjectId)
 
 	} else {
 		// Set the rectangle to zero if the signature is invisible.
@@ -97,7 +97,7 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber uint3
 
 	// Define the annotation flags for the signature field (132)
 	annotationFlags := AnnotationFlagPrint | AnnotationFlagLocked
-	visual_signature.WriteString(fmt.Sprintf("  /F %d\n", annotationFlags))
+	fmt.Fprintf(&visual_signature, "  /F %d\n", annotationFlags)
 
 	// Define the field type as a signature.
 	visual_signature.WriteString("  /FT /Sig\n")
@@ -106,10 +106,10 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber uint3
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature field title: %w", err)
 	}
-	visual_signature.WriteString(fmt.Sprintf("  /T %s\n", fieldTitle))
+	fmt.Fprintf(&visual_signature, "  /T %s\n", fieldTitle)
 
 	// Reference the signature dictionary.
-	visual_signature.WriteString(fmt.Sprintf("  /V %d 0 R\n", context.SignData.objectId))
+	fmt.Fprintf(&visual_signature, "  /V %d 0 R\n", context.SignData.objectId)
 
 	// Close the dictionary and end the object.
 	visual_signature.WriteString(">>\n")
@@ -134,7 +134,7 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 		switch key {
 		case "Parent":
 			ptr := page.Key(key).GetPtr()
-			page_buffer.WriteString(fmt.Sprintf("  /%s %d 0 R\n", key, ptr.GetID()))
+			fmt.Fprintf(&page_buffer, "  /%s %d 0 R\n", key, ptr.GetID())
 		case "Contents":
 			// Special handling for Contents - must preserve stream structure
 			contentsValue := page.Key(key)
@@ -143,27 +143,27 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 				page_buffer.WriteString("  /Contents [")
 				for i := 0; i < contentsValue.Len(); i++ {
 					ptr := contentsValue.Index(i).GetPtr()
-					page_buffer.WriteString(fmt.Sprintf(" %d 0 R", ptr.GetID()))
+					fmt.Fprintf(&page_buffer, " %d 0 R", ptr.GetID())
 				}
 				page_buffer.WriteString(" ]\n")
 			} else {
 				// If Contents is a single reference, keep it as a single reference
 				ptr := contentsValue.GetPtr()
-				page_buffer.WriteString(fmt.Sprintf("  /%s %d 0 R\n", key, ptr.GetID()))
+				fmt.Fprintf(&page_buffer, "  /%s %d 0 R\n", key, ptr.GetID())
 			}
 		case "Annots":
 			page_buffer.WriteString("  /Annots [\n")
 			for i := 0; i < page.Key("Annots").Len(); i++ {
 				ptr := page.Key(key).Index(i).GetPtr()
-				page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", ptr.GetID()))
+				fmt.Fprintf(&page_buffer, "    %d 0 R\n", ptr.GetID())
 			}
-			page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", annot))
+			fmt.Fprintf(&page_buffer, "    %d 0 R\n", annot)
 
 			// Add extra annotations registered in context
 			ptr := page.GetPtr()
 			if extras, ok := context.ExtraAnnots[ptr.GetID()]; ok {
 				for _, extraAnnotID := range extras {
-					page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", extraAnnotID))
+					fmt.Fprintf(&page_buffer, "    %d 0 R\n", extraAnnotID)
 				}
 			}
 
@@ -175,22 +175,22 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 				if err != nil {
 					return nil, fmt.Errorf("failed to encode page entry %q: %w", key, err)
 				}
-				page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, encoded))
+				fmt.Fprintf(&page_buffer, "  /%s %s\n", key, encoded)
 			} else {
-				page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, val.String()))
+				fmt.Fprintf(&page_buffer, "  /%s %s\n", key, val.String())
 			}
 		}
 	}
 
 	if page.Key("Annots").IsNull() {
 		page_buffer.WriteString("  /Annots [")
-		page_buffer.WriteString(fmt.Sprintf("%d 0 R", annot))
+		fmt.Fprintf(&page_buffer, "%d 0 R", annot)
 
 		// Add extra annotations registered in context
 		ptr := page.GetPtr()
 		if extras, ok := context.ExtraAnnots[ptr.GetID()]; ok {
 			for _, extraAnnotID := range extras {
-				page_buffer.WriteString(fmt.Sprintf(" %d 0 R", extraAnnotID))
+				fmt.Fprintf(&page_buffer, " %d 0 R", extraAnnotID)
 			}
 		}
 		page_buffer.WriteString(" ]\n")

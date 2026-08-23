@@ -1,16 +1,24 @@
 package sign_test
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
+
+	// Registers MD5 so the weak-digest test hits validation, not the fallback.
+	_ "crypto/md5"
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign"
@@ -19,6 +27,7 @@ import (
 	"github.com/digitorus/pdfsign/sign"
 	"github.com/digitorus/pdfsign/verify"
 	"github.com/digitorus/pkcs7"
+	"github.com/digitorus/timestamp"
 	"github.com/mattetti/filebuffer"
 )
 
@@ -1025,5 +1034,401 @@ func TestSignPDF_AppendToMultiSig(t *testing.T) {
 	lastSig := signatures[len(signatures)-1]
 	if !lastSig.Valid {
 		t.Errorf("Last signature should be valid, but got errors: %v", lastSig.Errors)
+	}
+}
+
+// oidSigningCertificateV2 is the ESS signing-certificate-v2 signed attribute.
+var oidSigningCertificateV2 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 47}
+
+// oidSignatureTimeStampToken is the RFC 3161 signature-time-stamp attribute.
+var oidSignatureTimeStampToken = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14}
+
+// signIncremental signs inputFilePath and returns the signed file together
+// with only the appended incremental update, so that profile assertions are
+// not defeated by signatures already present in the input.
+func signIncremental(t *testing.T, inputFilePath string, signData sign.SignData) (*os.File, []byte) {
+	t.Helper()
+
+	originalContent, err := os.ReadFile(inputFilePath)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	tmpfile, err := os.CreateTemp(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "_"))
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	if err := sign.SignFile(inputFilePath, tmpfile.Name(), signData); err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	signedFileContent, err := os.ReadFile(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if len(signedFileContent) <= len(originalContent) || !bytes.HasPrefix(signedFileContent, originalContent) {
+		t.Fatal("signed file is not an incremental update of the input")
+	}
+
+	return tmpfile, signedFileContent[len(originalContent):]
+}
+
+// parseSignatureCMS extracts the CMS SignedData from the /Contents entry.
+func parseSignatureCMS(t *testing.T, incrementalUpdate []byte) *pkcs7.PKCS7 {
+	t.Helper()
+
+	contentsMatch := regexp.MustCompile(`/Contents<([0-9a-fA-F]+)>`).FindSubmatch(incrementalUpdate)
+	if contentsMatch == nil {
+		t.Fatal("no /Contents entry found in signed file")
+	}
+	cms, err := hex.DecodeString(string(contentsMatch[1]))
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	p7, err := pkcs7.Parse(cms)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	return p7
+}
+
+// assertPAdESBaseline checks the ETSI EN 319 142-1 requirements common to all levels.
+func assertPAdESBaseline(t *testing.T, incrementalUpdate []byte) *pkcs7.PKCS7 {
+	t.Helper()
+
+	if !bytes.Contains(incrementalUpdate, []byte("/SubFilter /ETSI.CAdES.detached")) {
+		t.Fatal("signature dictionary does not use SubFilter ETSI.CAdES.detached")
+	}
+	if bytes.Contains(incrementalUpdate, []byte("/SubFilter /adbe.pkcs7.detached")) {
+		t.Fatal("signature dictionary still uses SubFilter adbe.pkcs7.detached")
+	}
+	if !bytes.Contains(incrementalUpdate, []byte(" /M ")) {
+		t.Fatal("signature dictionary does not contain the /M signing time entry")
+	}
+	if bytes.Contains(incrementalUpdate, []byte(" /Cert ")) {
+		t.Error("signature dictionary contains a /Cert entry, which PAdES does not allow")
+	}
+
+	p7 := parseSignatureCMS(t, incrementalUpdate)
+
+	if len(p7.Signers) != 1 {
+		t.Fatalf("CMS contains %d signers, PAdES allows exactly one", len(p7.Signers))
+	}
+
+	var hasMessageDigest, hasSigningCertificate bool
+	for _, attribute := range p7.Signers[0].AuthenticatedAttributes {
+		switch {
+		case attribute.Type.Equal(pkcs7.OIDAttributeSigningTime):
+			t.Error("CMS contains the signing-time signed attribute, which is not allowed in PAdES baseline signatures")
+		case attribute.Type.Equal(pkcs7.OIDAttributeMessageDigest):
+			hasMessageDigest = true
+		case attribute.Type.Equal(oidSigningCertificateV2):
+			hasSigningCertificate = true
+		}
+	}
+
+	if !hasMessageDigest {
+		t.Error("CMS does not contain the message-digest signed attribute")
+	}
+	if !hasSigningCertificate {
+		t.Error("CMS does not contain the signing-certificate-v2 signed attribute")
+	}
+
+	var contentType asn1.ObjectIdentifier
+	if err := p7.UnmarshalSignedAttribute(pkcs7.OIDAttributeContentType, &contentType); err != nil {
+		t.Errorf("failed to read the content-type signed attribute: %s", err.Error())
+	} else if !contentType.Equal(pkcs7.OIDData) {
+		t.Errorf("content-type attribute is %v, want id-data", contentType)
+	}
+
+	return p7
+}
+
+func TestSignPDFPAdESBaseline(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	tmpfile, incrementalUpdate := signIncremental(t, inputFilePath, sign.SignData{
+		Signature: sign.SignDataSignature{
+			Info: sign.SignDataSignatureInfo{
+				Name: "John Doe",
+				Date: time.Now().Local(),
+			},
+			CertType: sign.ApprovalSignature,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		SubFilter:       sign.SubFilterETSICAdESDetached,
+	})
+
+	assertPAdESBaseline(t, incrementalUpdate)
+
+	verifySignedFile(t, tmpfile, "testfile20_PAdES_B.pdf")
+}
+
+// TestSignPDFPAdESBaselineWithTimestamp: a signature-time-stamp does not
+// remove the /M requirement.
+func TestSignPDFPAdESBaselineWithTimestamp(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	tmpfile, incrementalUpdate := signIncremental(t, inputFilePath, sign.SignData{
+		Signature: sign.SignDataSignature{
+			Info: sign.SignDataSignatureInfo{
+				Name: "John Doe",
+				Date: time.Now().Local(),
+			},
+			CertType: sign.ApprovalSignature,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		SubFilter:       sign.SubFilterETSICAdESDetached,
+		TSA: sign.TSA{
+			URL: testpki.StartMockTSA(t),
+		},
+	})
+
+	p7 := assertPAdESBaseline(t, incrementalUpdate)
+
+	var timeStampToken *timestamp.Timestamp
+	for _, attribute := range p7.Signers[0].UnauthenticatedAttributes {
+		if attribute.Type.Equal(oidSignatureTimeStampToken) {
+			var err error
+			timeStampToken, err = timestamp.Parse(attribute.Value.Bytes)
+			if err != nil {
+				t.Fatalf("failed to parse the signature-time-stamp attribute: %s", err.Error())
+			}
+		}
+	}
+	if timeStampToken == nil {
+		t.Fatal("CMS does not contain the signature-time-stamp unsigned attribute")
+	}
+
+	// The messageImprint shall hash the signature value (ETSI EN 319 122-1).
+	imprint := timeStampToken.HashAlgorithm.New()
+	imprint.Write(p7.Signers[0].EncryptedDigest)
+	if !bytes.Equal(timeStampToken.HashedMessage, imprint.Sum(nil)) {
+		t.Error("signature-time-stamp message imprint does not cover the CMS signature value")
+	}
+
+	verifySignedFile(t, tmpfile, "testfile20_PAdES_B_T.pdf")
+}
+
+func TestSignPDFPAdESRejectsWeakDigest(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+
+	for _, digest := range []crypto.Hash{crypto.MD5, crypto.SHA1} {
+		t.Run(digest.String(), func(t *testing.T) {
+			tmpfile, err := os.CreateTemp(t.TempDir(), "weakdigest")
+			if err != nil {
+				t.Fatalf("%s", err.Error())
+			}
+
+			err = sign.SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), sign.SignData{
+				Signature: sign.SignDataSignature{
+					Info: sign.SignDataSignatureInfo{
+						Name: "John Doe",
+						Date: time.Now().Local(),
+					},
+					CertType: sign.ApprovalSignature,
+				},
+				DigestAlgorithm: digest,
+				Signer:          pkey,
+				Certificate:     cert,
+				SubFilter:       sign.SubFilterETSICAdESDetached,
+			})
+			if err == nil {
+				t.Fatalf("signing with %s succeeded, want an error for PAdES baseline signatures", digest)
+			}
+			if !strings.Contains(err.Error(), "digest algorithm") {
+				t.Fatalf("got error %q, want the digest algorithm rejection", err.Error())
+			}
+		})
+	}
+}
+
+// TestSignPDFRejectsUnknownSubFilter: an unknown SubFilter must fail instead
+// of silently downgrading to the legacy profile.
+func TestSignPDFRejectsUnknownSubFilter(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+
+	tmpfile, err := os.CreateTemp(t.TempDir(), "unknownsubfilter")
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+
+	err = sign.SignFile("../testfiles/testfile20.pdf", tmpfile.Name(), sign.SignData{
+		Signature: sign.SignDataSignature{
+			CertType: sign.ApprovalSignature,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		SubFilter:       sign.SubFilter(99),
+	})
+	if err == nil {
+		t.Fatal("signing with an unknown SubFilter succeeded, want an error")
+	}
+	if !strings.Contains(err.Error(), "unsupported SubFilter") {
+		t.Fatalf("got error %q, want the SubFilter rejection", err.Error())
+	}
+}
+
+// TestSignPDFPAdESDefaultSigningDate: /M shall be present even when the
+// caller provides no signing date.
+func TestSignPDFPAdESDefaultSigningDate(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	tmpfile, incrementalUpdate := signIncremental(t, inputFilePath, sign.SignData{
+		Signature: sign.SignDataSignature{
+			CertType: sign.ApprovalSignature,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		SubFilter:       sign.SubFilterETSICAdESDetached,
+	})
+
+	assertPAdESBaseline(t, incrementalUpdate)
+
+	verifySignedFile(t, tmpfile, filepath.Base(inputFilePath))
+}
+
+// TestSignPDFLegacyProfile pins the default profile: adbe.pkcs7.detached,
+// CMS signing-time present, and no /M when a timestamp is embedded.
+func TestSignPDFLegacyProfile(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	tmpfile, incrementalUpdate := signIncremental(t, inputFilePath, sign.SignData{
+		Signature: sign.SignDataSignature{
+			Info: sign.SignDataSignatureInfo{
+				Name: "John Doe",
+				Date: time.Now().Local(),
+			},
+			CertType: sign.ApprovalSignature,
+		},
+		DigestAlgorithm: crypto.SHA256,
+		Signer:          pkey,
+		Certificate:     cert,
+		TSA: sign.TSA{
+			URL: testpki.StartMockTSA(t),
+		},
+	})
+
+	if !bytes.Contains(incrementalUpdate, []byte("/SubFilter /adbe.pkcs7.detached")) {
+		t.Fatal("legacy signature does not use SubFilter adbe.pkcs7.detached")
+	}
+	if bytes.Contains(incrementalUpdate, []byte("/SubFilter /ETSI.CAdES.detached")) {
+		t.Fatal("legacy signature uses SubFilter ETSI.CAdES.detached")
+	}
+	if bytes.Contains(incrementalUpdate, []byte(" /M ")) {
+		t.Error("legacy signature should omit the /M entry when an embedded timestamp is present")
+	}
+
+	p7 := parseSignatureCMS(t, incrementalUpdate)
+
+	var hasSigningTime bool
+	for _, attribute := range p7.Signers[0].AuthenticatedAttributes {
+		if attribute.Type.Equal(pkcs7.OIDAttributeSigningTime) {
+			hasSigningTime = true
+		}
+	}
+	if !hasSigningTime {
+		t.Error("legacy signature does not contain the signing-time signed attribute")
+	}
+
+	verifySignedFile(t, tmpfile, filepath.Base(inputFilePath))
+}
+
+// signingCertificateV2 mirrors RFC 5035 far enough to inspect ESSCertIDv2.
+type signingCertificateV2 struct {
+	Certs []essCertIDv2
+}
+
+type essCertIDv2 struct {
+	HashAlgorithm pkix.AlgorithmIdentifier `asn1:"optional"`
+	CertHash      []byte
+	IssuerSerial  asn1.RawValue `asn1:"optional"`
+}
+
+// TestSignPDFPAdESSigningCertificateV2: the ESSCertIDv2 hash algorithm shall
+// be absent for the DEFAULT SHA-256 (DER, X.690, 11.5) and explicit otherwise.
+func TestSignPDFPAdESSigningCertificateV2(t *testing.T) {
+	cert, pkey := sign.LoadCertificateAndKey(t)
+	if cert == nil || pkey == nil {
+		t.FailNow()
+	}
+	inputFilePath := "../testfiles/testfile20.pdf"
+
+	for _, tc := range []struct {
+		digest            crypto.Hash
+		explicitAlgorithm asn1.ObjectIdentifier // nil when the DEFAULT applies
+	}{
+		{digest: crypto.SHA256},
+		{digest: crypto.SHA512, explicitAlgorithm: asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 3}},
+	} {
+		t.Run(tc.digest.String(), func(t *testing.T) {
+			_, incrementalUpdate := signIncremental(t, inputFilePath, sign.SignData{
+				Signature: sign.SignDataSignature{
+					Info: sign.SignDataSignatureInfo{
+						Name: "John Doe",
+						Date: time.Now().Local(),
+					},
+					CertType: sign.ApprovalSignature,
+				},
+				DigestAlgorithm: tc.digest,
+				Signer:          pkey,
+				Certificate:     cert,
+				SubFilter:       sign.SubFilterETSICAdESDetached,
+			})
+
+			p7 := parseSignatureCMS(t, incrementalUpdate)
+
+			var sc signingCertificateV2
+			if err := p7.UnmarshalSignedAttribute(oidSigningCertificateV2, &sc); err != nil {
+				t.Fatalf("failed to parse the signing-certificate-v2 attribute: %s", err.Error())
+			}
+			if len(sc.Certs) != 1 {
+				t.Fatalf("signing-certificate-v2 contains %d certificate ids, want 1", len(sc.Certs))
+			}
+			id := sc.Certs[0]
+
+			if tc.explicitAlgorithm == nil {
+				if id.HashAlgorithm.Algorithm != nil {
+					t.Errorf("ESSCertIDv2 encodes hash algorithm %v, but DER requires the DEFAULT id-sha256 to be absent", id.HashAlgorithm.Algorithm)
+				}
+			} else if !id.HashAlgorithm.Algorithm.Equal(tc.explicitAlgorithm) {
+				t.Errorf("ESSCertIDv2 hash algorithm is %v, want %v", id.HashAlgorithm.Algorithm, tc.explicitAlgorithm)
+			}
+
+			hash := tc.digest.New()
+			hash.Write(cert.Raw)
+			if !bytes.Equal(id.CertHash, hash.Sum(nil)) {
+				t.Error("ESSCertIDv2 certificate hash does not match the signing certificate")
+			}
+		})
 	}
 }
