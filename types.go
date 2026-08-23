@@ -58,14 +58,16 @@ const (
 	// attribute, which the baseline profiles forbid.
 	DefaultFormat Format = iota
 
-	// PAdES_B (Baseline-Basic) creates a lightweight signature containing only the signer's
-	// certificate and the signed hash. It DOES NOT embed revocation information.
-	// Use this if you need minimal file size or if the signature is short-lived.
+	// PAdES_B (PAdES Baseline B-B) selects the supported ETSI signature
+	// construction rules. It does not by itself establish certificate trust,
+	// legal qualification, or compliance of caller-controlled inputs.
+	// It does not embed revocation information.
 	PAdES_B
 
-	// PAdES_B_T (Baseline-Timestamp) extends PAdES-B by requiring a timestamp from a
-	// trusted Timestamp Authority (TSA). This proves the signature existed at a specific time.
-	// Requires a TSA URL to be configured.
+	// PAdES_B_T (Baseline-Timestamp) extends PAdES-B-B by requiring a timestamp from a
+	// Time Stamp Authority (TSA). The response is cryptographically checked and
+	// bound to the request, but callers remain responsible for selecting a TSA
+	// whose certificate and policy they trust. Requires a TSA URL to be configured.
 	PAdES_B_T
 
 	// PAdES_B_LT (Baseline-Long-Term) extends PAdES-B-T by embedding validation material
@@ -85,6 +87,10 @@ const (
 
 	// JAdES_B_T is JAdES Baseline B-T level (not yet supported).
 	JAdES_B_T
+
+	// PAdES_B_B is the standards-aligned name for PAdES_B. PAdES_B is retained
+	// for source compatibility.
+	PAdES_B_B = PAdES_B
 )
 
 // Compliance represents PDF/A compliance levels.
@@ -347,8 +353,10 @@ func (b *SignBuilder) Page(page int) *SignBuilder {
 	return b
 }
 
-// Timestamp enables RFC 3161 timestamping using the provided Time Stamp Authority (TSA) URL.
-// The timestamp is embedded in the signature to prove the time of signing.
+// Timestamp enables RFC 3161 timestamping using the provided Time Stamp
+// Authority (TSA) URL. The response signature and request binding are checked;
+// selecting and trusting the TSA and its policy remain caller responsibilities.
+// The timestamp is embedded in the signature to provide evidence of signing time.
 func (b *SignBuilder) Timestamp(url string) *SignBuilder {
 	b.tsa = url
 	return b

@@ -177,6 +177,14 @@ func NewTestPKIWithConfig(t *testing.T, config TestPKIConfig) *TestPKI {
 // A nil t is allowed (e.g. for examples); the server then lives until the
 // process exits instead of being closed via t.Cleanup.
 func StartMockTSA(t *testing.T) string {
+	return StartMockTSAWithResponse(t, nil)
+}
+
+// StartMockTSAWithResponse is StartMockTSA with a test-only hook that can
+// alter the otherwise valid response before it is signed. It is used to prove
+// requesters reject RFC 3161 responses that are validly encoded and signed but
+// do not match their request.
+func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *timestamp.Timestamp)) string {
 	if t != nil {
 		t.Helper()
 	}
@@ -231,7 +239,11 @@ func StartMockTSA(t *testing.T) string {
 			HashedMessage:     req.HashedMessage,
 			Time:              time.Now(),
 			Policy:            asn1.ObjectIdentifier{1, 2, 3, 4, 5},
+			Nonce:             req.Nonce,
 			AddTSACertificate: true,
+		}
+		if mutate != nil {
+			mutate(req, ts)
 		}
 		resp, err := ts.CreateResponseWithOpts(cert, key, crypto.SHA256)
 		if err != nil {

@@ -27,12 +27,12 @@ type TSA struct {
 type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error
 
 type SignData struct {
-	Signature          SignDataSignature
-	Signer             crypto.Signer
-	DigestAlgorithm    crypto.Hash
-	Certificate        *x509.Certificate
-	CertificateChains  [][]*x509.Certificate
-	TSA                TSA
+	Signature         SignDataSignature
+	Signer            crypto.Signer
+	DigestAlgorithm   crypto.Hash
+	Certificate       *x509.Certificate
+	CertificateChains [][]*x509.Certificate
+	TSA               TSA
 	// RevocationData is embedded using Adobe's revocation-info archival CMS
 	// attribute for the legacy SubFilterAdbePKCS7Detached profile. It must remain
 	// empty for SubFilterETSICAdESDetached; PAdES validation material belongs in
@@ -113,9 +113,10 @@ const (
 	SubFilterAdbePKCS7Detached SubFilter = iota
 
 	// SubFilterETSICAdESDetached selects the /ETSI.CAdES.detached encoding and
-	// its ETSI EN 319 142-1 baseline defaults (no CMS signing-time, /M entry,
-	// digest checks). Callers remain responsible for keeping anything they add
-	// themselves, such as ExtraSignedAttributes, within the profile.
+	// the supported ETSI EN 319 142-1 construction defaults (no CMS
+	// signing-time, /M entry, digest checks). Callers remain responsible for
+	// keeping anything they add themselves, such as ExtraSignedAttributes,
+	// within the profile.
 	SubFilterETSICAdESDetached
 )
 

@@ -61,8 +61,9 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 			Context:            sb.ctx,
 		}
 
-		// PAdES_B/B_T produce ETSI EN 319 142-1 baseline signatures; other
-		// formats keep the legacy profile, document timestamps ETSI.RFC3161.
+		// PAdES_B/B_T select the supported ETSI EN 319 142-1 construction
+		// rules; other formats keep the legacy profile, document timestamps
+		// ETSI.RFC3161.
 		if sb.sigType != DocumentTimestamp {
 			switch sb.format {
 			case PAdES_B, PAdES_B_T:

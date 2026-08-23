@@ -3,6 +3,7 @@ package sign
 import (
 	"bytes"
 	"crypto"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"time"
@@ -24,6 +26,13 @@ import (
 // context carries no deadline of its own, so an unresponsive server can't
 // hang Sign() forever.
 const defaultHTTPTimeout = 30 * time.Second
+
+// maxTSAResponseSize bounds untrusted RFC 3161 response bodies. Timestamp
+// responses are normally only a few KiB; this leaves ample room for complete
+// certificate chains without allowing an endpoint to exhaust caller memory.
+const maxTSAResponseSize int64 = 4 << 20 // 4 MiB
+
+const maxTSAErrorResponseSize int64 = 64 << 10 // 64 KiB
 
 const signatureByteRangePlaceholder = "/ByteRange[0 ********** ********** **********]"
 
@@ -455,11 +464,24 @@ func (context *SignContext) createSignature() ([]byte, error) {
 }
 
 func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []byte, err error) {
+	requestHash := context.SignData.DigestAlgorithm
+	if requestHash == 0 {
+		requestHash = crypto.SHA256
+	}
+
+	nonceLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	nonce, err := rand.Int(rand.Reader, nonceLimit)
+	if err != nil {
+		return nil, fmt.Errorf("generate timestamp nonce: %w", err)
+	}
+
 	sign_reader := bytes.NewReader(sign_content)
-	ts_request, err := timestamp.CreateRequest(sign_reader, &timestamp.RequestOptions{
-		Hash:         context.SignData.DigestAlgorithm,
+	requestOptions := &timestamp.RequestOptions{
+		Hash:         requestHash,
 		Certificates: true,
-	})
+		Nonce:        nonce,
+	}
+	ts_request, err := timestamp.CreateRequest(sign_reader, requestOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -492,16 +514,56 @@ func (context *SignContext) GetTSA(sign_content []byte) (timestamp_response []by
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTSAErrorResponseSize))
 		return nil, errors.New("non success response (" + strconv.Itoa(resp.StatusCode) + "): " + string(body))
 	}
 
-	timestamp_response_body, err := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxTSAResponseSize {
+		return nil, fmt.Errorf("timestamp response declares Content-Length %d, exceeding the %d byte limit", resp.ContentLength, maxTSAResponseSize)
+	}
+
+	timestamp_response_body, err := io.ReadAll(io.LimitReader(resp.Body, maxTSAResponseSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+	if int64(len(timestamp_response_body)) > maxTSAResponseSize {
+		return nil, fmt.Errorf("timestamp response exceeds the %d byte limit", maxTSAResponseSize)
+	}
+
+	ts, err := timestamp.ParseResponse(timestamp_response_body)
+	if err != nil {
+		return nil, fmt.Errorf("parse timestamp response: %w", err)
+	}
+	if err := validateTimestampResponse(ts, sign_content, requestOptions); err != nil {
+		return nil, err
+	}
 
 	return timestamp_response_body, nil
+}
+
+// validateTimestampResponse enforces the RFC 3161 request/response binding at
+// the shared HTTP boundary. timestamp.ParseResponse verifies the CMS signature
+// when the requested TSA certificate is present; the caller must still verify
+// that the token contains the requested algorithm, imprint, and nonce.
+func validateTimestampResponse(ts *timestamp.Timestamp, content []byte, request *timestamp.RequestOptions) error {
+	if len(ts.Certificates) == 0 {
+		return errors.New("timestamp response does not include the requested TSA certificate")
+	}
+	if ts.HashAlgorithm != request.Hash {
+		return fmt.Errorf("timestamp response hash algorithm %s does not match requested algorithm %s", ts.HashAlgorithm, request.Hash)
+	}
+
+	imprint := request.Hash.New()
+	_, _ = imprint.Write(content)
+	if !bytes.Equal(ts.HashedMessage, imprint.Sum(nil)) {
+		return errors.New("timestamp response message imprint does not match the requested data")
+	}
+
+	if request.Nonce != nil && (ts.Nonce == nil || ts.Nonce.Cmp(request.Nonce) != 0) {
+		return errors.New("timestamp response nonce does not match the request")
+	}
+
+	return nil
 }
 
 func (context *SignContext) replaceSignature() error {
