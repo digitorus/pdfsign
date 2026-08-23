@@ -267,6 +267,9 @@ func (context *SignContext) fetchRevocationData() error {
 							return err
 						}
 					}
+					if err := context.validateRevocationData(); err != nil {
+						return err
+					}
 				}
 			}
 		}

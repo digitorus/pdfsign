@@ -250,7 +250,9 @@ type SignBuilder struct {
 	ctx             context.Context
 }
 
-// RevocationCache sets the cache for revocation data (CRL/OCSP).
+// RevocationCache sets the cache for revocation data (CRL/OCSP) used by the
+// legacy DefaultFormat handler. PAdES_B and PAdES_B_T do not fetch or embed
+// revocation data by default.
 func (b *SignBuilder) RevocationCache(cache sign.RevocationCache) *SignBuilder {
 	b.revocationCache = cache
 	return b
@@ -359,12 +361,13 @@ func (b *SignBuilder) TimestampAuth(username, password string) *SignBuilder {
 	return b
 }
 
-// Context bounds the TSA HTTP request made when Timestamp() is used:
-// cancelling ctx aborts an in-flight request immediately. Use this to tie
-// signing to a caller's own deadline or cancellation signal (e.g. an
+// Context bounds external HTTP requests made while signing: TSA requests from
+// Timestamp() and OCSP/CRL requests made by the builder's default revocation
+// handler. Cancelling ctx aborts an in-flight request immediately. Use this to
+// tie signing to a caller's own deadline or cancellation signal (e.g. an
 // incoming HTTP request's context, or os/signal.NotifyContext). If not set,
-// the request runs under context.Background(), bounded by an internal
-// default timeout.
+// requests run under context.Background(), bounded by an internal default
+// timeout. A custom RevocationFunction remains responsible for its own context.
 func (b *SignBuilder) Context(ctx context.Context) *SignBuilder {
 	b.ctx = ctx
 	return b
@@ -396,15 +399,19 @@ func (b *SignBuilder) C2PAClaimGenerator(generator string) *SignBuilder {
 	return b
 }
 
-// RevocationFunction sets a custom function to handle revocation fetching (CRL/OCSP).
-// If not set, the library will attempt to fetch from distribution points via HTTP.
+// RevocationFunction sets a custom function to handle revocation fetching
+// (CRL/OCSP). If not set, the library uses its built-in handler. PAdES_B and
+// PAdES_B_T reject functions that add Adobe revocation information to the CMS;
+// PAdES validation material belongs in the PDF DSS dictionary at B-LT or later.
 func (b *SignBuilder) RevocationFunction(fn sign.RevocationFunction) *SignBuilder {
 	b.revocationFunc = fn
 	return b
 }
 
-// PreferCRL sets whether to prefer CRL over OCSP for revocation checks.
-// By default, the library prefers OCSP (if available) as it produces smaller signatures.
+// PreferCRL sets whether the legacy DefaultFormat handler prefers CRL over
+// OCSP for revocation checks. By default, it prefers OCSP (if available) as it
+// produces smaller signatures. PAdES_B and PAdES_B_T do not fetch or embed
+// revocation data by default.
 func (b *SignBuilder) PreferCRL(prefer bool) *SignBuilder {
 	b.preferCRL = prefer
 	return b

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/digitorus/pdfsign/internal/testpki"
+	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 )
 
@@ -117,6 +118,49 @@ func TestFormat_Enforcement(t *testing.T) {
 		if revocationArchivalPresent(t, buf.Bytes()) {
 			t.Error("PAdES_B_T output embeds revocation material")
 		}
+	})
+
+	// Custom revocation callbacks may validate certificates, but the fluent
+	// PAdES API must never allow them to reintroduce Adobe's legacy CMS
+	// revocation attribute.
+	t.Run("PAdES_B_CustomRevocationFunction", func(t *testing.T) {
+		t.Run("ValidationOnlyAllowed", func(t *testing.T) {
+			called := false
+			doc.pendingSigns = nil
+			doc.Sign(key, cert).
+				Format(PAdES_B).
+				CertificateChains(chain).
+				RevocationFunction(func(_, _ *x509.Certificate, _ *revocation.InfoArchival) error {
+					called = true
+					return nil
+				})
+
+			var buf bytes.Buffer
+			if _, err := doc.Write(&buf); err != nil {
+				t.Fatalf("validation-only revocation function failed: %v", err)
+			}
+			if !called {
+				t.Fatal("custom revocation function was not called")
+			}
+			if revocationArchivalPresent(t, buf.Bytes()) {
+				t.Error("PAdES_B output embeds revocation material")
+			}
+		})
+
+		t.Run("EmbeddingRejected", func(t *testing.T) {
+			doc.pendingSigns = nil
+			doc.Sign(key, cert).
+				Format(PAdES_B).
+				CertificateChains(chain).
+				RevocationFunction(func(_, _ *x509.Certificate, info *revocation.InfoArchival) error {
+					return info.AddCRL([]byte{0x30, 0x00})
+				})
+
+			_, err := doc.Write(&bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), "cannot embed Adobe revocation information") {
+				t.Fatalf("got error %v, want the PAdES revocation rejection", err)
+			}
+		})
 	})
 
 	// 5. Test DefaultFormat (legacy profile, embeds revocation material)

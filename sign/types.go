@@ -33,7 +33,14 @@ type SignData struct {
 	Certificate        *x509.Certificate
 	CertificateChains  [][]*x509.Certificate
 	TSA                TSA
-	RevocationData     revocation.InfoArchival
+	// RevocationData is embedded using Adobe's revocation-info archival CMS
+	// attribute for the legacy SubFilterAdbePKCS7Detached profile. It must remain
+	// empty for SubFilterETSICAdESDetached; PAdES validation material belongs in
+	// the PDF DSS dictionary at B-LT or later.
+	RevocationData revocation.InfoArchival
+	// RevocationFunction may populate RevocationData for the legacy profile.
+	// With SubFilterETSICAdESDetached it may perform validation, but adding CRL
+	// or OCSP data causes signing to fail rather than emit non-PAdES output.
 	RevocationFunction RevocationFunction
 	Appearance         Appearance
 
@@ -50,8 +57,9 @@ type SignData struct {
 
 	// ExtraSignedAttributes lets callers append additional CMS
 	// SignedAttributes (RFC 5652 §11) keyed by custom OIDs to the PKCS#7
-	// signature, in addition to the library defaults (Adobe RevocationData
-	// OID 1.2.840.113583.1.1.8 and the signing-certificate-v2 attribute).
+	// signature, in addition to the active profile's library defaults. These
+	// include signing-certificate-v2; the legacy profile may also include Adobe
+	// RevocationData OID 1.2.840.113583.1.1.8.
 	//
 	// These attributes ride inside the cryptographically protected
 	// SignedAttributes set, so any tampering with their values breaks

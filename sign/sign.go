@@ -213,8 +213,23 @@ func (context *SignContext) validateSignData() error {
 		case crypto.MD5, crypto.SHA1:
 			return fmt.Errorf("digest algorithm %s cannot be used for PAdES baseline signatures, use SHA-256 or stronger", context.SignData.DigestAlgorithm)
 		}
+
+		if err := context.validateRevocationData(); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// validateRevocationData prevents the legacy Adobe CMS attribute from being
+// combined with the ETSI PAdES subfilter. Validation material for PAdES belongs
+// in the PDF DSS dictionary at B-LT and later levels.
+func (context *SignContext) validateRevocationData() error {
+	if context.SignData.SubFilter == SubFilterETSICAdESDetached &&
+		(len(context.SignData.RevocationData.CRL) > 0 || len(context.SignData.RevocationData.OCSP) > 0) {
+		return fmt.Errorf("PAdES baseline signatures cannot embed Adobe revocation information; add validation material to the PDF DSS dictionary at B-LT or later")
+	}
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"sync"
 
@@ -18,6 +19,12 @@ import (
 // httpGet fetches url bounded by ctx, falling back to defaultHTTPTimeout when
 // ctx carries no deadline, so certificate-supplied endpoints can't hang Sign().
 func httpGet(ctx context.Context, url string) (*http.Response, error) {
+	return httpGetWithTimeout(ctx, url, defaultHTTPTimeout)
+}
+
+// httpGetWithTimeout is the testable core of httpGet. A caller deadline takes
+// precedence; defaultTimeout applies only when the caller supplied none.
+func httpGetWithTimeout(ctx context.Context, url string, defaultTimeout time.Duration) (*http.Response, error) {
 	ctx = ensureContext(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -25,7 +32,7 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	}
 	client := &http.Client{}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		client.Timeout = defaultHTTPTimeout
+		client.Timeout = defaultTimeout
 	}
 	return client.Do(req)
 }
@@ -165,7 +172,7 @@ type RevocationOptions struct {
 	PreferCRL     bool            // If true, try CRL before OCSP.
 	StopOnSuccess bool            // If true, stop after successfully embedding one status.
 	Cache         RevocationCache // Optional cache for revocation data.
-	Context       context.Context // Bounds OCSP/CRL requests; nil means context.Background().
+	Context       context.Context // Bounds OCSP/CRL requests; nil or no deadline uses the internal default timeout.
 }
 
 // NewRevocationFunction creates a RevocationFunction with the specified options.
