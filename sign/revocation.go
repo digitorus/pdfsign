@@ -2,6 +2,8 @@ package sign
 
 import (
 	"context"
+	"crypto"
+	"crypto/mldsa"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 
 	"sync"
 
+	"github.com/digitorus/pdfsign/internal/ocspx"
 	"github.com/digitorus/pdfsign/revocation"
 	"golang.org/x/crypto/ocsp"
 )
@@ -69,7 +72,7 @@ func (c *MemoryCache) Put(key string, data []byte) {
 }
 
 func embedOCSPRevocationStatus(ctx context.Context, cert, issuer *x509.Certificate, i *revocation.InfoArchival, cache RevocationCache) error {
-	req, err := ocsp.CreateRequest(cert, issuer, nil)
+	req, err := ocsp.CreateRequest(cert, issuer, ocspRequestOptions(cert, issuer))
 	if err != nil {
 		return err
 	}
@@ -99,7 +102,7 @@ func embedOCSPRevocationStatus(ctx context.Context, cert, issuer *x509.Certifica
 	}
 
 	// check if we got a valid OCSP response
-	ocspResp, err := ocsp.ParseResponseForCert(body, cert, issuer)
+	ocspResp, err := ocspx.ParseResponseForCert(body, cert, issuer)
 	if err != nil {
 		return err
 	}
@@ -112,6 +115,20 @@ func embedOCSPRevocationStatus(ctx context.Context, cert, issuer *x509.Certifica
 	}
 
 	return i.AddOCSP(body)
+}
+
+func ocspRequestOptions(cert, issuer *x509.Certificate) *ocsp.RequestOptions {
+	if cert != nil {
+		if _, ok := cert.PublicKey.(*mldsa.PublicKey); ok {
+			return &ocsp.RequestOptions{Hash: crypto.SHA512}
+		}
+	}
+	if issuer != nil {
+		if _, ok := issuer.PublicKey.(*mldsa.PublicKey); ok {
+			return &ocsp.RequestOptions{Hash: crypto.SHA512}
+		}
+	}
+	return nil
 }
 
 // embedCRLRevocationStatus requires an issuer as it needs to implement the

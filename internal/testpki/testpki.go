@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -25,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/digitorus/pdfsign/internal/ocspx"
 	"github.com/digitorus/timestamp"
 	"golang.org/x/crypto/ocsp"
 )
@@ -59,6 +61,9 @@ const (
 	ECDSA_P256 KeyProfile = "ECDSA_P256"
 	ECDSA_P384 KeyProfile = "ECDSA_P384"
 	ECDSA_P521 KeyProfile = "ECDSA_P521"
+	MLDSA_44   KeyProfile = "MLDSA_44"
+	MLDSA_65   KeyProfile = "MLDSA_65"
+	MLDSA_87   KeyProfile = "MLDSA_87"
 )
 
 type TestPKIConfig struct {
@@ -75,6 +80,8 @@ type TestPKI struct {
 	IntermediateCerts []*x509.Certificate
 	Server            *httptest.Server
 	CRLBytes          []byte
+	OCSPBytes         []byte
+	OCSPRequestHash   crypto.Hash
 	Requests          int
 	OCSPRequests      int
 	FailOCSP          bool
@@ -193,6 +200,27 @@ func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *tim
 	if err != nil {
 		Fail(t, "mock TSA: generate key: %v", err)
 	}
+	cert := issueTimeStampingCertificate(t, key, nil, nil, nil)
+	return startMockTSA(t, key, cert, nil, crypto.SHA256, mutate)
+}
+
+// StartMockTSA starts an RFC 3161 TSA whose signing key and complete
+// certification path use the TestPKI's configured algorithm. It lets PQC
+// integration tests prove that a PDF signature does not silently introduce a
+// classical timestamp signature.
+func (p *TestPKI) StartMockTSA() string {
+	key := GenerateKey(p.T, p.Profile)
+	issuerCert := p.RootCert
+	issuerKey := p.RootKey
+	if len(p.IntermediateCerts) > 0 {
+		issuerCert = p.IntermediateCerts[len(p.IntermediateCerts)-1]
+		issuerKey = p.IntermediateKeys[len(p.IntermediateKeys)-1]
+	}
+	cert := issueTimeStampingCertificate(p.T, key, issuerCert, issuerKey, p.Server)
+	return startMockTSA(p.T, key, cert, p.Chain(), defaultDigestForKey(key), nil)
+}
+
+func issueTimeStampingCertificate(t *testing.T, key crypto.Signer, issuerCert *x509.Certificate, issuerKey crypto.Signer, revocationServer *httptest.Server) *x509.Certificate {
 	// RFC 3161 requires a TSA certificate's extended key usage extension to
 	// be critical (and contain only id-kp-timeStamping). Go's ExtKeyUsage
 	// template field always marshals this extension as non-critical, so it's
@@ -203,7 +231,7 @@ func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *tim
 		Fail(t, "mock TSA: marshal EKU extension: %v", err)
 	}
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: big.NewInt(1000),
 		Subject:      pkix.Name{CommonName: "Mock TSA"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
@@ -213,7 +241,15 @@ func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *tim
 		},
 		BasicConstraintsValid: true,
 	}
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	if revocationServer != nil {
+		template.CRLDistributionPoints = []string{revocationServer.URL + "/crl"}
+		template.OCSPServer = []string{revocationServer.URL + "/ocsp"}
+	}
+	if issuerCert == nil {
+		issuerCert = template
+		issuerKey = key
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, issuerCert, key.Public(), issuerKey)
 	if err != nil {
 		Fail(t, "mock TSA: create certificate: %v", err)
 	}
@@ -222,6 +258,10 @@ func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *tim
 		Fail(t, "mock TSA: parse certificate: %v", err)
 	}
 
+	return cert
+}
+
+func startMockTSA(t *testing.T, key crypto.Signer, cert *x509.Certificate, chain []*x509.Certificate, digest crypto.Hash, mutate func(*timestamp.Request, *timestamp.Timestamp)) string {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -241,11 +281,12 @@ func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *tim
 			Policy:            asn1.ObjectIdentifier{1, 2, 3, 4, 5},
 			Nonce:             req.Nonce,
 			AddTSACertificate: true,
+			Certificates:      chain,
 		}
 		if mutate != nil {
 			mutate(req, ts)
 		}
-		resp, err := ts.CreateResponseWithOpts(cert, key, crypto.SHA256)
+		resp, err := ts.CreateResponseWithOpts(cert, key, digest)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -259,6 +300,13 @@ func StartMockTSAWithResponse(t *testing.T, mutate func(*timestamp.Request, *tim
 	}
 
 	return server.URL
+}
+
+func defaultDigestForKey(key crypto.Signer) crypto.Hash {
+	if _, ok := key.Public().(*mldsa.PublicKey); ok {
+		return crypto.SHA512
+	}
+	return crypto.SHA256
 }
 
 // StartCRLServer generates a valid CRL and starts a mock HTTP server serving it.
@@ -303,14 +351,18 @@ func (p *TestPKI) StartCRLServer() {
 				return
 			}
 
-			parts := strings.Split(r.URL.Path, "/")
-			if len(parts) < 3 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
+			var reqBytes []byte
+			var err error
+			if r.Method == http.MethodPost {
+				reqBytes, err = io.ReadAll(r.Body)
+			} else {
+				parts := strings.Split(r.URL.Path, "/")
+				if len(parts) < 3 {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				reqBytes, err = base64.StdEncoding.DecodeString(parts[len(parts)-1])
 			}
-			b64Req := parts[len(parts)-1]
-
-			reqBytes, err := base64.StdEncoding.DecodeString(b64Req)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return
@@ -328,14 +380,17 @@ func (p *TestPKI) StartCRLServer() {
 				SerialNumber: ocspReq.SerialNumber,
 				ThisUpdate:   now.Add(-1 * time.Hour),
 				NextUpdate:   now.Add(24 * time.Hour),
+				IssuerHash:   ocspReq.HashAlgorithm,
 			}
+			p.OCSPRequestHash = ocspReq.HashAlgorithm
 
 			issuerCert := p.IntermediateCerts[len(p.IntermediateCerts)-1]
-			respBytes, err := ocsp.CreateResponse(issuerCert, issuerCert, template, p.IntermediateKeys[len(p.IntermediateKeys)-1])
+			respBytes, err := ocspx.CreateResponse(issuerCert, template, p.IntermediateKeys[len(p.IntermediateKeys)-1])
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+			p.OCSPBytes = respBytes
 
 			w.Header().Set("Content-Type", "application/ocsp-response")
 			_, _ = w.Write(respBytes)
@@ -471,6 +526,24 @@ func GenerateKey(t *testing.T, profile KeyProfile) crypto.Signer {
 		k, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 		if err != nil {
 			Fail(t, "failed to generate P-521 key: %v", err)
+		}
+		return k
+	case MLDSA_44:
+		k, err := mldsa.GenerateKey(mldsa.MLDSA44())
+		if err != nil {
+			Fail(t, "failed to generate ML-DSA-44 key: %v", err)
+		}
+		return k
+	case MLDSA_65:
+		k, err := mldsa.GenerateKey(mldsa.MLDSA65())
+		if err != nil {
+			Fail(t, "failed to generate ML-DSA-65 key: %v", err)
+		}
+		return k
+	case MLDSA_87:
+		k, err := mldsa.GenerateKey(mldsa.MLDSA87())
+		if err != nil {
+			Fail(t, "failed to generate ML-DSA-87 key: %v", err)
 		}
 		return k
 	default:

@@ -4,6 +4,7 @@ import (
 	stdcontext "context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/hex"
@@ -22,6 +23,11 @@ import (
 )
 
 var errSignatureTooLong = fmt.Errorf("signature too long")
+
+const (
+	estimatedTSAResponseSize      = 9000
+	estimatedMLDSATSAResponseSize = 32 << 10
+)
 
 // SignFile signs a PDF file.
 //
@@ -191,7 +197,7 @@ func (context *SignContext) applyDefaults() {
 		context.SignData.Signature.DocMDPPerm = 1
 	}
 	if !context.SignData.DigestAlgorithm.Available() {
-		context.SignData.DigestAlgorithm = crypto.SHA256
+		context.SignData.DigestAlgorithm = defaultDigestForSigner(context.SignData.Signer)
 	}
 	if context.SignData.Appearance.Page == 0 {
 		context.SignData.Appearance.Page = 1
@@ -219,6 +225,46 @@ func (context *SignContext) validateSignData() error {
 		}
 	}
 
+	if err := context.validateMLDSA(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func defaultDigestForSigner(signer crypto.Signer) crypto.Hash {
+	if signer != nil {
+		if _, ok := signer.Public().(*mldsa.PublicKey); ok {
+			return crypto.SHA512
+		}
+	}
+	return crypto.SHA256
+}
+
+// validateMLDSA rejects configurations that would make the PDF signature
+// dictionary disagree with the RFC 9882 CMS emitted by digitorus/pkcs7.
+func (context *SignContext) validateMLDSA() error {
+	if context.SignData.Signature.CertType == TimeStampSignature {
+		return nil
+	}
+	if context.SignData.Signer == nil || context.SignData.Certificate == nil {
+		return nil
+	}
+
+	signerPublic, signerIsMLDSA := context.SignData.Signer.Public().(*mldsa.PublicKey)
+	certificatePublic, certificateIsMLDSA := context.SignData.Certificate.PublicKey.(*mldsa.PublicKey)
+	if signerIsMLDSA != certificateIsMLDSA {
+		return fmt.Errorf("signer and certificate must both use ML-DSA or both use a non-ML-DSA algorithm")
+	}
+	if !signerIsMLDSA {
+		return nil
+	}
+	if signerPublic.Parameters() != certificatePublic.Parameters() {
+		return fmt.Errorf("ML-DSA signer parameter set %s does not match certificate parameter set %s", signerPublic.Parameters(), certificatePublic.Parameters())
+	}
+	if context.SignData.DigestAlgorithm != crypto.SHA512 {
+		return fmt.Errorf("ML-DSA PDF signatures require SHA-512 so /DigestMethod matches the RFC 9882 CMS digest, got %s", context.SignData.DigestAlgorithm)
+	}
 	return nil
 }
 
@@ -284,6 +330,8 @@ func (context *SignContext) calculateSignatureSize() error {
 			// ECDSA signature is (r, s) in ASN.1, roughly 2 * curve size + overhead
 			curveBytes := (pub.Params().BitSize + 7) / 8
 			keySize = 2*curveBytes + 32 // +32 for generous ASN.1 overhead
+		case *mldsa.PublicKey:
+			keySize = pub.Parameters().SignatureSize()
 		default:
 			keySize = 512 // Fallback default
 		}
@@ -328,7 +376,16 @@ func (context *SignContext) calculateSignatureSize() error {
 
 	// Add estimated size for TSA.
 	if context.SignData.TSA.URL != "" {
-		context.SignatureMaxLength += uint32(hex.EncodedLen(9000))
+		estimatedSize := estimatedTSAResponseSize
+		if context.SignData.Certificate != nil {
+			if _, ok := context.SignData.Certificate.PublicKey.(*mldsa.PublicKey); ok {
+				// A PQC TSA token can contain several large ML-DSA certificates
+				// plus an ML-DSA signature. Reserve enough space up front so a
+				// successful TSA request is not repeated merely to resize the PDF.
+				estimatedSize = estimatedMLDSATSAResponseSize
+			}
+		}
+		context.SignatureMaxLength += uint32(hex.EncodedLen(estimatedSize))
 	}
 
 	return nil

@@ -3,6 +3,8 @@ package verify
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/mldsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/digitorus/pdfsign/internal/ocspx"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -51,7 +54,7 @@ func performExternalOCSPCheckWithFunc(cert, issuer *x509.Certificate, options *V
 	if ocspRequestFunc != nil {
 		ocspReq, err = ocspRequestFunc(cert, issuer)
 	} else {
-		ocspReq, err = ocsp.CreateRequest(cert, issuer, nil)
+		ocspReq, err = ocsp.CreateRequest(cert, issuer, ocspRequestOptions(cert, issuer))
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OCSP request: %v", err)
@@ -113,7 +116,7 @@ func performExternalOCSPCheckWithFunc(cert, issuer *x509.Certificate, options *V
 			continue
 		}
 
-		ocspResp, err := ocsp.ParseResponse(body, issuer)
+		ocspResp, err := ocspx.ParseResponseForCert(body, cert, issuer)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to parse OCSP response from %s (content-type %q): %v", serverURL, resp.Header.Get("Content-Type"), err)
 			continue
@@ -126,11 +129,36 @@ func performExternalOCSPCheckWithFunc(cert, issuer *x509.Certificate, options *V
 	return nil, nil, lastErr
 }
 
+// ocspRequestOptions avoids introducing SHA-1 CertIDs into an otherwise
+// ML-DSA-only validation path. Classical certificate deployments retain the
+// historical default for responder compatibility.
+func ocspRequestOptions(cert, issuer *x509.Certificate) *ocsp.RequestOptions {
+	if cert != nil {
+		if _, ok := cert.PublicKey.(*mldsa.PublicKey); ok {
+			return &ocsp.RequestOptions{Hash: crypto.SHA512}
+		}
+	}
+	if issuer != nil {
+		if _, ok := issuer.PublicKey.(*mldsa.PublicKey); ok {
+			return &ocsp.RequestOptions{Hash: crypto.SHA512}
+		}
+	}
+	return nil
+}
+
 // performExternalCRLCheck performs an external CRL check for the given certificate.
 // Returns (revocationTime, isRevoked, warning, error); warning is a
 // non-fatal condition (e.g. an unexpected response Content-Type) to
 // surface to the caller, nil when there's nothing to warn about.
 func performExternalCRLCheck(cert *x509.Certificate, options *VerifyOptions) (*time.Time, bool, error, error) {
+	return performExternalCRLCheckWithIssuer(cert, nil, options)
+}
+
+// performExternalCRLCheckWithIssuer additionally verifies the CRL signature
+// when the certificate chain supplies its issuer. The wrapper above preserves
+// the existing test helper/API shape for callers that only need retrieval and
+// parsing behavior.
+func performExternalCRLCheckWithIssuer(cert, issuer *x509.Certificate, options *VerifyOptions) (*time.Time, bool, error, error) {
 	if !options.EnableExternalRevocationCheck {
 		return nil, false, nil, fmt.Errorf("external revocation checking is disabled")
 	}
@@ -205,6 +233,12 @@ func performExternalCRLCheck(cert *x509.Certificate, options *VerifyOptions) (*t
 		if err != nil {
 			lastErr = fmt.Errorf("failed to parse CRL from %s (content-type %q): %v", crlURL, resp.Header.Get("Content-Type"), err)
 			continue
+		}
+		if issuer != nil {
+			if err := crl.CheckSignatureFrom(issuer); err != nil {
+				lastErr = fmt.Errorf("failed to verify CRL signature from %s: %v", crlURL, err)
+				continue
+			}
 		}
 
 		// Check if certificate is revoked

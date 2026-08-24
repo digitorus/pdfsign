@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -96,6 +97,60 @@ func TestLoadCertificatesAndKey(t *testing.T) {
 		}()
 		LoadCertificatesAndKey(badCert.Name(), keyFile.Name(), "")
 	}()
+}
+
+func TestLoadCertificatesAndMLDSAPKCS8Key(t *testing.T) {
+	origExit := osExit
+	defer func() { osExit = origExit }()
+	osExit = func(code int) { panic("os.Exit called") }
+
+	privateKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, privateKey.Public(), privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certificateFile, err := os.CreateTemp(t.TempDir(), "mldsa-cert-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pem.Encode(certificateFile, &pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}); err != nil {
+		t.Fatal(err)
+	}
+	if err := certificateFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	privateKeyFile, err := os.CreateTemp(t.TempDir(), "mldsa-key-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pem.Encode(privateKeyFile, &pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDER}); err != nil {
+		t.Fatal(err)
+	}
+	if err := privateKeyFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	certificate, signer, _ := LoadCertificatesAndKey(certificateFile.Name(), privateKeyFile.Name(), "")
+	if certificate.PublicKeyAlgorithm != x509.MLDSA {
+		t.Fatalf("certificate algorithm = %s, want ML-DSA", certificate.PublicKeyAlgorithm)
+	}
+	if _, ok := signer.Public().(*mldsa.PublicKey); !ok {
+		t.Fatalf("private key public type = %T, want *mldsa.PublicKey", signer.Public())
+	}
 }
 
 func TestLoadCertificateChain(t *testing.T) {

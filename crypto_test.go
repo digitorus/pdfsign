@@ -23,6 +23,9 @@ func TestCryptoAlgorithms(t *testing.T) {
 		{"ECDSA_P256", testpki.ECDSA_P256},
 		{"ECDSA_P384", testpki.ECDSA_P384},
 		{"ECDSA_P521", testpki.ECDSA_P521},
+		{"MLDSA_44", testpki.MLDSA_44},
+		{"MLDSA_65", testpki.MLDSA_65},
+		{"MLDSA_87", testpki.MLDSA_87},
 	}
 
 	inputFile := "testfiles/testfile12.pdf"
@@ -121,6 +124,10 @@ func TestCryptoAlgorithms(t *testing.T) {
 					TrustSelfSigned(true).
 					AllowedAlgorithms(x509.ECDSA).
 					MinECDSAKeySize(521)
+			case testpki.MLDSA_44, testpki.MLDSA_65, testpki.MLDSA_87:
+				verifyResult = verifyDoc.Verify().
+					TrustSelfSigned(true).
+					AllowedAlgorithms(x509.MLDSA)
 			}
 			if verifyResult.Err() != nil {
 				t.Fatalf("internal verification failed to execute: %v", verifyResult.Err())
