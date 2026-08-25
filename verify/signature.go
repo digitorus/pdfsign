@@ -136,40 +136,6 @@ func verifyAlgorithmAndKeySize(signer *Signer, p7 *pkcs7.PKCS7, options *VerifyO
 		return nil
 	}
 
-	// Helper to verify a single certificate
-	verifyCert := func(cert *x509.Certificate, isLeaf bool) error {
-		if cert == nil {
-			return nil
-		}
-
-		// 1. Verify Allowed Algorithms
-		if len(options.AllowedAlgorithms) > 0 {
-			allowed := false
-			for _, algo := range options.AllowedAlgorithms {
-				if cert.PublicKeyAlgorithm == algo {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return fmt.Errorf("public key algorithm %s is not allowed (isLeaf: %v)", cert.PublicKeyAlgorithm, isLeaf)
-			}
-		}
-
-		// 2. Verify Minimum Key Size
-		switch pub := cert.PublicKey.(type) {
-		case *rsa.PublicKey:
-			if options.MinRSAKeySize > 0 && pub.N.BitLen() < options.MinRSAKeySize {
-				return fmt.Errorf("RSA key size %d is less than minimum %d (isLeaf: %v)", pub.N.BitLen(), options.MinRSAKeySize, isLeaf)
-			}
-		case *ecdsa.PublicKey:
-			if options.MinECDSAKeySize > 0 && pub.Params().BitSize < options.MinECDSAKeySize {
-				return fmt.Errorf("ECDSA key size %d is less than minimum %d (isLeaf: %v)", pub.Params().BitSize, options.MinECDSAKeySize, isLeaf)
-			}
-		}
-		return nil
-	}
-
 	// Identify the leaf signer
 	// We try to match the signer info from p7
 	var leafCert *x509.Certificate
@@ -196,19 +162,50 @@ func verifyAlgorithmAndKeySize(signer *Signer, p7 *pkcs7.PKCS7, options *VerifyO
 		// Verify all certificates
 		for _, certWrapper := range signer.Certificates {
 			isLeaf := (certWrapper.Certificate == leafCert)
-			if err := verifyCert(certWrapper.Certificate, isLeaf); err != nil {
+			if err := verifyCertificateAlgorithmAndKeySize(certWrapper.Certificate, options, isLeaf); err != nil {
 				return err
 			}
 		}
 	} else {
 		// Only verify the leaf
 		if leafCert != nil {
-			if err := verifyCert(leafCert, true); err != nil {
+			if err := verifyCertificateAlgorithmAndKeySize(leafCert, options, true); err != nil {
 				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+func verifyCertificateAlgorithmAndKeySize(cert *x509.Certificate, options *VerifyOptions, isLeaf bool) error {
+	if cert == nil {
+		return nil
+	}
+
+	if len(options.AllowedAlgorithms) > 0 {
+		allowed := false
+		for _, algo := range options.AllowedAlgorithms {
+			if cert.PublicKeyAlgorithm == algo {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("public key algorithm %s is not allowed (isLeaf: %v)", cert.PublicKeyAlgorithm, isLeaf)
+		}
+	}
+
+	switch pub := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		if options.MinRSAKeySize > 0 && pub.N.BitLen() < options.MinRSAKeySize {
+			return fmt.Errorf("RSA key size %d is less than minimum %d (isLeaf: %v)", pub.N.BitLen(), options.MinRSAKeySize, isLeaf)
+		}
+	case *ecdsa.PublicKey:
+		if options.MinECDSAKeySize > 0 && pub.Params().BitSize < options.MinECDSAKeySize {
+			return fmt.Errorf("ECDSA key size %d is less than minimum %d (isLeaf: %v)", pub.Params().BitSize, options.MinECDSAKeySize, isLeaf)
+		}
+	}
 	return nil
 }
 

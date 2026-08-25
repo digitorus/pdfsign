@@ -323,7 +323,11 @@ func applyRevocationStatus(
 		}
 
 		if !options.SkipCRL && !c.CRLEmbedded && len(cert.CRLDistributionPoints) > 0 {
-			if revocationTime, isRevoked, warning, err := performExternalCRLCheck(cert, options); err == nil {
+			var issuer *x509.Certificate
+			if len(chain) > 0 && len(chain[0]) > 1 {
+				issuer = chain[0][1]
+			}
+			if revocationTime, isRevoked, warning, err := performExternalCRLCheckWithIssuer(cert, issuer, options); err == nil {
 				c.CRLExternal = true
 				if warning != nil {
 					signer.Warnings = append(signer.Warnings, warning)
@@ -452,6 +456,15 @@ func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOption
 
 	if timestampCert == nil {
 		return false, &Warning{Msg: "No timestamp signing certificate found"}
+	}
+	for _, cert := range p7.Certificates {
+		isLeaf := cert.Equal(timestampCert)
+		if !isLeaf && !options.ValidateFullChain {
+			continue
+		}
+		if err := verifyCertificateAlgorithmAndKeySize(cert, options, isLeaf); err != nil {
+			return false, &Warning{Msg: fmt.Sprintf("Timestamp certificate algorithm policy failed: %v", err)}
+		}
 	}
 
 	// Verify the timestamp certificate chain against system trusted roots

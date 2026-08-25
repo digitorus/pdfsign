@@ -381,8 +381,10 @@ func (b *SignBuilder) Context(ctx context.Context) *SignBuilder {
 	return b
 }
 
-// Digest sets the hash algorithm for the signature (e.g., crypto.SHA256).
-// Default is SHA256 if not specified.
+// Digest sets the CMS content digest and PDF /DigestMethod. The default is
+// SHA-256 for classical signers and SHA-512 for ML-DSA signers. ML-DSA callers
+// must use SHA-512 because that is the RFC 9882 digest emitted by the PKCS#7
+// implementation.
 func (b *SignBuilder) Digest(hash crypto.Hash) *SignBuilder {
 	b.digest = hash
 	return b

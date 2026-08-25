@@ -21,6 +21,7 @@ package pdfsign
 import (
 	"compress/zlib"
 	"crypto"
+	"crypto/mldsa"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -125,8 +126,8 @@ func (d *Document) Sign(signer crypto.Signer, cert *x509.Certificate, intermedia
 		doc:    d,
 		signer: signer,
 		cert:   cert,
-		digest: crypto.SHA256, // Default
-		unit:   d.unit,        // Inherit from document
+		digest: defaultDigestForSigner(signer),
+		unit:   d.unit, // Inherit from document
 	}
 
 	if len(intermediates) > 0 {
@@ -138,6 +139,19 @@ func (d *Document) Sign(signer crypto.Signer, cert *x509.Certificate, intermedia
 
 	d.pendingSigns = append(d.pendingSigns, sb)
 	return sb
+}
+
+// defaultDigestForSigner keeps the PDF signature dictionary and CMS
+// SignerInfo aligned with the algorithm selected by the signer. RFC 9882
+// permits SHA-512 for every ML-DSA parameter set, and digitorus/pkcs7 uses it
+// as its interoperable CMS digest for ML-DSA.
+func defaultDigestForSigner(signer crypto.Signer) crypto.Hash {
+	if signer != nil {
+		if _, ok := signer.Public().(*mldsa.PublicKey); ok {
+			return crypto.SHA512
+		}
+	}
+	return crypto.SHA256
 }
 
 // Timestamp adds a document-level timestamp signature.

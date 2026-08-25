@@ -190,7 +190,7 @@ func LoadCertificatesAndKey(certPath, keyPath, chainPath string) (*x509.Certific
 		return nil, nil, nil
 	}
 
-	pkey, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
+	pkey, err := parsePrivateKey(keyBlock.Bytes)
 	if err != nil {
 		log.Println(err)
 		osExit(1)
@@ -203,6 +203,24 @@ func LoadCertificatesAndKey(certPath, keyPath, chainPath string) (*x509.Certific
 	}
 
 	return cert, pkey, certificateChains
+}
+
+// parsePrivateKey accepts PKCS#8 for algorithm-independent keys (including
+// ML-DSA), while retaining the legacy PKCS#1 RSA and SEC 1 EC formats.
+func parsePrivateKey(der []byte) (crypto.Signer, error) {
+	if key, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		if signer, ok := key.(crypto.Signer); ok {
+			return signer, nil
+		}
+		return nil, fmt.Errorf("PKCS#8 private key type %T does not implement crypto.Signer", key)
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParseECPrivateKey(der); err == nil {
+		return key, nil
+	}
+	return nil, errors.New("unsupported private key encoding: use unencrypted PKCS#8, PKCS#1 RSA, or SEC 1 EC")
 }
 
 func LoadCertificateChain(chainPath string, cert *x509.Certificate) [][]*x509.Certificate {

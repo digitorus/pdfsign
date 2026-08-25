@@ -363,7 +363,86 @@ doc.Sign(hsmSigner, cert).
     Digest(crypto.SHA256)
 ```
 
-The signature algorithm is determined by your `crypto.Signer` implementation (RSA, ECDSA, Ed25519).
+The signature algorithm is determined by your `crypto.Signer` implementation (RSA, ECDSA, Ed25519, or ML-DSA).
+
+### Post-quantum-only signing (ML-DSA)
+
+Go 1.27 and the current `digitorus/pkcs7` dependency support ML-DSA-44,
+ML-DSA-65, and ML-DSA-87 CMS signatures. To avoid a hidden classical
+public-key signature, every asymmetric component must use ML-DSA: the PDF
+signer, issuing CA chain, CRL or OCSP responder, and RFC 3161 TSA chain. A
+PQC signer combined with an RSA/ECDSA TSA or CA is not a post-quantum-only
+signature path.
+
+Assuming `privateKey` is an `*mldsa.PrivateKey`, `certificate` and every entry
+in `intermediates` use ML-DSA, and `pqcTSAURL` serves ML-DSA-signed timestamp
+tokens:
+
+```go
+doc, err := pdfsign.OpenFile("contract.pdf")
+if err != nil {
+    log.Fatal(err)
+}
+
+// PAdES B-T adds an RFC 3161 signature-time-stamp. SHA-512 is used as the
+// interoperable RFC 9882 CMS digest for all supported ML-DSA parameter sets.
+doc.Sign(privateKey, certificate, intermediates...).
+    Format(pdfsign.PAdES_B_T).
+    Digest(crypto.SHA512).
+    Timestamp(pqcTSAURL).
+    Reason("Post-quantum approval")
+
+output, err := os.Create("contract-pqc-signed.pdf")
+if err != nil {
+    log.Fatal(err)
+}
+defer output.Close()
+if _, err := doc.Write(output); err != nil {
+    log.Fatal(err)
+}
+```
+
+The library selects SHA-512 automatically for an ML-DSA signer; specifying it
+explicitly makes the cryptographic policy visible. A different `Digest` is
+rejected because the PDF `/DigestMethod` must agree with the CMS emitted by
+the PKCS#7 implementation. ML-DSA `AlgorithmIdentifier` parameters are absent,
+and the CMS signature uses RFC 9882 pure mode.
+
+Verify the whole signer and TSA paths under an ML-DSA-only policy, and enable
+the PQC OCSP/CRL services published by the certificate:
+
+```go
+signed, err := pdfsign.OpenFile("contract-pqc-signed.pdf")
+if err != nil {
+    log.Fatal(err)
+}
+
+result := signed.Verify().
+    TrustedRoots(pqcRoots).
+    AllowedAlgorithms(x509.MLDSA).
+    ValidateFullChain(true).
+    ValidateTimestampCertificates(true).
+    ExternalChecks(true)
+
+if !result.Valid() || !result.Signatures()[0].TimestampValid {
+    log.Fatal("the ML-DSA signature or timestamp path is invalid")
+}
+```
+
+For ML-DSA chains, OCSP CertIDs use SHA-512 and ML-DSA-signed OCSP responses
+and CRLs are verified with the issuer. The command-line key loader accepts
+ML-DSA private keys in unencrypted PKCS#8 PEM (`BEGIN PRIVATE KEY`) format.
+
+This support does not add a classical fallback, hybrid/composite signatures,
+SLH-DSA, or PAdES B-LT/B-LTA. PAdES B-T revocation information is checked
+online when `ExternalChecks(true)` is enabled; it is not embedded for offline
+long-term validation. PDF validator support for RFC 9882 is still emerging, so
+test every relying-party product you intend to support.
+
+References: [FIPS 204](https://csrc.nist.gov/pubs/fips/204/final),
+[RFC 9881](https://www.rfc-editor.org/rfc/rfc9881.html),
+[RFC 9882](https://www.rfc-editor.org/rfc/rfc9882.html), and the
+[Go 1.27 release notes](https://go.dev/doc/go1.27).
 
 ### Timeouts and Cancellation
 
