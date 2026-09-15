@@ -126,7 +126,28 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 
 	// Finalize the AcroForm and Catalog object
 	catalog_buffer.WriteString("  >>\n") // Close AcroForm
-	catalog_buffer.WriteString(">>\n")   // Close Catalog
+
+	// (Required for a certification signature; ISO 32000-1 12.8.2.2, "DocMDP")
+	//
+	// "A document can contain only one signature field that contains a DocMDP
+	// transform method; it shall be the first signed field in the document. The
+	// Perms entry in the document catalog dictionary (see 7.7.2, "Document catalog
+	// dictionary") shall contain a DocMDP entry whose value is the signature
+	// dictionary of that signature field."
+	//
+	// The /P value written into the signature dictionary's /Reference ->
+	// /TransformParams STATES the permission level; this /Perms entry is what makes
+	// a conforming reader APPLY it. Without it a CertificationSignature is written
+	// as, and read as, an ordinary approval signature: Acrobat shows no
+	// "Certified by" bar and the DocMDP restriction is not enforced.
+	//
+	// SignData.objectId is the signature dictionary's object number. It is
+	// populated by addSignatureObject, which SignPDF runs before addCatalog.
+	if context.SignData.Signature.CertType == CertificationSignature {
+		_, _ = fmt.Fprintf(&catalog_buffer, "  /Perms <<\n    /DocMDP %d 0 R\n  >>\n", context.SignData.objectId)
+	}
+
+	catalog_buffer.WriteString(">>\n") // Close Catalog
 
 	return catalog_buffer.Bytes(), nil
 }
