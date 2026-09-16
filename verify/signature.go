@@ -26,7 +26,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 	signer.ContactInfo = v.Key("ContactInfo").Text()
 
 	// Check for DocMDP and incremental updates
-	if err := checkDocMDP(v, file, fileSize, signer); err != nil {
+	if err := checkDocMDP(v, file, fileSize, signer, options.Password); err != nil {
 		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("DocMDP validation failed: %v", err)})
 		return signer, nil
 	}
@@ -313,7 +313,7 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 }
 
 // checkDocMDP verifies Document Modification Detection and Prevention permissions.
-func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer) error {
+func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
 	refs := v.Key("Reference")
 	if refs.IsNull() || refs.Kind() != pdf.Array {
 		return nil
@@ -361,7 +361,7 @@ func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer) 
 				// change) is the PDF "Shadow Attack" pattern (Mainka et al.,
 				// USENIX Security 2021); reject it rather than merely warn.
 				if perms == 2 || perms == 3 {
-					if err := checkIncrementalUpdateScope(file, fileSize, signedEnd); err != nil {
+					if err := checkIncrementalUpdateScope(file, fileSize, signedEnd, password); err != nil {
 						return err
 					}
 					signer.Warnings = append(signer.Warnings, &Warning{
@@ -386,8 +386,8 @@ var objDefPattern = regexp.MustCompile(`(?:^|[^0-9])([0-9]+)[ \t\r\n\f\x00]+[0-9
 // bytes for classic "<id> <gen> obj" headers. An object written only inside
 // a compressed object stream (used by some xref-stream-format incremental
 // updates) has no such textual header and is not covered by this check.
-func checkIncrementalUpdateScope(file io.ReaderAt, fileSize, signedEnd int64) error {
-	rdr, err := pdf.NewReader(file, fileSize)
+func checkIncrementalUpdateScope(file io.ReaderAt, fileSize, signedEnd int64, password string) error {
+	rdr, err := pdf.NewReaderEncrypted(file, fileSize, passwordFunc(password))
 	if err != nil {
 		return nil // Can't determine scope; structural checks elsewhere catch a broken file.
 	}

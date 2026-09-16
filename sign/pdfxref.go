@@ -74,6 +74,12 @@ func (context *SignContext) WriteObject(id uint32, object []byte) error {
 
 	// Write the object content
 	object = bytes.TrimSpace(object)
+	if context.PDFReader != nil && context.PDFReader.IsEncrypted() {
+		var err error
+		if object, err = encryptObject(context.PDFReader, id, object); err != nil {
+			return fmt.Errorf("failed to encrypt object: %w", err)
+		}
+	}
 	if _, err := context.OutputBuffer.Write(object); err != nil {
 		return fmt.Errorf("failed to write object content: %w", err)
 	}

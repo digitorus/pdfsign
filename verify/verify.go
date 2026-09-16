@@ -92,7 +92,7 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 	}()
 	apiResp = &Response{}
 
-	rdr, err := pdf.NewReader(file, size)
+	rdr, err := pdf.NewReaderEncrypted(file, size, passwordFunc(options.Password))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %v", err)
 	}
@@ -192,4 +192,14 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 	apiResp.DocumentInfo = documentInfo
 
 	return
+}
+
+// passwordFunc returns a password callback for pdf.NewReaderEncrypted that
+// offers password once. An empty password means only the empty password is tried.
+func passwordFunc(password string) func() string {
+	return func() string {
+		p := password
+		password = ""
+		return p
+	}
 }

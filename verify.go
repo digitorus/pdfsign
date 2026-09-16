@@ -40,6 +40,7 @@ func (b *VerifyBuilder) doExecute() {
 	}
 
 	vOpts.AllowUntrustedRoots = b.trustEmbedded
+	vOpts.Password = b.doc.password
 	vOpts.TrustedRoots = b.trustedRoots
 	vOpts.SkipRevocationCheck = b.skipRevocationCheck
 	vOpts.SkipOCSP = b.skipOCSP
@@ -86,7 +87,7 @@ func (b *VerifyBuilder) doExecute() {
 			return
 		}
 		var err error
-		b.doc.rdr, err = pdf.NewReader(b.doc.reader, b.doc.size)
+		b.doc.rdr, err = newReader(b.doc.reader, b.doc.size, b.doc.password)
 		if err != nil {
 			b.err = fmt.Errorf("verification failed: could not open PDF: %w", err)
 			return

@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	pdflib "github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/internal/render"
 	"github.com/digitorus/pdfsign/sign"
 )
@@ -171,7 +170,7 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 			}
 		} else {
 			signedBytes := buf.Bytes()
-			newRdr, err := pdflib.NewReader(bytes.NewReader(signedBytes), int64(len(signedBytes)))
+			newRdr, err := newReader(bytes.NewReader(signedBytes), int64(len(signedBytes)), d.password)
 			if err != nil {
 				return nil, fmt.Errorf("failed to re-open intermediate signed document: %w", err)
 			}

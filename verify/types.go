@@ -52,6 +52,10 @@ type VerifyOptions struct {
 	// including building a proper certification path and checking revocation status.
 	ValidateTimestampCertificates bool
 
+	// Password is used to open an encrypted document when the empty user
+	// password is not accepted. It may be the user or the owner password.
+	Password string
+
 	// AllowUntrustedRoots when true, allows using certificates embedded in the PDF as trusted roots
 	// WARNING: This makes signatures appear valid even if they're self-signed or from untrusted CAs
 	// Only enable this for testing or when you explicitly trust the embedded certificates
