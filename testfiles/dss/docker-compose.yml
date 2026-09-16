@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  dss-validator:
+    build:
+      context: .
+      dockerfile: Dockerfile.dss
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/services/rest/validation/v2/validateSignature" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

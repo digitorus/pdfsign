@@ -28,21 +28,27 @@ func TestFindFirstPage(t *testing.T) {
 	}
 
 	if !found_pages {
-		input_file.Close()
+		if err := input_file.Close(); err != nil {
+			t.Errorf("Failed to close input_file: %v", err)
+		}
 		t.Errorf("Could not find pages element")
 		return
 	}
 
 	first_page, err := findFirstPage(root.Key("Pages"))
 	if err != nil {
-		input_file.Close()
+		if err := input_file.Close(); err != nil {
+			t.Errorf("Failed to close input_file: %v", err)
+		}
 		t.Errorf("Could not find first page")
 		return
 	}
 
 	first_page_ptr := first_page.GetPtr()
 	if first_page_ptr.GetGen() != 0 {
-		input_file.Close()
+		if err := input_file.Close(); err != nil {
+			t.Errorf("Failed to close input_file: %v", err)
+		}
 		t.Errorf("First page gen mismatch")
 	}
 
@@ -50,7 +56,9 @@ func TestFindFirstPage(t *testing.T) {
 		t.Errorf("First page ID mismatch")
 	}
 
-	input_file.Close()
+	if err := input_file.Close(); err != nil {
+		t.Errorf("Failed to close input_file: %v", err)
+	}
 }
 
 func TestPDFString(t *testing.T) {
@@ -62,8 +70,12 @@ func TestPDFString(t *testing.T) {
 	}
 
 	for text, expected := range string_compare {
-		if pdfString(text) != expected {
-			t.Errorf("Error while escaping %s. Expected %s, got %s.", text, expected, pdfString(text))
+		got, err := pdfString(text)
+		if err != nil {
+			t.Fatalf("pdfString(%q) returned error: %v", text, err)
+		}
+		if got != expected {
+			t.Errorf("Error while escaping %s. Expected %s, got %s.", text, expected, got)
 		}
 	}
 }
@@ -87,8 +99,12 @@ func TestPdfDateTime(t *testing.T) {
 	}
 
 	for date, expected := range date_compare {
-		if pdfDateTime(date) != expected {
-			t.Errorf("Error while converting date %s to string. Expected %s, got %s.", date.String(), expected, pdfDateTime(date))
+		got, err := pdfDateTime(date)
+		if err != nil {
+			t.Fatalf("pdfDateTime(%s) returned error: %v", date, err)
+		}
+		if got != expected {
+			t.Errorf("Error while converting date %s to string. Expected %s, got %s.", date.String(), expected, got)
 		}
 	}
 }
@@ -125,28 +141,36 @@ func TestWritePartFromSourceFileToTargetFile(t *testing.T) {
 	}
 
 	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, 0)
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		t.Errorf("Failed to flush writer: %v", err)
+	}
 
 	if writer.Buffered() != 0 {
 		t.Errorf("Content was copied while length was 0")
 	}
 
 	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, -20)
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		t.Errorf("Failed to flush writer: %v", err)
+	}
 
 	if writer.Buffered() != 0 {
 		t.Errorf("Content was copied while length was smaller than 0")
 	}
 
 	_ = writePartFromSourceFileToTargetFile(input_file, writer, 0, 8)
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		t.Errorf("Failed to flush writer: %v", err)
+	}
 
 	if b.String() != "%PDF-2.0" {
 		t.Errorf("Wrong content was copied, got %s but expected %s", b.String(), "%PDF-2.0")
 	}
 
 	_ = writePartFromSourceFileToTargetFile(input_file, writer, 33, 8)
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		t.Errorf("Failed to flush writer: %v", err)
+	}
 
 	if b.String() != "%PDF-2.0/Catalog" {
 		t.Errorf("Wrong content was copied, got %s but expected %s", b.String(), "%PDF-2.0/Catalog")
@@ -158,24 +182,28 @@ func TestWritePartFromSourceFileToTargetFile(t *testing.T) {
 		t.Errorf("Requested 1200 bytes but only got %d", writer.Buffered())
 	}
 
-	input_file.Close()
+	if err := input_file.Close(); err != nil {
+		t.Errorf("Failed to close input_file: %v", err)
+	}
 }
 
 func loadHelpersTestPDF() (*os.File, *pdf.Reader) {
 	input_file, err := os.Open("../testfiles/testfile20.pdf")
 	if err != nil {
+		_ = input_file.Close()
 		return nil, nil
 	}
 
 	finfo, err := input_file.Stat()
 	if err != nil {
-		input_file.Close()
+		_ = input_file.Close()
 		return nil, nil
 	}
 	size := finfo.Size()
 
 	rdr, err := pdf.NewReader(input_file, size)
 	if err != nil {
+		_ = input_file.Close()
 		return nil, nil
 	}
 

@@ -5,31 +5,215 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-
   build:
-    name: Build
+    name: Build, Test & Validate
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v5
-      with:
-        go-version: ^1.20
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v4
+      - name: Set up Java (for external validation tools)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: Build
-      run: go build -v ./...
+      - name: Build
+        run: go build -v ./...
 
-    - name: Test
-      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+      - name: Test
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
-    - name: Upload coverage report
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./coverage.txt
-        flags: unittests
-        name: codecov-umbrella
+      - name: Install pdfcpu
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+
+      - name: Validate signed PDFs with pdfcpu
+        run: |
+          # Ensure pdfcpu is in PATH
+          export PATH=$PATH:$(go env GOPATH)/bin
+          
+          VALIDATION_PASSED="true"
+          echo "### PDF Validation Results"
+          
+          # Use find to handle sign_test.go output in testfiles/success/
+          if [ ! -d "testfiles/success" ] || [ -z "$(ls -A testfiles/success 2>/dev/null)" ]; then
+            echo "⏭️ No signed PDF files found. Skipping validation."
+            exit 0
+          fi
+
+          # Build list of source files that have pre-existing errors (baseline)
+          echo "Running baseline check..."
+          for source_file in testfiles/*.pdf; do
+            [ -e "$source_file" ] || continue
+            filename=$(basename "$source_file")
+            if ! pdfcpu validate --mode strict "$source_file" > /dev/null 2>&1; then
+              echo "$filename" >> baseline_errors.txt
+              echo "Baseline skip: $filename (source has pre-existing errors)"
+            fi
+          done
+
+          # Validate signed files
+          find testfiles/success -name "*.pdf" | sort | while read signed_file; do
+            filename=$(basename "$signed_file")
+            
+            # Extract the original source filename by removing the test suffix
+            # e.g., testfile14_TestSignPDF.pdf -> testfile14.pdf
+            # e.g., testfile14_TestSignPDFVisibleAll.pdf -> testfile14.pdf
+            source_filename=$(echo "$filename" | sed 's/_TestSignPDF.pdf/.pdf/' | sed 's/_TestSignPDFVisibleAll.pdf/.pdf/')
+            
+            # Skip if source had pre-existing errors
+            if [ -f baseline_errors.txt ] && grep -q "^$source_filename$" baseline_errors.txt; then
+              echo "--------------------------------------------------"
+              echo "⏭️  $filename (skipped - source '$source_filename' has pre-existing errors)"
+              continue
+            fi
+
+            echo "--------------------------------------------------"
+            echo "📄 Validating: $filename"
+            
+            # Structure validation. Try strict first; fall back to relaxed.
+            # Our catalog intentionally sets /Version to bump the effective
+            # PDF version above the input file's header version when needed
+            # (see sign/pdfcatalog.go) - this is valid, spec-sanctioned usage
+            # (ISO 32000-1 7.5.2) that some strict validators, including
+            # pdfcpu, still flag. Only a relaxed-mode failure indicates
+            # actual corruption.
+            if pdfcpu validate --mode strict "$signed_file" > /dev/null 2>&1; then
+              echo "✅ Structure: OK (strict)"
+            elif pdfcpu validate --mode relaxed "$signed_file" > /dev/null 2>&1; then
+              echo "✅ Structure: OK (relaxed)"
+            else
+              echo "❌ Structure: FAILED"
+              pdfcpu validate --mode relaxed "$signed_file" 2>&1 || true
+              VALIDATION_PASSED="false"
+              touch validation_failed.flag
+            fi
+            
+            # Signature validation. --offline skips OCSP/CRL network fetches:
+            # our test PKI's responders are gone by the time this step runs
+            # (they only lived for the "go test" step), and pdfcpu refuses to
+            # dial loopback addresses anyway. Test certificates are also
+            # self-signed and never imported into pdfcpu's local certificate
+            # store, so trust cannot be resolved - pdfcpu reports
+            # "DocModified: unknown" with reason "certificate path was not
+            # resolved" for a perfectly valid signature in that case. Accept
+            # that specific, expected reason as a pass; a real integrity
+            # failure (tampered bytes) reports "DocModified: true" instead
+            # and is still caught below.
+            SIG_OUT=$(pdfcpu signatures validate -f --offline "$signed_file" 2>&1)
+            if echo "$SIG_OUT" | grep -q "DocModified: false"; then
+              echo "✅ Signature: Integrity verified (Document not modified)"
+            elif echo "$SIG_OUT" | grep -q "DocModified: unknown" && echo "$SIG_OUT" | grep -q "certificate path was not resolved using the configured local certificate store"; then
+              echo "✅ Signature: Integrity verified (trust unknown - self-signed test certificate, expected)"
+            else
+              echo "❌ Signature: FAILED"
+              echo "$SIG_OUT"
+              VALIDATION_PASSED="false"
+              touch validation_failed.flag
+            fi
+          done
+
+          if [ -f validation_failed.flag ]; then
+            echo ""
+            echo "❌ PDF validation failed. See log above for details."
+            exit 1
+          else
+            echo ""
+            echo "✅ All PDF validations passed!"
+          fi
+
+      - name: Run DSS Validation
+        run: |
+          # Use the local setup script which uses Docker to avoid dependency issues
+          chmod +x scripts/setup-dss.sh
+          ./scripts/setup-dss.sh
+
+          # The DSS tests use isolated outputs and a shared validation client,
+          # so both packages can be validated in one invocation.
+          echo "### DSS Signature Validation Results"
+          DSS_API_URL=http://localhost:8080/services/rest/validation/validateSignature go test -v ./sign . -run TestValidateDSS
+          
+          # Container is started with --rm, so stopping it is enough
+          docker stop dss-validator || true
+
+      - name: Upload coverage report
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Upload test PDF files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-pdf-artifacts
+          path: testfiles/success/
+          retention-days: 7
+
+  corpus-test:
+    name: Corpus Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+
+      - name: Set up Java (for external validation tools)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install validators (pdfcpu, Ghostscript, veraPDF)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghostscript
+          go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+          
+          # Install veraPDF greenfield
+          curl -L https://software.verapdf.org/rel/1.28/verapdf-greenfield-1.28.2-installer.zip -o verapdf.zip
+          unzip verapdf.zip
+          
+          # Create auto-install.xml for headless installation
+          printf '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<AutomatedInstallation langpack="eng">\n    <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>\n    <com.izforge.izpack.panels.target.TargetPanel id="install_dir">\n        <installpath>%s/verapdf</installpath>\n    </com.izforge.izpack.panels.target.TargetPanel>\n    <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">\n        <pack index="0" name="veraPDF GUI" selected="true"/>\n        <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>\n        <pack index="2" name="veraPDF Corpus and Validation model" selected="false"/>\n        <pack index="3" name="veraPDF Documentation" selected="true"/>\n        <pack index="4" name="veraPDF Sample Plugins" selected="false"/>\n    </com.izforge.izpack.panels.packs.PacksPanel>\n    <com.izforge.izpack.panels.install.InstallPanel id="install"/>\n    <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>\n</AutomatedInstallation>\n' "$PWD" > "$PWD/auto-install.xml"
+          
+          # Run installer
+          INSTALLER_DIR=$(find . -maxdepth 1 -type d -name "verapdf-greenfield-*" | head -n 1)
+          $INSTALLER_DIR/verapdf-install "$PWD/auto-install.xml"
+          
+          echo "VERAPDF_DIR=verapdf" >> $GITHUB_ENV
+          echo "$PWD/verapdf" >> $GITHUB_PATH
+
+      - name: Cache corpus downloads
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pdf-corpus
+          key: pdf-corpus-v1
+
+      - name: Run corpus security tests
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin:$PWD/$VERAPDF_DIR
+          # veraPDF script name is usually 'verapdf'
+          # Per-file work here is dominated by spawning external validators
+          # (pdfcpu/ghostscript/veraPDF); corpus_test.go now runs files in
+          # parallel to use that headroom, but two large PDF/A conformance
+          # corpora (veraPDF-corpus, bfo-pdfa-testsuite) still need more than
+          # 30m of margin on a loaded/shared CI runner.
+          PDF_CORPUS_CACHE=/tmp/pdf-corpus go test -v ./sign -run TestSignCorpus -download-corpus -timeout 60m

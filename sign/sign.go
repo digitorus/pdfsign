@@ -1,7 +1,11 @@
 package sign
 
 import (
+	stdcontext "context"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/mldsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
@@ -9,123 +13,44 @@ import (
 	"os"
 	"time"
 
+	_ "crypto/sha256"
+	_ "crypto/sha512"
+
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
+
 	"github.com/mattetti/filebuffer"
 )
 
-type CatalogData struct {
-	ObjectId   uint32
-	RootString string
-}
-
-type TSA struct {
-	URL      string
-	Username string
-	Password string
-}
-
-type RevocationFunction func(cert, issuer *x509.Certificate, i *revocation.InfoArchival) error
-
-type SignData struct {
-	Signature          SignDataSignature
-	Signer             crypto.Signer
-	DigestAlgorithm    crypto.Hash
-	Certificate        *x509.Certificate
-	CertificateChains  [][]*x509.Certificate
-	TSA                TSA
-	RevocationData     revocation.InfoArchival
-	RevocationFunction RevocationFunction
-	Appearance         Appearance
-
-	objectId uint32
-}
-
-// Appearance represents the appearance of the signature
-type Appearance struct {
-	Visible     bool
-	Page        uint32
-	LowerLeftX  float64
-	LowerLeftY  float64
-	UpperRightX float64
-	UpperRightY float64
-}
-
-type VisualSignData struct {
-	pageObjectId uint32
-	objectId     uint32
-}
-
-type InfoData struct {
-	ObjectId uint32
-}
-
-//go:generate stringer -type=CertType
-type CertType uint
+var errSignatureTooLong = fmt.Errorf("signature too long")
 
 const (
-	CertificationSignature CertType = iota + 1
-	ApprovalSignature
-	UsageRightsSignature
-	TimeStampSignature
+	estimatedTSAResponseSize      = 9000
+	estimatedMLDSATSAResponseSize = 32 << 10
 )
 
-//go:generate stringer -type=DocMDPPerm
-type DocMDPPerm uint
-
-const (
-	DoNotAllowAnyChangesPerms DocMDPPerm = iota + 1
-	AllowFillingExistingFormFieldsAndSignaturesPerms
-	AllowFillingExistingFormFieldsAndSignaturesAndCRUDAnnotationsPerms
-)
-
-type SignDataSignature struct {
-	CertType   CertType
-	DocMDPPerm DocMDPPerm
-	Info       SignDataSignatureInfo
-}
-
-type SignDataSignatureInfo struct {
-	Name        string
-	Location    string
-	Reason      string
-	ContactInfo string
-	Date        time.Time
-}
-
-type SignContext struct {
-	InputFile              io.ReadSeeker
-	OutputFile             io.Writer
-	OutputBuffer           *filebuffer.Buffer
-	SignData               SignData
-	CatalogData            CatalogData
-	VisualSignData         VisualSignData
-	InfoData               InfoData
-	PDFReader              *pdf.Reader
-	NewXrefStart           int64
-	ByteRangeValues        []int64
-	SignatureMaxLength     uint32
-	SignatureMaxLengthBase uint32
-
-	existingSignatures []SignData
-	lastXrefID         uint32
-	newXrefEntries     []xrefEntry
-	updatedXrefEntries []xrefEntry
-}
-
+// SignFile signs a PDF file.
+//
+// Deprecated: Use pdf.OpenFile() and doc.Sign() instead.
 func SignFile(input string, output string, sign_data SignData) error {
 	input_file, err := os.Open(input)
 	if err != nil {
 		return err
 	}
-	defer input_file.Close()
+	defer func() {
+		_ = input_file.Close()
+	}()
 
 	output_file, err := os.Create(output)
 	if err != nil {
 		return err
 	}
-	defer output_file.Close()
+	defer func() {
+		cerr := output_file.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
 
 	finfo, err := input_file.Stat()
 	if err != nil {
@@ -141,7 +66,14 @@ func SignFile(input string, output string, sign_data SignData) error {
 	return Sign(input_file, output_file, rdr, size, sign_data)
 }
 
-func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
+// SignWithData signs a PDF document using the provided signature data.
+// It performs a single incremental update.
+//
+// Deprecated: Use pdf.OpenFile() and doc.Sign() instead.
+func SignWithData(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
+	if sign_data.Signature.Info.Date.IsZero() {
+		sign_data.Signature.Info.Date = time.Now()
+	}
 	sign_data.objectId = uint32(rdr.XrefInformation.ItemCount) + 2
 
 	context := SignContext{
@@ -149,7 +81,8 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 		InputFile:              input,
 		OutputFile:             output,
 		SignData:               sign_data,
-		SignatureMaxLengthBase: uint32(hex.EncodedLen(512)),
+		SignatureMaxLengthBase: uint32(hex.EncodedLen(2048)),
+		CompressLevel:          sign_data.CompressLevel,
 	}
 
 	// Fetch existing signatures
@@ -167,8 +100,96 @@ func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, si
 	return nil
 }
 
+// Deprecated: Use pdf.OpenFile() and doc.Sign() instead.
+func Sign(input io.ReadSeeker, output io.Writer, rdr *pdf.Reader, size int64, sign_data SignData) error {
+	return SignWithData(input, output, rdr, size, sign_data)
+}
+
+// SignPDF performs the signature operation.
 func (context *SignContext) SignPDF() error {
 	// set defaults
+	context.applyDefaults()
+
+	if err := context.validateSignData(); err != nil {
+		return err
+	}
+
+	const maxRetries = 5
+	succeeded := false
+
+	for retry := 0; retry < maxRetries; retry++ {
+		context.resetContext()
+
+		// Copy old file into new buffer.
+		if err := context.copyInputToOutput(); err != nil {
+			return err
+		}
+
+		// Calculate signature size
+		if err := context.calculateSignatureSize(); err != nil {
+			return err
+		}
+
+		// Execute PreSignCallback if provided.
+		if context.SignData.PreSignCallback != nil {
+			if err := context.SignData.PreSignCallback(context); err != nil {
+				return fmt.Errorf("pre-sign callback failed: %w", err)
+			}
+		}
+
+		// Add signature object
+		if err := context.addSignatureObject(); err != nil {
+			return err
+		}
+
+		// Handle visual signature
+		if err := context.handleVisualSignature(); err != nil {
+			return err
+		}
+
+		// Create and add catalog
+		if err := context.addCatalog(); err != nil {
+			return err
+		}
+
+		// Finalize PDF structure (xref, trailer, byte range)
+		if err := context.finalizePDFStructure(); err != nil {
+			return err
+		}
+
+		// Replace signature placeholder with actual signature
+		if err := context.replaceSignature(); err != nil {
+			if err == errSignatureTooLong {
+				continue
+			}
+			return fmt.Errorf("failed to replace signature: %w", err)
+		}
+
+		// Success!
+		succeeded = true
+		break
+	}
+
+	if !succeeded {
+		return fmt.Errorf("failed to fit signature into allocated buffer after %d attempts", maxRetries)
+	}
+
+	// Write final output
+	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
+		return err
+	}
+	// We are still using the buffer here as refactoring that away is a larger task
+	// involving the SignContext struct itself.
+	file_content := context.OutputBuffer.Buff.Bytes()
+
+	if _, err := context.OutputFile.Write(file_content); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (context *SignContext) applyDefaults() {
 	if context.SignData.Signature.CertType == 0 {
 		context.SignData.Signature.CertType = 1
 	}
@@ -176,49 +197,145 @@ func (context *SignContext) SignPDF() error {
 		context.SignData.Signature.DocMDPPerm = 1
 	}
 	if !context.SignData.DigestAlgorithm.Available() {
-		context.SignData.DigestAlgorithm = crypto.SHA256
+		context.SignData.DigestAlgorithm = defaultDigestForSigner(context.SignData.Signer)
 	}
 	if context.SignData.Appearance.Page == 0 {
 		context.SignData.Appearance.Page = 1
 	}
+	context.SignData.Context = ensureContext(context.SignData.Context)
+}
 
+// validateSignData rejects parameters that cannot produce a conformant signature.
+func (context *SignContext) validateSignData() error {
+	switch context.SignData.SubFilter {
+	case SubFilterAdbePKCS7Detached, SubFilterETSICAdESDetached:
+	default:
+		return fmt.Errorf("unsupported SubFilter value: %d", context.SignData.SubFilter)
+	}
+
+	if context.SignData.SubFilter == SubFilterETSICAdESDetached {
+		// ETSI EN 319 142-1, 6.2.1: MD5 shall not be used; TS 119 312 excludes SHA-1.
+		switch context.SignData.DigestAlgorithm {
+		case crypto.MD5, crypto.SHA1:
+			return fmt.Errorf("digest algorithm %s cannot be used for PAdES baseline signatures, use SHA-256 or stronger", context.SignData.DigestAlgorithm)
+		}
+
+		if err := context.validateRevocationData(); err != nil {
+			return err
+		}
+	}
+
+	if err := context.validateMLDSA(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func defaultDigestForSigner(signer crypto.Signer) crypto.Hash {
+	if signer != nil {
+		if _, ok := signer.Public().(*mldsa.PublicKey); ok {
+			return crypto.SHA512
+		}
+	}
+	return crypto.SHA256
+}
+
+// validateMLDSA rejects configurations that would make the PDF signature
+// dictionary disagree with the RFC 9882 CMS emitted by digitorus/pkcs7.
+func (context *SignContext) validateMLDSA() error {
+	if context.SignData.Signature.CertType == TimeStampSignature {
+		return nil
+	}
+	if context.SignData.Signer == nil || context.SignData.Certificate == nil {
+		return nil
+	}
+
+	signerPublic, signerIsMLDSA := context.SignData.Signer.Public().(*mldsa.PublicKey)
+	certificatePublic, certificateIsMLDSA := context.SignData.Certificate.PublicKey.(*mldsa.PublicKey)
+	if signerIsMLDSA != certificateIsMLDSA {
+		return fmt.Errorf("signer and certificate must both use ML-DSA or both use a non-ML-DSA algorithm")
+	}
+	if !signerIsMLDSA {
+		return nil
+	}
+	if signerPublic.Parameters() != certificatePublic.Parameters() {
+		return fmt.Errorf("ML-DSA signer parameter set %s does not match certificate parameter set %s", signerPublic.Parameters(), certificatePublic.Parameters())
+	}
+	if context.SignData.DigestAlgorithm != crypto.SHA512 {
+		return fmt.Errorf("ML-DSA PDF signatures require SHA-512 so /DigestMethod matches the RFC 9882 CMS digest, got %s", context.SignData.DigestAlgorithm)
+	}
+	return nil
+}
+
+// validateRevocationData prevents the legacy Adobe CMS attribute from being
+// combined with the ETSI PAdES subfilter. Validation material for PAdES belongs
+// in the PDF DSS dictionary at B-LT and later levels.
+func (context *SignContext) validateRevocationData() error {
+	if context.SignData.SubFilter == SubFilterETSICAdESDetached &&
+		(len(context.SignData.RevocationData.CRL) > 0 || len(context.SignData.RevocationData.OCSP) > 0) {
+		return fmt.Errorf("PAdES baseline signatures cannot embed Adobe revocation information; add validation material to the PDF DSS dictionary at B-LT or later")
+	}
+	return nil
+}
+
+// ensureContext returns ctx, defaulting to context.Background() when nil.
+func ensureContext(ctx stdcontext.Context) stdcontext.Context {
+	if ctx == nil {
+		return stdcontext.Background()
+	}
+	return ctx
+}
+
+func (context *SignContext) resetContext() {
 	context.OutputBuffer = filebuffer.New([]byte{})
+	context.lastXrefID = 0
+	context.newXrefEntries = nil
+	context.updatedXrefEntries = nil
+	context.ExtraAnnots = nil
+	context.CatalogData = CatalogData{}
+	context.VisualSignData = VisualSignData{}
+}
 
-	// Copy old file into new buffer.
-	_, err := context.InputFile.Seek(0, 0)
-	if err != nil {
+func (context *SignContext) copyInputToOutput() error {
+	if _, err := context.InputFile.Seek(0, 0); err != nil {
 		return err
 	}
 	if _, err := io.Copy(context.OutputBuffer, context.InputFile); err != nil {
 		return err
 	}
-
 	// File always needs an empty line after %%EOF.
 	if _, err := context.OutputBuffer.Write([]byte("\n")); err != nil {
 		return err
 	}
+	return nil
+}
 
+func (context *SignContext) calculateSignatureSize() error {
 	// Base size for signature.
 	context.SignatureMaxLength = context.SignatureMaxLengthBase
 
 	// If not a timestamp signature
 	if context.SignData.Signature.CertType != TimeStampSignature {
-		switch context.SignData.Certificate.SignatureAlgorithm.String() {
-		case "SHA1-RSA":
-		case "ECDSA-SHA1":
-		case "DSA-SHA1":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(128))
-		case "SHA256-RSA":
-		case "ECDSA-SHA256":
-		case "DSA-SHA256":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(256))
-		case "SHA384-RSA":
-		case "ECDSA-SHA384":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(384))
-		case "SHA512-RSA":
-		case "ECDSA-SHA512":
-			context.SignatureMaxLength += uint32(hex.EncodedLen(512))
+		if context.SignData.Certificate == nil {
+			return fmt.Errorf("certificate is required")
 		}
+
+		// Calculate signature size based on public key size
+		var keySize int
+		switch pub := context.SignData.Certificate.PublicKey.(type) {
+		case *rsa.PublicKey:
+			keySize = (pub.N.BitLen() + 7) / 8
+		case *ecdsa.PublicKey:
+			// ECDSA signature is (r, s) in ASN.1, roughly 2 * curve size + overhead
+			curveBytes := (pub.Params().BitSize + 7) / 8
+			keySize = 2*curveBytes + 32 // +32 for generous ASN.1 overhead
+		case *mldsa.PublicKey:
+			keySize = pub.Parameters().SignatureSize()
+		default:
+			keySize = 512 // Fallback default
+		}
+		context.SignatureMaxLength += uint32(hex.EncodedLen(keySize))
 
 		// Add size of digest algorithm twice (for file digist and signing certificate attribute)
 		context.SignatureMaxLength += uint32(hex.EncodedLen(context.SignData.DigestAlgorithm.Size() * 2))
@@ -252,37 +369,58 @@ func (context *SignContext) SignPDF() error {
 		}
 
 		// Fetch revocation data before adding signature placeholder.
-		// Revocation data can be quite large and we need to create enough space in the placeholder.
 		if err := context.fetchRevocationData(); err != nil {
 			return fmt.Errorf("failed to fetch revocation data: %w", err)
 		}
 	}
 
 	// Add estimated size for TSA.
-	// We can't kow actual size of TSA until after signing.
-	//
-	// Different TSA servers provide different response sizes, we
-	// might need to make this configurable or detect and store.
 	if context.SignData.TSA.URL != "" {
-		context.SignatureMaxLength += uint32(hex.EncodedLen(9000))
+		estimatedSize := estimatedTSAResponseSize
+		if context.SignData.Certificate != nil {
+			if _, ok := context.SignData.Certificate.PublicKey.(*mldsa.PublicKey); ok {
+				// A PQC TSA token can contain several large ML-DSA certificates
+				// plus an ML-DSA signature. Reserve enough space up front so a
+				// successful TSA request is not repeated merely to resize the PDF.
+				estimatedSize = estimatedMLDSATSAResponseSize
+			}
+		}
+		context.SignatureMaxLength += uint32(hex.EncodedLen(estimatedSize))
 	}
 
-	// Create the signature object
-	var signature_object []byte
+	return nil
+}
 
+func (context *SignContext) addSignatureObject() error {
+	var signature_object []byte
 	switch context.SignData.Signature.CertType {
 	case TimeStampSignature:
 		signature_object = context.createTimestampPlaceholder()
 	default:
-		signature_object = context.createSignaturePlaceholder()
+		var err error
+		signature_object, err = context.createSignaturePlaceholder()
+		if err != nil {
+			return fmt.Errorf("failed to create signature placeholder: %w", err)
+		}
+	}
+
+	// Apply generic object updates if provided
+	for id, content := range context.SignData.Updates {
+		if err := context.UpdateObject(id, content); err != nil {
+			return fmt.Errorf("failed to apply generic update for object %d: %w", id, err)
+		}
 	}
 
 	// Write the new signature object
-	context.SignData.objectId, err = context.addObject(signature_object)
+	var err error
+	context.SignData.objectId, err = context.AddObject(signature_object)
 	if err != nil {
 		return fmt.Errorf("failed to add signature object: %w", err)
 	}
+	return nil
+}
 
+func (context *SignContext) handleVisualSignature() error {
 	// Create visual signature (visible or invisible based on CertType)
 	visible := false
 	rectangle := [4]float64{0, 0, 0, 0}
@@ -305,7 +443,7 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Write the new visual signature object.
-	context.VisualSignData.objectId, err = context.addObject(visual_signature)
+	context.VisualSignData.objectId, err = context.AddObject(visual_signature)
 	if err != nil {
 		return fmt.Errorf("failed to add visual signature object: %w", err)
 	}
@@ -315,12 +453,14 @@ func (context *SignContext) SignPDF() error {
 		if err != nil {
 			return fmt.Errorf("failed to create incremental page update: %w", err)
 		}
-		err = context.updateObject(context.VisualSignData.pageObjectId, inc_page_update)
-		if err != nil {
+		if err := context.UpdateObject(context.VisualSignData.pageObjectId, inc_page_update); err != nil {
 			return fmt.Errorf("failed to add incremental page update object: %w", err)
 		}
 	}
+	return nil
+}
 
+func (context *SignContext) addCatalog() error {
 	// Create a new catalog object
 	catalog, err := context.createCatalog()
 	if err != nil {
@@ -328,11 +468,14 @@ func (context *SignContext) SignPDF() error {
 	}
 
 	// Write the new catalog object
-	context.CatalogData.ObjectId, err = context.addObject(catalog)
+	context.CatalogData.ObjectId, err = context.AddObject(catalog)
 	if err != nil {
 		return fmt.Errorf("failed to add catalog object: %w", err)
 	}
+	return nil
+}
 
+func (context *SignContext) finalizePDFStructure() error {
 	// Write xref table
 	if err := context.writeXref(); err != nil {
 		return fmt.Errorf("failed to write xref: %w", err)
@@ -347,21 +490,5 @@ func (context *SignContext) SignPDF() error {
 	if err := context.updateByteRange(); err != nil {
 		return fmt.Errorf("failed to update byte range: %w", err)
 	}
-
-	// Replace signature
-	if err := context.replaceSignature(); err != nil {
-		return fmt.Errorf("failed to replace signature: %w", err)
-	}
-
-	// Write final output
-	if _, err := context.OutputBuffer.Seek(0, 0); err != nil {
-		return err
-	}
-	file_content := context.OutputBuffer.Buff.Bytes()
-
-	if _, err := context.OutputFile.Write(file_content); err != nil {
-		return err
-	}
-
 	return nil
 }

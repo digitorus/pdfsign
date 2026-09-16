@@ -26,25 +26,25 @@ func findFirstPage(parent pdf.Value) (pdf.Value, error) {
 			}
 		}
 
-		return parent, errors.New("Could not find first page.")
+		return parent, errors.New("could not find first page")
 	}
 
 	if value_type == "/Page" {
 		return parent, nil
 	}
 
-	return parent, errors.New("Could not find first page.")
+	return parent, errors.New("could not find first page")
 }
 
-func pdfString(text string) string {
+func pdfString(text string) (string, error) {
 	if !isASCII(text) {
 		// UTF-16BE
 		enc := unicode.UTF16(unicode.BigEndian, unicode.UseBOM).NewEncoder()
 		res, _, err := transform.String(enc, text)
 		if err != nil {
-			panic(err)
+			return "", fmt.Errorf("failed to UTF-16BE encode %q: %w", text, err)
 		}
-		return "(" + res + ")"
+		return "(" + res + ")", nil
 	}
 
 	// UTF-8
@@ -55,16 +55,16 @@ func pdfString(text string) string {
 	// text = "<" + text + ">"
 
 	// PDFDocEncoded
-	text = strings.Replace(text, "\\", "\\\\", -1)
-	text = strings.Replace(text, ")", "\\)", -1)
-	text = strings.Replace(text, "(", "\\(", -1)
-	text = strings.Replace(text, "\r", "\\r", -1)
+	text = strings.ReplaceAll(text, "\\", "\\\\")
+	text = strings.ReplaceAll(text, ")", "\\)")
+	text = strings.ReplaceAll(text, "(", "\\(")
+	text = strings.ReplaceAll(text, "\r", "\\r")
 	text = "(" + text + ")"
 
-	return text
+	return text, nil
 }
 
-func pdfDateTime(date time.Time) string {
+func pdfDateTime(date time.Time) (string, error) {
 	// Calculate timezone offset from GMT.
 	_, original_offset := date.Zone()
 	offset := original_offset
@@ -92,6 +92,7 @@ func pdfDateTime(date time.Time) string {
 
 	return pdfString(dateString)
 }
+
 
 func leftPad(s string, padStr string, pLen int) string {
 	if pLen <= 0 {
@@ -194,4 +195,14 @@ func isASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+// getPrevXrefOffset returns the correct previous xref offset for incremental updates.
+// This returns the startxref value which points to the first (or only) xref.
+// For linearized PDFs, the startxref points to the linearization xref at the beginning,
+// which then chains via /Prev to the main xref. We must use startxref to maintain
+// the complete xref chain including all objects (some objects may only appear in
+// the linearization xref, such as the Encrypt dictionary).
+func getPrevXrefOffset(rdr *pdf.Reader) int64 {
+	return rdr.XrefInformation.StartPos
 }

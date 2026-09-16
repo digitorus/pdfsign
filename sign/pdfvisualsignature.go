@@ -39,21 +39,21 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber uint3
 
 	if visible {
 		// Set the position and size of the signature field if visible.
-		visual_signature.WriteString(fmt.Sprintf("  /Rect [%f %f %f %f]\n", rect[0], rect[1], rect[2], rect[3]))
+		fmt.Fprintf(&visual_signature, "  /Rect [%f %f %f %f]\n", rect[0], rect[1], rect[2], rect[3])
 
 		appearance, err := context.createAppearance(rect)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create appearance: %w", err)
 		}
 
-		appearanceObjectId, err := context.addObject(appearance)
+		appearanceObjectId, err := context.AddObject(appearance)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add appearance object: %w", err)
 		}
 
 		// An appearance dictionary specifying how the annotation
 		// shall be presented visually on the page (see 12.5.5, "Appearance streams").
-		visual_signature.WriteString(fmt.Sprintf("  /AP << /N %d 0 R >>\n", appearanceObjectId))
+		fmt.Fprintf(&visual_signature, "  /AP << /N %d 0 R >>\n", appearanceObjectId)
 
 	} else {
 		// Set the rectangle to zero if the signature is invisible.
@@ -97,15 +97,19 @@ func (context *SignContext) createVisualSignature(visible bool, pageNumber uint3
 
 	// Define the annotation flags for the signature field (132)
 	annotationFlags := AnnotationFlagPrint | AnnotationFlagLocked
-	visual_signature.WriteString(fmt.Sprintf("  /F %d\n", annotationFlags))
+	fmt.Fprintf(&visual_signature, "  /F %d\n", annotationFlags)
 
 	// Define the field type as a signature.
 	visual_signature.WriteString("  /FT /Sig\n")
 	// Set a unique title for the signature field.
-	visual_signature.WriteString(fmt.Sprintf("  /T %s\n", pdfString("Signature "+strconv.Itoa(len(context.existingSignatures)+1))))
+	fieldTitle, err := pdfString("Signature " + strconv.Itoa(len(context.existingSignatures)+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode signature field title: %w", err)
+	}
+	fmt.Fprintf(&visual_signature, "  /T %s\n", fieldTitle)
 
 	// Reference the signature dictionary.
-	visual_signature.WriteString(fmt.Sprintf("  /V %d 0 R\n", context.SignData.objectId))
+	fmt.Fprintf(&visual_signature, "  /V %d 0 R\n", context.SignData.objectId)
 
 	// Close the dictionary and end the object.
 	visual_signature.WriteString(">>\n")
@@ -128,24 +132,68 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 	// TODO: Update digitorus/pdf to get raw values without resolving pointers
 	for _, key := range page.Keys() {
 		switch key {
-		case "Contents", "Parent":
+		case "Parent":
 			ptr := page.Key(key).GetPtr()
-			page_buffer.WriteString(fmt.Sprintf("  /%s %d 0 R\n", key, ptr.GetID()))
+			fmt.Fprintf(&page_buffer, "  /%s %d 0 R\n", key, ptr.GetID())
+		case "Contents":
+			// Special handling for Contents - must preserve stream structure
+			contentsValue := page.Key(key)
+			if contentsValue.Kind() == pdf.Array {
+				// If Contents is an array, keep it as an array reference
+				page_buffer.WriteString("  /Contents [")
+				for i := 0; i < contentsValue.Len(); i++ {
+					ptr := contentsValue.Index(i).GetPtr()
+					fmt.Fprintf(&page_buffer, " %d 0 R", ptr.GetID())
+				}
+				page_buffer.WriteString(" ]\n")
+			} else {
+				// If Contents is a single reference, keep it as a single reference
+				ptr := contentsValue.GetPtr()
+				fmt.Fprintf(&page_buffer, "  /%s %d 0 R\n", key, ptr.GetID())
+			}
 		case "Annots":
 			page_buffer.WriteString("  /Annots [\n")
 			for i := 0; i < page.Key("Annots").Len(); i++ {
 				ptr := page.Key(key).Index(i).GetPtr()
-				page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", ptr.GetID()))
+				fmt.Fprintf(&page_buffer, "    %d 0 R\n", ptr.GetID())
 			}
-			page_buffer.WriteString(fmt.Sprintf("    %d 0 R\n", annot))
+			fmt.Fprintf(&page_buffer, "    %d 0 R\n", annot)
+
+			// Add extra annotations registered in context
+			ptr := page.GetPtr()
+			if extras, ok := context.ExtraAnnots[ptr.GetID()]; ok {
+				for _, extraAnnotID := range extras {
+					fmt.Fprintf(&page_buffer, "    %d 0 R\n", extraAnnotID)
+				}
+			}
+
 			page_buffer.WriteString("  ]\n")
 		default:
-			page_buffer.WriteString(fmt.Sprintf("  /%s %s\n", key, page.Key(key).String()))
+			val := page.Key(key)
+			if val.Kind() == pdf.String {
+				encoded, err := pdfString(val.RawString())
+				if err != nil {
+					return nil, fmt.Errorf("failed to encode page entry %q: %w", key, err)
+				}
+				fmt.Fprintf(&page_buffer, "  /%s %s\n", key, encoded)
+			} else {
+				fmt.Fprintf(&page_buffer, "  /%s %s\n", key, val.String())
+			}
 		}
 	}
 
 	if page.Key("Annots").IsNull() {
-		page_buffer.WriteString(fmt.Sprintf("  /Annots [%d 0 R]\n", annot))
+		page_buffer.WriteString("  /Annots [")
+		fmt.Fprintf(&page_buffer, "%d 0 R", annot)
+
+		// Add extra annotations registered in context
+		ptr := page.GetPtr()
+		if extras, ok := context.ExtraAnnots[ptr.GetID()]; ok {
+			for _, extraAnnotID := range extras {
+				fmt.Fprintf(&page_buffer, " %d 0 R", extraAnnotID)
+			}
+		}
+		page_buffer.WriteString(" ]\n")
 	}
 
 	page_buffer.WriteString(">>\n")
@@ -153,21 +201,35 @@ func (context *SignContext) createIncPageUpdate(pageNumber, annot uint32) ([]byt
 	return page_buffer.Bytes(), nil
 }
 
-// Helper function to find a page by its number.
+// Helper function to find a page by its number
 func findPageByNumber(pages pdf.Value, pageNumber uint32) (pdf.Value, error) {
+	page, remaining, err := findPageByNumberRec(pages, pageNumber)
+	if err != nil {
+		return pdf.Value{}, err
+	}
+	if remaining != 0 {
+		return pdf.Value{}, fmt.Errorf("page number %d not found", pageNumber)
+	}
+	return page, nil
+}
+
+// Internal recursive helper that returns the found page and the remaining page number to find.
+func findPageByNumberRec(pages pdf.Value, pageNumber uint32) (pdf.Value, uint32, error) {
 	if pages.Key("Type").Name() == "Pages" {
 		kids := pages.Key("Kids")
 		for i := 0; i < kids.Len(); i++ {
-			page, err := findPageByNumber(kids.Index(i), pageNumber)
-			if err == nil {
-				return page, nil
+			page, remaining, err := findPageByNumberRec(kids.Index(i), pageNumber)
+			if err == nil && remaining == 0 {
+				return page, 0, nil
 			}
+			pageNumber = remaining
 		}
+		return pdf.Value{}, pageNumber, fmt.Errorf("page number %d not found", pageNumber)
 	} else if pages.Key("Type").Name() == "Page" {
 		if pageNumber == 1 {
-			return pages, nil
+			return pages, 0, nil
 		}
-		pageNumber--
+		return pdf.Value{}, pageNumber - 1, nil
 	}
-	return pdf.Value{}, fmt.Errorf("page number %d not found", pageNumber)
+	return pdf.Value{}, pageNumber, fmt.Errorf("page number %d not found", pageNumber)
 }

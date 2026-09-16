@@ -71,7 +71,10 @@ func TestCreateSignaturePlaceholder(t *testing.T) {
 					SignData:  sign_data,
 				}
 
-				signature := context.createSignaturePlaceholder()
+				signature, err := context.createSignaturePlaceholder()
+				if err != nil {
+					st.Fatalf("createSignaturePlaceholder returned error: %v", err)
+				}
 
 				if string(signature) != expectedSignature {
 					st.Errorf("Signature mismatch, expected:\n%q\nbut got:\n%q", expectedSignature, signature)

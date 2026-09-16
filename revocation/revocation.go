@@ -3,6 +3,8 @@ package revocation
 import (
 	"crypto/x509"
 	"encoding/asn1"
+
+	"golang.org/x/crypto/ocsp"
 )
 
 // InfoArchival is the pkcs7 container containing the revocation information for
@@ -30,14 +32,44 @@ func (r *InfoArchival) AddOCSP(b []byte) error {
 	return nil
 }
 
-// IsRevoked checks if there is a status inclded for the certificate and returns
-// true if the certificate is marked as revoked.
+// IsRevoked reports whether the certificate c has been revoked according to
+// the embedded revocation data (CRL and/or OCSP responses).
 //
-// TODO: We should report if there is no CRL or OCSP response embedded for this certificate
-// TODO: Information about the revocation (time, reason, etc) must be extractable.
+// CRL entries are checked by serial number. OCSP responses are parsed and
+// checked individually; responses that cannot be parsed are skipped.
+//
+// IsRevoked only inspects data already embedded in the InfoArchival. When no
+// revocation data is present for a certificate, the function returns false and
+// callers should perform an external lookup (e.g., via the verify package's
+// EnableExternalRevocationCheck option) to satisfy LTV requirements.
 func (r *InfoArchival) IsRevoked(c *x509.Certificate) bool {
-	// check the crl and ocsp to see if this certificate is revoked
-	return true
+	// Check CRLs
+	for _, crlRaw := range r.CRL {
+		crl, err := x509.ParseRevocationList(crlRaw.FullBytes)
+		if err != nil {
+			continue
+		}
+		for _, rc := range crl.RevokedCertificateEntries {
+			if rc.SerialNumber.Cmp(c.SerialNumber) == 0 {
+				return true
+			}
+		}
+	}
+
+	// Check OCSP responses
+	for _, ocspRaw := range r.OCSP {
+		// Parse without verifying the responder certificate so that we can
+		// inspect the status even when the issuer is not available here.
+		resp, err := ocsp.ParseResponse(ocspRaw.FullBytes, nil)
+		if err != nil {
+			continue
+		}
+		if resp.SerialNumber != nil && resp.SerialNumber.Cmp(c.SerialNumber) == 0 {
+			return resp.Status == ocsp.Revoked
+		}
+	}
+
+	return false
 }
 
 // CRL contains the raw bytes of a pkix.CertificateList and can be parsed with
