@@ -3,6 +3,7 @@ package sign
 import (
 	"crypto"
 	"encoding/asn1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -44,7 +45,9 @@ func pdfString(text string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to UTF-16BE encode %q: %w", text, err)
 		}
-		return "(" + res + ")", nil
+		// A hexadecimal string keeps UTF-16 bytes that equal PDF delimiters
+		// such as '(', ')' and '\\' from changing the document structure.
+		return "<" + hex.EncodeToString([]byte(res)) + ">", nil
 	}
 
 	// UTF-8
@@ -92,7 +95,6 @@ func pdfDateTime(date time.Time) (string, error) {
 
 	return pdfString(dateString)
 }
-
 
 func leftPad(s string, padStr string, pLen int) string {
 	if pLen <= 0 {
