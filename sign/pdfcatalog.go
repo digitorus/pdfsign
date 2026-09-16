@@ -2,6 +2,7 @@ package sign
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
 )
 
@@ -54,6 +55,15 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	if foundNames {
 		names := root.Key("Names").GetPtr()
 		catalog_buffer.WriteString("  /Names " + strconv.Itoa(int(names.GetID())) + " " + strconv.Itoa(int(names.GetGen())) + " R\n")
+	}
+	if context.SignData.Signature.CertType == CertificationSignature {
+		for _, key := range root.Keys() {
+			if key == "Perms" {
+				return nil, fmt.Errorf("cannot add certification signature: document catalog already contains /Perms")
+			}
+		}
+		catalog_buffer.WriteString("  /Perms << /DocMDP ")
+		catalog_buffer.WriteString(strconv.Itoa(int(context.SignData.objectId)) + " 0 R >>\n")
 	}
 
 	// Start the AcroForm dictionary with /NeedAppearances

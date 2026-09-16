@@ -3,6 +3,7 @@ package sign
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/digitorus/pdf"
@@ -65,6 +66,10 @@ func TestCreateCatalog(t *testing.T) {
 							DocMDPPerm: AllowFillingExistingFormFieldsAndSignaturesPerms,
 						},
 					},
+				}
+				context.SignData.objectId = uint32(rdr.XrefInformation.ItemCount) + 2
+				if certType == CertificationSignature {
+					expectedCatalog = strings.Replace(expectedCatalog, "  /AcroForm", fmt.Sprintf("  /Perms << /DocMDP %d 0 R >>\n  /AcroForm", context.SignData.objectId), 1)
 				}
 
 				catalog, err := context.createCatalog()

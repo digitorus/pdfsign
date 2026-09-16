@@ -9,6 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,6 +229,68 @@ func TestSignPDFFileUTF8(t *testing.T) {
 		if info.Signers[0].Location != signerLocation {
 			t.Fatalf("expected %q, got %q", signerLocation, info.Signers[0].Location)
 		}
+	}
+}
+
+func TestCatalogDocMDPReference(t *testing.T) {
+	cert, pkey := loadCertificateAndKey(t)
+	objectRE := regexp.MustCompile(`(?s)\n(\d+) 0 obj\n(.*?)\nendobj\n`)
+	permsRE := regexp.MustCompile(`/Perms << /DocMDP (\d+) 0 R >>`)
+
+	for _, certType := range []CertType{CertificationSignature, ApprovalSignature} {
+		t.Run(certType.String(), func(t *testing.T) {
+			outputFile, err := os.CreateTemp("", "pdfsign-catalog-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(outputFile.Name())
+			if err := outputFile.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := SignFile("../testfiles/testfile20.pdf", outputFile.Name(), SignData{
+				Signature:   SignDataSignature{CertType: certType},
+				Signer:      pkey,
+				Certificate: cert,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			content, err := os.ReadFile(outputFile.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var catalog string
+			objects := make(map[uint32]string)
+			for _, match := range objectRE.FindAllSubmatch(content, -1) {
+				id, err := strconv.ParseUint(string(match[1]), 10, 32)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body := string(match[2])
+				objects[uint32(id)] = body
+				if strings.Contains(body, "/Type /Catalog") {
+					catalog = body
+				}
+			}
+
+			if certType == CertificationSignature {
+				match := permsRE.FindStringSubmatch(catalog)
+				if len(match) != 2 {
+					t.Fatalf("catalog does not contain a DocMDP permission reference: %s", catalog)
+				}
+				target, err := strconv.ParseUint(match[1], 10, 32)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(objects[uint32(target)], "/Type /Sig") {
+					t.Fatalf("DocMDP reference %d 0 R does not point to a signature object", target)
+				}
+			} else if permsRE.MatchString(catalog) {
+				t.Fatalf("approval signature unexpectedly added a catalog DocMDP reference: %s", catalog)
+			}
+		})
 	}
 }
 
