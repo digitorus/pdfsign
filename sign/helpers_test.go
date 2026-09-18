@@ -67,6 +67,7 @@ func TestPDFString(t *testing.T) {
 		"((Test)": "(\\(\\(Test\\))",
 		"\\TEst":  "(\\\\TEst)",
 		"\rnew":   "(\\rnew)",
+		"บริษัท ทดสอบ จำกัด": "<feff0e1a0e230e340e290e310e1700200e170e140e2a0e2d0e1a00200e080e330e010e310e14>",
 	}
 
 	for text, expected := range string_compare {
