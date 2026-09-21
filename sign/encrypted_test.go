@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign"
 	"github.com/digitorus/pdfsign/sign"
-	"github.com/digitorus/pdfsign/verify"
 )
 
 // encryptedTestPassword is the user and owner password of the files in
@@ -117,22 +117,23 @@ func TestSignEncryptedPDF(t *testing.T) {
 					}
 				}
 
-				options := verify.DefaultVerifyOptions()
-				options.AllowUntrustedRoots = true
-				options.Password = encryptedTestPassword
-				resp, err := verify.VerifyWithOptions(bytes.NewReader(signed), int64(len(signed)), options)
+				doc, err := pdfsign.OpenWithPassword(bytes.NewReader(signed), int64(len(signed)), encryptedTestPassword)
 				if err != nil {
+					t.Fatalf("OpenWithPassword on signed document: %v", err)
+				}
+				vr := doc.Verify().TrustSelfSigned(true)
+				if err := vr.Err(); err != nil {
 					t.Fatalf("verify: %v", err)
 				}
-				if len(resp.Signers) != 1 {
-					t.Fatalf("found %d signers, want 1", len(resp.Signers))
+				if vr.Count() != 1 {
+					t.Fatalf("found %d signatures, want 1", vr.Count())
 				}
-				signer := resp.Signers[0]
-				if !signer.ValidSignature {
-					t.Errorf("signature is not valid: %v", signer.ValidationErrors)
+				signer := vr.Signatures()[0]
+				if !signer.Valid {
+					t.Errorf("signature is not valid: %v", signer.Errors)
 				}
-				if signer.Name != "John Doe" || signer.Location != "Somewhere" || signer.Reason != "Encrypted document test" {
-					t.Errorf("signer info = %q/%q/%q, want the values used for signing", signer.Name, signer.Location, signer.Reason)
+				if signer.SignerName != "John Doe" || signer.Location != "Somewhere" || signer.Reason != "Encrypted document test" {
+					t.Errorf("signer info = %q/%q/%q, want the values used for signing", signer.SignerName, signer.Location, signer.Reason)
 				}
 			})
 		}

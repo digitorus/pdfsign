@@ -102,7 +102,7 @@ func encryptObject(enc objectEncrypter, id uint32, object []byte) ([]byte, error
 			out = append(out, newLength...)
 		case tok.kind == tokStream:
 			out = append(out, tok.value...)
-		case tok.kind == tokString && !(isSignature && tok.depth == 1 && tok.key == "Contents"):
+		case tok.kind == tokString && (!isSignature || tok.depth != 1 || tok.key != "Contents"):
 			encrypted, err := enc.Encrypt(ptr, tok.value)
 			if err != nil {
 				return nil, fmt.Errorf("object %d: encrypting string: %w", id, err)
@@ -157,7 +157,7 @@ func tokenizeObject(src []byte) ([]objToken, error) {
 
 	addToken := func(tok objToken) {
 		tok.depth = depth
-		if n := len(stack); n > 0 && stack[n-1].dict && tok.kind != tokDictClose && !(tok.kind == tokOther && isWhitespaceToken(tok)) {
+		if n := len(stack); n > 0 && stack[n-1].dict && tok.kind != tokDictClose && (tok.kind != tokOther || !isWhitespaceToken(tok)) {
 			top := &stack[n-1]
 			switch {
 			case top.expectKey && tok.kind == tokName:
