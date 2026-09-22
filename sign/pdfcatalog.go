@@ -48,7 +48,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	// Copy over existing catalog entries except for type and AcroForum
 	for _, key := range root.Keys() {
 		if key != "Type" && key != "AcroForm" && !(writeDocMDP && key == "Perms") {
-			_, _ = fmt.Fprintf(&catalog_buffer, "  /%s ", key)
+			_, _ = fmt.Fprintf(&catalog_buffer, "  %s ", pdfName(key))
 			if err := context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key)); err != nil {
 				return nil, fmt.Errorf("failed to serialize catalog entry %q: %w", key, err)
 			}
@@ -174,7 +174,7 @@ func (context *SignContext) writePermsWithDocMDP(w io.Writer, perms pdf.Value) e
 	// pointer, not the catalog's, to tell them apart from references.
 	permsObjId := perms.GetPtr().GetID()
 	for _, key := range perms.Keys() {
-		_, _ = fmt.Fprintf(w, "    /%s ", key)
+		_, _ = fmt.Fprintf(w, "    %s ", pdfName(key))
 		if err := context.serializeCatalogEntry(w, permsObjId, perms.Key(key)); err != nil {
 			return fmt.Errorf("failed to serialize /Perms entry %q: %w", key, err)
 		}
@@ -188,6 +188,10 @@ func (context *SignContext) writePermsWithDocMDP(w io.Writer, perms pdf.Value) e
 }
 
 // serializeCatalogEntry takes a pdf.Value and serializes it to the given writer.
+//
+// The reader decodes string escapes and #-encoded name characters, so both are
+// re-encoded on the way out: a copied value that contains a delimiter must not
+// be able to end its own token and continue as catalog structure.
 func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32, value pdf.Value) error {
 	if ptr := value.GetPtr(); ptr.GetID() > 0 && ptr.GetID() != rootObjId {
 		// Indirect object
@@ -198,7 +202,7 @@ func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32,
 	// Direct object
 	switch value.Kind() {
 	case pdf.String:
-		_, _ = fmt.Fprintf(w, "(%s)", value.RawString())
+		_, _ = io.WriteString(w, pdfLiteralString(value.RawString()))
 	case pdf.Null:
 		_, _ = fmt.Fprint(w, "null")
 	case pdf.Bool:
@@ -212,14 +216,14 @@ func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32,
 	case pdf.Real:
 		_, _ = fmt.Fprintf(w, "%f", value.Float64())
 	case pdf.Name:
-		_, _ = fmt.Fprintf(w, "/%s", value.Name())
+		_, _ = io.WriteString(w, pdfName(value.Name()))
 	case pdf.Dict:
 		_, _ = fmt.Fprint(w, "<<")
 		for idx, key := range value.Keys() {
 			if idx > 0 {
 				_, _ = fmt.Fprint(w, " ") // Space between items
 			}
-			_, _ = fmt.Fprintf(w, "/%s ", key)
+			_, _ = fmt.Fprintf(w, "%s ", pdfName(key))
 			if err := context.serializeCatalogEntry(w, rootObjId, value.Key(key)); err != nil {
 				return err
 			}

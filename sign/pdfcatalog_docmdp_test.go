@@ -185,6 +185,35 @@ func TestCreateCatalogPermsDocMDP(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("copied strings and names cannot end their own token", func(t *testing.T) {
+		// The reader decodes these escapes, so writing the decoded bytes
+		// back verbatim would let a value close the dictionary early and
+		// continue as catalog structure.
+		file := writePDFWithCatalog(t, `/Perms << /UR3 5 0 R /Note (a\)/DocMDP 5 0 R\() /We#20ird#2Fkey /na#20me >>`)
+
+		output, err := signFileAs(t, file, CertificationSignature)
+		if err != nil {
+			t.Fatalf("sign: %v", err)
+		}
+
+		perms := readCatalog(t, output).Key("Perms")
+		if got, want := perms.RawString(), ""; got != want {
+			t.Errorf("/Perms is not a dictionary any more: %q", got)
+		}
+		if got, want := perms.Key("Note").RawString(), "a)/DocMDP 5 0 R("; got != want {
+			t.Errorf("/Perms /Note = %q, want %q", got, want)
+		}
+		if got, want := perms.Key("We ird/key").Name(), "na me"; got != want {
+			t.Errorf("/Perms /We ird/key = %q, want %q", got, want)
+		}
+		if got := perms.Key("DocMDP").Key("Type").Name(); got != "Sig" {
+			t.Errorf("/Perms /DocMDP points at a /Type /%s object, want /Sig", got)
+		}
+		if got := perms.Key("DocMDP").Key("Reference").Index(0).Key("TransformMethod").Name(); got != "DocMDP" {
+			t.Errorf("/Perms /DocMDP does not point at the new certification signature")
+		}
+	})
 }
 
 // TestCertificationSignatureValidation covers the documents that cannot take a
@@ -255,6 +284,46 @@ func TestCertificationSignatureValidation(t *testing.T) {
 		// A second approval signature is fine.
 		if _, err := signFileAs(t, signed, ApprovalSignature); err != nil {
 			t.Fatalf("second approval signature: %v", err)
+		}
+	})
+
+	t.Run("a signed field below a parent field is found", func(t *testing.T) {
+		// Object 5 is a bare signature dictionary; object 6 is a parent
+		// field whose /Kids hold the signed field, as hierarchical field
+		// names ("form.sig1") are laid out.
+		for name, objects := range map[string][]string{
+			"FT on the signed field": {
+				"<< /T (form) /Kids [7 0 R] >>",
+				"<< /Parent 6 0 R /T (sig1) /FT /Sig /V 5 0 R >>",
+			},
+			"FT inherited from the parent": {
+				"<< /T (form) /FT /Sig /Kids [7 0 R] >>",
+				"<< /Parent 6 0 R /T (sig1) /V 5 0 R >>",
+			},
+			"Kids that loop back": {
+				"<< /T (form) /Kids [7 0 R] >>",
+				"<< /Parent 6 0 R /T (inner) /Kids [6 0 R 8 0 R] >>",
+				"<< /Parent 7 0 R /T (sig1) /FT /Sig /V 5 0 R >>",
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				file := writePDFWithCatalog(t, "/AcroForm << /Fields [6 0 R] /SigFlags 3 >>", objects...)
+
+				if _, err := signFileAs(t, file, CertificationSignature); err == nil {
+					t.Fatal("expected an error when certifying a document with a nested signed field")
+				} else if !strings.Contains(err.Error(), "first signature") {
+					t.Errorf("unexpected error: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("an unsigned signature field does not count", func(t *testing.T) {
+		file := writePDFWithCatalog(t, "/AcroForm << /Fields [6 0 R] /SigFlags 3 >>",
+			"<< /T (sig1) /FT /Sig >>")
+
+		if _, err := signFileAs(t, file, CertificationSignature); err != nil {
+			t.Fatalf("an empty signature field must not block certification: %v", err)
 		}
 	})
 }

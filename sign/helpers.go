@@ -67,6 +67,48 @@ func pdfString(text string) (string, error) {
 	return text, nil
 }
 
+// pdfLiteralString writes raw string bytes as a PDF literal string (ISO
+// 32000-1 7.3.4.2), escaping the characters that would otherwise end the string
+// early or be normalized by a reader. Unlike pdfString it keeps the bytes as
+// they are, since a copied value may not be text.
+func pdfLiteralString(raw string) string {
+	var b strings.Builder
+	b.Grow(len(raw) + 2)
+	b.WriteByte('(')
+	for i := 0; i < len(raw); i++ {
+		switch c := raw[i]; c {
+		case '\\', '(', ')':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\n':
+			b.WriteString(`\n`)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte(')')
+	return b.String()
+}
+
+// pdfName writes a decoded name as a PDF name object (ISO 32000-1 7.3.5),
+// #-encoding every byte that is not a regular character.
+func pdfName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name) + 1)
+	b.WriteByte('/')
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c < '!' || c > '~' || c == '#' || strings.IndexByte("()<>[]{}/%", c) >= 0 {
+			fmt.Fprintf(&b, "#%02X", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
 func pdfDateTime(date time.Time) (string, error) {
 	// Calculate timezone offset from GMT.
 	_, original_offset := date.Zone()

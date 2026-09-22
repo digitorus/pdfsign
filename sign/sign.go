@@ -270,13 +270,39 @@ func (context *SignContext) validateCertificationSignature() error {
 }
 
 // hasSignedField reports whether the document already contains a signature
-// field with a value. Like fetchExistingSignatures it only looks at the
-// top-level AcroForm fields.
+// field with a value, walking the AcroForm field tree the way the verify
+// package does: a signature field may sit under a parent field in /Kids and
+// inherit its /FT from it.
 func (context *SignContext) hasSignedField() bool {
 	fields := context.PDFReader.Trailer().Key("Root").Key("AcroForm").Key("Fields")
+	return hasSignedFieldIn(fields, "", make(map[uint32]bool), 0)
+}
+
+// maxFieldTreeDepth bounds the field tree walk; a conforming document nests
+// fields far less deeply, and a crafted one must not recurse without end.
+const maxFieldTreeDepth = 64
+
+func hasSignedFieldIn(fields pdf.Value, inheritedFT string, visited map[uint32]bool, depth int) bool {
+	if fields.Kind() != pdf.Array || depth > maxFieldTreeDepth {
+		return false
+	}
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Index(i)
-		if field.Key("FT").Name() == "Sig" && !field.Key("V").IsNull() {
+		if id := field.GetPtr().GetID(); id > 0 {
+			if visited[id] {
+				continue
+			}
+			visited[id] = true
+		}
+
+		ft := field.Key("FT").Name()
+		if ft == "" {
+			ft = inheritedFT
+		}
+		if ft == "Sig" && !field.Key("V").IsNull() {
+			return true
+		}
+		if hasSignedFieldIn(field.Key("Kids"), ft, visited, depth+1) {
 			return true
 		}
 	}
