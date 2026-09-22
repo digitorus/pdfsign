@@ -132,8 +132,18 @@ func readCatalog(t *testing.T, path string) pdf.Value {
 // certification signature and apply its /P permission level. The /Reference
 // transform in the signature dictionary alone is not enough.
 func TestCreateCatalogPermsDocMDP(t *testing.T) {
-	t.Run("only a certification signature writes /Perms", func(t *testing.T) {
-		for _, certType := range []CertType{ApprovalSignature, UsageRightsSignature, TimeStampSignature} {
+	t.Run("a usage rights signature writes /Perms /UR3", func(t *testing.T) {
+		catalog, err := catalogForFile(t, "../testfiles/testfile20.pdf", UsageRightsSignature, 42)
+		if err != nil {
+			t.Fatalf("createCatalog: %v", err)
+		}
+		if got := string(catalog); !strings.Contains(got, "/UR3 42 0 R") || strings.Contains(got, "/DocMDP") {
+			t.Errorf("usage rights catalog lacks /Perms /UR3 or carries /DocMDP:\n%s", got)
+		}
+	})
+
+	t.Run("approval and timestamp signatures write no /Perms", func(t *testing.T) {
+		for _, certType := range []CertType{ApprovalSignature, TimeStampSignature} {
 			catalog, err := catalogForFile(t, "../testfiles/testfile20.pdf", certType, 42)
 			if err != nil {
 				t.Fatalf("%s: createCatalog: %v", certType, err)
@@ -318,6 +328,44 @@ func TestCertificationSignatureValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("widget kids without /T belong to their signed field", func(t *testing.T) {
+		file := writePDFWithCatalog(t, "/AcroForm << /Fields [6 0 R] /SigFlags 3 >>",
+			"<< /T (sig1) /FT /Sig /V 5 0 R /Kids [7 0 R] >>",
+			"<< /Parent 6 0 R /Subtype /Widget /Rect [0 0 1 1] >>")
+
+		if _, err := signFileAs(t, file, CertificationSignature); err == nil {
+			t.Fatal("expected an error when certifying a document whose signed field has widget kids")
+		} else if !strings.Contains(err.Error(), "first signature") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a usage rights signature does not have to be first", func(t *testing.T) {
+		signed, err := signFileAs(t, "../testfiles/testfile20.pdf", ApprovalSignature)
+		if err != nil {
+			t.Fatalf("approval signature: %v", err)
+		}
+
+		output, err := signFileAs(t, signed, UsageRightsSignature)
+		if err != nil {
+			t.Fatalf("usage rights signature: %v", err)
+		}
+		ur3 := readCatalog(t, output).Key("Perms").Key("UR3")
+		if got := ur3.Key("Type").Name(); got != "Sig" {
+			t.Errorf("/Perms /UR3 points at a /Type /%s object, want /Sig", got)
+		}
+		if got := ur3.Key("Reference").Index(0).Key("TransformMethod").Name(); got != "UR3" {
+			t.Errorf("/Perms /UR3 does not point at the usage rights signature (transform /%s)", got)
+		}
+
+		// Only one usage rights signature can be referenced from /Perms.
+		if _, err := signFileAs(t, output, UsageRightsSignature); err == nil {
+			t.Fatal("expected an error when adding a second usage rights signature")
+		} else if !strings.Contains(err.Error(), "already contains /UR3") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("an unsigned signature field does not count", func(t *testing.T) {
 		file := writePDFWithCatalog(t, "/AcroForm << /Fields [6 0 R] /SigFlags 3 >>",
 			"<< /T (sig1) /FT /Sig >>")
@@ -372,6 +420,76 @@ func TestSignedFilePermsDocMDP(t *testing.T) {
 			}
 			if got := reference.Key("TransformParams").Key("P").Int64(); got != int64(DoNotAllowAnyChangesPerms) {
 				t.Errorf("/TransformParams /P = %d, want %d", got, DoNotAllowAnyChangesPerms)
+			}
+		})
+	}
+}
+
+// TestFetchExistingSignatures checks the field tree walk shared with
+// hasSignedField: terminal signature fields are found wherever they sit, with
+// /FT inherited from a parent field, while widget kids are not counted as
+// fields of their own.
+func TestFetchExistingSignatures(t *testing.T) {
+	for name, tc := range map[string]struct {
+		objects []string
+		want    []uint32
+	}{
+		"top-level field": {
+			objects: []string{"<< /T (sig1) /FT /Sig /V 5 0 R >>"},
+			want:    []uint32{6},
+		},
+		"field below a parent with inherited /FT": {
+			objects: []string{
+				"<< /T (form) /FT /Sig /Kids [7 0 R] >>",
+				"<< /Parent 6 0 R /T (sig1) /V 5 0 R >>",
+			},
+			want: []uint32{7},
+		},
+		"widget kids are not fields": {
+			objects: []string{
+				"<< /T (sig1) /FT /Sig /V 5 0 R /Kids [7 0 R 8 0 R] >>",
+				"<< /Parent 6 0 R /Subtype /Widget /Rect [0 0 1 1] >>",
+				"<< /Parent 6 0 R /Subtype /Widget /Rect [1 1 2 2] >>",
+			},
+			want: []uint32{6},
+		},
+		"kids that loop back": {
+			objects: []string{
+				"<< /T (form) /Kids [7 0 R] >>",
+				"<< /Parent 6 0 R /T (inner) /Kids [6 0 R 8 0 R] >>",
+				"<< /Parent 7 0 R /T (sig1) /FT /Sig >>",
+			},
+			want: []uint32{8},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			file := writePDFWithCatalog(t, "/AcroForm << /Fields [6 0 R] /SigFlags 3 >>", tc.objects...)
+
+			inputFile, err := os.Open(file)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			defer func() { _ = inputFile.Close() }()
+			finfo, err := inputFile.Stat()
+			if err != nil {
+				t.Fatalf("stat: %v", err)
+			}
+			rdr, err := pdf.NewReader(inputFile, finfo.Size())
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+
+			context := SignContext{PDFReader: rdr}
+			signatures, err := context.fetchExistingSignatures()
+			if err != nil {
+				t.Fatalf("fetchExistingSignatures: %v", err)
+			}
+			var got []uint32
+			for _, sig := range signatures {
+				got = append(got, sig.objectId)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Errorf("signature fields = %v, want %v", got, tc.want)
 			}
 		})
 	}

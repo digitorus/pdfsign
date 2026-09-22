@@ -231,8 +231,8 @@ func (context *SignContext) validateSignData() error {
 		return err
 	}
 
-	if context.SignData.Signature.CertType == CertificationSignature {
-		if err := context.validateCertificationSignature(); err != nil {
+	if key := context.permsKey(); key != "" {
+		if err := context.validatePermsSignature(key); err != nil {
 			return err
 		}
 	}
@@ -240,14 +240,17 @@ func (context *SignContext) validateSignData() error {
 	return nil
 }
 
-// validateCertificationSignature enforces ISO 32000-1 12.8.2.2: a document can
-// contain only one DocMDP (certification) signature, and it shall be the first
-// signed field in the document. createCatalog relies on this when it writes the
-// catalog /Perms /DocMDP entry that points at the new signature.
-func (context *SignContext) validateCertificationSignature() error {
+// validatePermsSignature enforces the rules for a signature that the catalog
+// /Perms dictionary has to reference (ISO 32000-1 12.8.2.2 and 12.8.2.3): the
+// permissions dictionary carries at most one /DocMDP and one /UR3 entry, and a
+// DocMDP (certification) signature shall be the first signed field in the
+// document. createCatalog relies on this when it writes the entry that points
+// at the new signature.
+func (context *SignContext) validatePermsSignature(key string) error {
 	if context.PDFReader == nil {
 		return nil
 	}
+	certType := context.SignData.Signature.CertType
 
 	root := context.PDFReader.Trailer().Key("Root")
 	if slices.Contains(root.Keys(), "Perms") {
@@ -255,36 +258,43 @@ func (context *SignContext) validateCertificationSignature() error {
 		// A /Perms reference that cannot be resolved reads as null, so the
 		// entry is checked by its key rather than by its resolved value.
 		if perms.Kind() != pdf.Dict {
-			return errors.New("cannot add a certification signature: the document catalog /Perms entry could not be read as a dictionary")
+			return fmt.Errorf("cannot add a %s: the document catalog /Perms entry could not be read as a dictionary", certType)
 		}
-		if slices.Contains(perms.Keys(), "DocMDP") {
-			return errors.New("cannot add a certification signature: the document is already certified (catalog /Perms contains /DocMDP); use ApprovalSignature to sign an already signed document")
+		if slices.Contains(perms.Keys(), key) {
+			switch key {
+			case "DocMDP":
+				return errors.New("cannot add a certification signature: the document is already certified (catalog /Perms contains /DocMDP); use ApprovalSignature to sign an already signed document")
+			default:
+				return fmt.Errorf("cannot add a %s: the document catalog /Perms already contains /%s", certType, key)
+			}
 		}
 	}
 
-	if context.hasSignedField() {
+	if key == "DocMDP" && context.hasSignedField() {
 		return errors.New("cannot add a certification signature: it must be the first signature in the document; use ApprovalSignature to sign an already signed document")
 	}
 
 	return nil
 }
 
-// hasSignedField reports whether the document already contains a signature
-// field with a value, walking the AcroForm field tree the way the verify
-// package does: a signature field may sit under a parent field in /Kids and
-// inherit its /FT from it.
-func (context *SignContext) hasSignedField() bool {
-	fields := context.PDFReader.Trailer().Key("Root").Key("AcroForm").Key("Fields")
-	return hasSignedFieldIn(fields, "", make(map[uint32]bool), 0)
-}
-
 // maxFieldTreeDepth bounds the field tree walk; a conforming document nests
 // fields far less deeply, and a crafted one must not recurse without end.
 const maxFieldTreeDepth = 64
 
-func hasSignedFieldIn(fields pdf.Value, inheritedFT string, visited map[uint32]bool, depth int) bool {
+// walkSignatureFields calls fn for every terminal signature field in the
+// AcroForm field tree until fn returns false. /FT is inheritable (ISO 32000-1
+// Table 220), so a field takes it from its ancestors when it has none of its
+// own; kids that carry no /T are the widget annotations of their parent, not
+// fields. A visited set and a depth bound keep a crafted /Kids cycle from
+// recursing without end.
+func (context *SignContext) walkSignatureFields(fn func(field pdf.Value) bool) {
+	fields := context.PDFReader.Trailer().Key("Root").Key("AcroForm").Key("Fields")
+	walkSignatureFieldsIn(fields, "", make(map[uint32]bool), 0, fn)
+}
+
+func walkSignatureFieldsIn(fields pdf.Value, inheritedFT string, visited map[uint32]bool, depth int, fn func(pdf.Value) bool) bool {
 	if fields.Kind() != pdf.Array || depth > maxFieldTreeDepth {
-		return false
+		return true
 	}
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Index(i)
@@ -299,14 +309,38 @@ func hasSignedFieldIn(fields pdf.Value, inheritedFT string, visited map[uint32]b
 		if ft == "" {
 			ft = inheritedFT
 		}
-		if ft == "Sig" && !field.Key("V").IsNull() {
-			return true
+
+		kids := field.Key("Kids")
+		hasChildFields := false
+		for j := 0; kids.Kind() == pdf.Array && j < kids.Len(); j++ {
+			if !kids.Index(j).Key("T").IsNull() {
+				hasChildFields = true
+				break
+			}
 		}
-		if hasSignedFieldIn(field.Key("Kids"), ft, visited, depth+1) {
-			return true
+
+		if !hasChildFields {
+			if ft == "Sig" && !fn(field) {
+				return false
+			}
+			continue
+		}
+		if !walkSignatureFieldsIn(kids, ft, visited, depth+1, fn) {
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+// hasSignedField reports whether the document already contains a signature
+// field with a value.
+func (context *SignContext) hasSignedField() bool {
+	signed := false
+	context.walkSignatureFields(func(field pdf.Value) bool {
+		signed = !field.Key("V").IsNull()
+		return !signed
+	})
+	return signed
 }
 
 func defaultDigestForSigner(signer crypto.Signer) crypto.Hash {
