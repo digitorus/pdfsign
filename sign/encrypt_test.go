@@ -3,12 +3,14 @@ package sign
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/digitorus/pdf"
+	"github.com/mattetti/filebuffer"
 )
 
 // fakeEncrypter makes the encryption visible in test output: it prefixes the
@@ -46,6 +48,16 @@ func TestEncryptObject(t *testing.T) {
 			name: "escapes and balanced parentheses",
 			in:   `<< /A (a\)b\\c\n\101\0501) /B (x(y)z) /C (line\` + "\n" + `cont) >>`,
 			want: "<< /A " + fakeHex(id, "a)b\\c\nA(1") + " /B " + fakeHex(id, "x(y)z") + " /C " + fakeHex(id, "linecont") + " >>",
+		},
+		{
+			name: "control escapes and end-of-line markers",
+			in:   `<< /A (\r\t\b\f) /B (a\` + "\r\n" + `b) /C (a` + "\r\n" + `b` + "\r" + `c) >>`,
+			want: "<< /A " + fakeHex(id, "\r\t\b\f") + " /B " + fakeHex(id, "ab") + " /C " + fakeHex(id, "a\nb\nc") + " >>",
+		},
+		{
+			name: "comments are kept and not parsed",
+			in:   "<< /A (x) % not a (string\r/B (y) >>",
+			want: "<< /A " + fakeHex(id, "x") + " % not a (string\r/B " + fakeHex(id, "y") + " >>",
 		},
 		{
 			name: "odd hex digits and whitespace",
@@ -99,13 +111,40 @@ func TestEncryptObject(t *testing.T) {
 
 func TestEncryptObjectErrors(t *testing.T) {
 	for _, in := range []string{
-		"<< /Length 4 0 R >>\nstream\nabcd\nendstream", // indirect Length
-		"<< /Length 10 >>\nstream\nabc\nendstream",     // Length beyond the data
+		"<< /Length 4 0 R >>\nstream\nabcd\nendstream",  // indirect Length
+		"<< /Length 10 >>\nstream\nabc\nendstream",      // Length beyond the data
+		"<< /Length x >>\nstream\nabcd\nendstream",      // Length not a number
+		"<< /Type /XObject >>\nstream\nabcd\nendstream", // Length missing
+		"<< /Length 4 >>\nstreamabcd\nendstream",        // no end-of-line after stream
 		"<< /T (unterminated >>",
-		"<< /T <4142 >>",
+		"<< /T (escape at the end\\",
+		"<< /T <4142 >>", // stray ">" after the string
+		"<< /T <4142",
+		"<< /T <4G> >>",
+		">>",
+		"<< /A [1 2 >>",
+		"]",
+		"<< /A << /B 1 >>",
 	} {
 		if _, err := encryptObject(fakeEncrypter{}, 1, []byte(in)); err == nil {
 			t.Errorf("encryptObject(%q): want error, got nil", in)
+		}
+	}
+}
+
+type failingEncrypter struct{ fakeEncrypter }
+
+func (failingEncrypter) Encrypt(pdf.Ptr, []byte) ([]byte, error) {
+	return nil, errors.New("encryption failed")
+}
+
+func TestEncryptObjectEncrypterError(t *testing.T) {
+	for _, in := range []string{
+		"<< /T (x) >>",
+		"<< /Length 1 >>\nstream\nx\nendstream",
+	} {
+		if _, err := encryptObject(failingEncrypter{}, 1, []byte(in)); err == nil || !strings.Contains(err.Error(), "encryption failed") {
+			t.Errorf("encryptObject(%q) error = %v, want the encrypter error", in, err)
 		}
 	}
 }
@@ -169,5 +208,23 @@ func TestEncryptObjectKeepsEncryptionDictionary(t *testing.T) {
 	}
 	if bytes.Equal(other, obj) {
 		t.Errorf("encryptObject(%d) left the object unchanged, want its strings encrypted", encryptID+1)
+	}
+}
+
+func TestWriteObjectEncrypted(t *testing.T) {
+	context := &SignContext{
+		PDFReader:    openEncryptedReader(t, "../testfiles/encrypted/aes128_r4.pdf"),
+		OutputBuffer: &filebuffer.Buffer{Buff: new(bytes.Buffer)},
+	}
+
+	if err := context.WriteObject(100, []byte("<< /T (Signature 1) >>")); err != nil {
+		t.Fatalf("WriteObject: %v", err)
+	}
+	if got := context.OutputBuffer.Buff.String(); strings.Contains(got, "Signature 1") {
+		t.Errorf("WriteObject wrote the string in clear text: %q", got)
+	}
+
+	if err := context.WriteObject(101, []byte("<< /T (unterminated >>")); err == nil {
+		t.Error("WriteObject with a malformed object: want error, got nil")
 	}
 }
