@@ -310,6 +310,10 @@ func TestCertificationSignatureValidation(t *testing.T) {
 				"<< /T (form) /FT /Sig /Kids [7 0 R] >>",
 				"<< /Parent 6 0 R /T (sig1) /V 5 0 R >>",
 			},
+			"V on the parent field": {
+				"<< /T (form) /FT /Sig /V 5 0 R /Kids [7 0 R] >>",
+				"<< /Parent 6 0 R /T (x) >>",
+			},
 			"Kids that loop back": {
 				"<< /T (form) /Kids [7 0 R] >>",
 				"<< /Parent 6 0 R /T (inner) /Kids [6 0 R 8 0 R] >>",

@@ -12,11 +12,13 @@ const MaxDepth = 64
 // document catalog root, in document order, until fn returns false.
 //
 // A field takes its /FT from its ancestors when it has none of its own, since
-// the entry is inheritable (Table 220). The kids of a terminal field are its
-// widget annotations rather than fields, so a signed field with several
-// widgets is reported once, while an untitled intermediate node is walked
-// like any other field: /T is optional. A visited set and a depth bound keep
-// a crafted /Kids cycle from recursing without end.
+// the entry is inheritable (Table 220), and so is /V: a field that carries a
+// value is reported itself rather than walked into, as its child fields would
+// only inherit that value. The kids of a terminal field are its widget
+// annotations rather than fields, so a signed field with several widgets is
+// reported once, while an untitled intermediate node is walked like any other
+// field: /T is optional. A visited set and a depth bound keep a crafted /Kids
+// cycle from recursing without end.
 func SignatureFields(root pdf.Value, fn func(field pdf.Value) bool) {
 	walk(root.Key("AcroForm").Key("Fields"), "", make(map[pdf.Ptr]bool), 0, fn)
 }
@@ -44,7 +46,7 @@ func walk(kids pdf.Value, inheritedFT string, visited map[pdf.Ptr]bool, depth in
 			ft = inheritedFT
 		}
 
-		if children := field.Key("Kids"); hasFields(children) {
+		if children := field.Key("Kids"); field.Key("V").IsNull() && hasFields(children) {
 			if !walk(children, ft, visited, depth+1, fn) {
 				return false
 			}

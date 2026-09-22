@@ -89,6 +89,11 @@ func TestSignatureFields(t *testing.T) {
 			},
 			want: []string{"sig1"},
 		},
+		"a parent field with its own /V is the signed field": {
+			fields:  "[4 0 R]",
+			objects: []string{"<< /T (form) /FT /Sig /V 5 0 R /Kids [6 0 R] >>", sig, "<< /Parent 4 0 R /T (x) >>"},
+			want:    []string{"form"},
+		},
 		"non-signature fields are skipped": {
 			fields:  "[4 0 R 6 0 R]",
 			objects: []string{"<< /T (text) /FT /Tx /V (x) >>", sig, "<< /T (sig1) /FT /Sig >>"},
