@@ -61,6 +61,10 @@ func TestSignEncryptedPDF(t *testing.T) {
 		"aes128_r4.pdf", // AES-128, V4 R4 (AESV2), xref table, created with qpdf
 		"aes256_r5.pdf", // AES-256, V5 R5 (AESV3), xref and object streams, created with pdfcpu
 		"aes256_r6.pdf", // AES-256, V5 R6 (AESV3), xref table, created with qpdf
+		// AES-128 with /EncryptMetadata false and a catalog metadata stream, created with qpdf
+		"aes128_r4_plain_metadata.pdf",
+		// aes128_r4.pdf with additional named crypt filters, see TestEncryptObjectCryptFilters
+		"aes128_r4_crypt_filters.pdf",
 	}
 
 	for _, name := range files {

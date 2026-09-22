@@ -44,6 +44,8 @@ func TestSignEncryptedDocument(t *testing.T) {
 		{"aes128_r4.pdf", encryptedTestPassword},
 		{"aes256_r5.pdf", encryptedTestPassword},
 		{"aes256_r6.pdf", encryptedTestPassword},
+		{"aes128_r4_plain_metadata.pdf", encryptedTestPassword},
+		{"aes128_r4_crypt_filters.pdf", encryptedTestPassword},
 		{"rc4_r3_owner.pdf", ownerTestPassword},
 	} {
 		name := tc.name

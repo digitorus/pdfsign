@@ -12,9 +12,11 @@ import (
 
 // objectEncrypter encrypts string and stream data of an indirect object with
 // the security handler of the document and gives access to the trailer, which
-// says which object holds the encryption dictionary. *pdf.Reader implements it.
+// says which object holds the encryption dictionary and which crypt filters it
+// defines. *pdf.Reader implements it.
 type objectEncrypter interface {
 	Encrypt(ptr pdf.Ptr, data []byte) ([]byte, error)
+	EncryptsMetadata() bool
 	Trailer() pdf.Value
 }
 
@@ -44,8 +46,9 @@ type objToken struct {
 // 7.6.1. Strings are written as hexadecimal strings. Not encrypted are the
 // encryption dictionary, whose strings the security handler reads to derive
 // the key, the Contents of a signature or document timestamp dictionary
-// (7.6.2), whose placeholder is filled in after signing, and cross-reference
-// streams (7.5.8). If enc is nil the object is returned unchanged.
+// (7.6.2), whose placeholder is filled in after signing, cross-reference
+// streams (7.5.8) and the streams that streamEncrypted excludes. If enc is nil
+// the object is returned unchanged.
 func encryptObject(enc objectEncrypter, id uint32, object []byte) ([]byte, error) {
 	if enc == nil {
 		return object, nil
@@ -88,6 +91,13 @@ func encryptObject(enc objectEncrypter, id uint32, object []byte) ([]byte, error
 		if tok.kind != tokStream {
 			continue
 		}
+		encrypt, err := streamEncrypted(enc, id, object, tokens, top)
+		if err != nil {
+			return nil, fmt.Errorf("object %d: %w", id, err)
+		}
+		if !encrypt {
+			continue
+		}
 		encrypted, err := enc.Encrypt(ptr, object[tok.start:tok.end])
 		if err != nil {
 			return nil, fmt.Errorf("object %d: encrypting stream: %w", id, err)
@@ -100,7 +110,7 @@ func encryptObject(enc objectEncrypter, id uint32, object []byte) ([]byte, error
 		switch {
 		case i == lengthToken && newLength != nil:
 			out = append(out, newLength...)
-		case tok.kind == tokStream:
+		case tok.kind == tokStream && tok.value != nil: // encrypted stream data
 			out = append(out, tok.value...)
 		case tok.kind == tokString && (!isSignature || tok.depth != 1 || tok.key != "Contents"):
 			encrypted, err := enc.Encrypt(ptr, tok.value)
@@ -115,6 +125,110 @@ func encryptObject(enc objectEncrypter, id uint32, object []byte) ([]byte, error
 		}
 	}
 	return out, nil
+}
+
+// streamEncrypted reports whether the stream of object id is encrypted with
+// the method of the document's default crypt filter, deciding as the reader
+// does (ISO 32000-2, 7.6.5 and 7.6.7). Not encrypted are the metadata stream
+// of the catalog if the encryption dictionary sets /EncryptMetadata false, and
+// a stream whose first filter is /Crypt with no /Name, the /Identity crypt
+// filter or a crypt filter without a method. A stream naming a crypt filter
+// with another method than the default one is an error: the security handler
+// only encrypts with the default method.
+func streamEncrypted(enc objectEncrypter, id uint32, src []byte, tokens []objToken, top map[string]topValue) (bool, error) {
+	if typ, ok := top["Type"]; ok && typ.kind == tokName && string(typ.value) == "Metadata" && !enc.EncryptsMetadata() {
+		if id == enc.Trailer().Key("Root").Key("Metadata").GetPtr().GetID() {
+			return false, nil
+		}
+	}
+
+	filter, ok := top["Filter"]
+	if !ok {
+		return true, nil
+	}
+	if filter.kind == tokArrayOpen {
+		filter = firstElement(tokens, filter.index)
+	}
+	if filter.index >= 0 && isReferencePart(src, tokens[filter.index]) {
+		return false, fmt.Errorf("indirect stream Filter is not supported")
+	}
+	if filter.kind != tokName || string(filter.value) != "Crypt" {
+		return true, nil
+	}
+
+	name := ""
+	if parms, ok := top["DecodeParms"]; ok {
+		if parms.kind == tokArrayOpen {
+			parms = firstElement(tokens, parms.index)
+		}
+		if parms.index >= 0 && isReferencePart(src, tokens[parms.index]) {
+			return false, fmt.Errorf("indirect DecodeParms of a Crypt filter is not supported")
+		}
+		if parms.kind == tokDictOpen {
+			name = dictName(tokens, parms.index, "Name")
+		}
+	}
+	if name == "" || name == "Identity" {
+		return false, nil
+	}
+
+	encrypt := enc.Trailer().Key("Encrypt")
+	filters := encrypt.Key("CF")
+	if filters.Key(name).Kind() != pdf.Dict {
+		return false, fmt.Errorf("undefined crypt filter %s", name)
+	}
+	switch method := cryptFilterMethod(filters, name); method {
+	case "None":
+		return false, nil
+	case cryptFilterMethod(filters, encrypt.Key("StmF").Name()):
+		return true, nil
+	default:
+		return false, fmt.Errorf("crypt filter %s uses method %s, only the method of the default crypt filter is supported", name, method)
+	}
+}
+
+// cryptFilterMethod returns the method (/CFM) of the named crypt filter: None
+// if it has none, Identity for the Identity filter.
+func cryptFilterMethod(filters pdf.Value, name string) string {
+	if name == "" || name == "Identity" {
+		return "Identity"
+	}
+	method := filters.Key(name).Key("CFM")
+	if method.Kind() != pdf.Name {
+		return "None"
+	}
+	return method.Name()
+}
+
+// firstElement returns the first token of the first element of the array
+// opened by tokens[open], with index -1 if the array is empty.
+func firstElement(tokens []objToken, open int) topValue {
+	for i := open + 1; i < len(tokens); i++ {
+		tok := tokens[i]
+		switch {
+		case tok.kind == tokOther && isWhitespaceToken(tok):
+		case tok.kind == tokArrayClose:
+			return topValue{index: -1}
+		default:
+			return topValue{kind: tok.kind, value: tok.value, index: i}
+		}
+	}
+	return topValue{index: -1}
+}
+
+// dictName returns the name value of key in the dictionary opened by
+// tokens[open], or "" if it has none.
+func dictName(tokens []objToken, open int, key string) string {
+	depth := tokens[open].depth + 1
+	for _, tok := range tokens[open+1:] {
+		if tok.depth == depth && tok.kind == tokDictClose {
+			break
+		}
+		if tok.depth == depth && tok.key == key && tok.kind == tokName {
+			return string(tok.value)
+		}
+	}
+	return ""
 }
 
 type topValue struct {
@@ -325,27 +439,21 @@ func readStream(src []byte, i int, tokens []objToken) (int, *objToken, error) {
 		return 0, nil, fmt.Errorf("stream keyword not followed by an end-of-line marker")
 	}
 
+	// The same lookup as in encryptObject, which replaces this value.
 	length := -1
-	for k, tok := range tokens {
-		if tok.depth == 1 && tok.kind == tokName && tok.key == "" && string(tok.value) == "Length" {
-			for _, v := range tokens[k+1:] {
-				if v.kind == tokOther && isWhitespaceToken(v) {
-					continue
-				}
-				if isReferencePart(src, v) {
-					return 0, nil, fmt.Errorf("indirect stream Length is not supported")
-				}
-				n, err := strconv.Atoi(string(src[v.start:v.end]))
-				if err != nil {
-					return 0, nil, fmt.Errorf("invalid stream Length: %w", err)
-				}
-				length = n
-				break
-			}
-			break
+	if v, ok := topLevelValues(tokens)["Length"]; ok {
+		tok := tokens[v.index]
+		if isReferencePart(src, tok) {
+			return 0, nil, fmt.Errorf("indirect stream Length is not supported")
 		}
+		n, err := strconv.Atoi(string(src[tok.start:tok.end]))
+		if err != nil {
+			return 0, nil, fmt.Errorf("invalid stream Length: %w", err)
+		}
+		length = n
 	}
-	if length < 0 || j+length > len(src) {
+	// Compare with the remaining bytes: j+length overflows for a huge Length.
+	if length < 0 || length > len(src)-j {
 		return 0, nil, fmt.Errorf("stream Length missing or beyond the object")
 	}
 
