@@ -321,9 +321,13 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 // transform without being referenced from /Perms is an approval signature to
 // every reader, so its permission level is not enforced here either. The
 // catalog is read from the revision the signature covers, since an update
-// appended later could otherwise remove the entry and switch enforcement off.
+// appended later could otherwise remove the entry and switch enforcement off;
+// when that revision cannot be read, the transform is enforced as declared.
 func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
-	transform, hasTransform := docMDPTransform(v.Key("Reference"))
+	transform, ok := docMDPTransform(v.Key("Reference"))
+	if !ok {
+		return nil
+	}
 
 	br := v.Key("ByteRange")
 	if br.Len() < 4 {
@@ -336,19 +340,15 @@ func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer, 
 		return nil
 	}
 
-	referenced := catalogReferencesDocMDP(v, io.NewSectionReader(file, 0, signedEnd), signedEnd, password)
-	switch {
-	case hasTransform && !referenced:
+	switch referenced, known := catalogReferencesDocMDP(v, io.NewSectionReader(file, 0, signedEnd), signedEnd, password); {
+	case !known:
+		signer.Warnings = append(signer.Warnings, &Warning{
+			Msg: "the revision this signature covers could not be read to check the document catalog /Perms; the DocMDP transform is enforced as declared",
+		})
+	case !referenced:
 		signer.Warnings = append(signer.Warnings, &Warning{
 			Msg: "signature declares a DocMDP transform but the document catalog /Perms does not reference it; readers treat it as an approval signature and its permission level is not applied",
 		})
-		return nil
-	case referenced && !hasTransform:
-		signer.Warnings = append(signer.Warnings, &Warning{
-			Msg: "the document catalog /Perms /DocMDP references this signature but it declares no DocMDP transform",
-		})
-		return nil
-	case !hasTransform:
 		return nil
 	}
 
@@ -408,23 +408,26 @@ func docMDPTransform(refs pdf.Value) (pdf.Value, bool) {
 
 // catalogReferencesDocMDP reports whether the document catalog's /Perms /DocMDP
 // entry, as read from the given (signed) revision of the file, is the signature
-// dictionary v.
-func catalogReferencesDocMDP(v pdf.Value, revision io.ReaderAt, size int64, password string) bool {
+// dictionary v. known is false when that revision could not be read.
+func catalogReferencesDocMDP(v pdf.Value, revision io.ReaderAt, size int64, password string) (referenced, known bool) {
 	rdr, err := pdf.NewReaderEncrypted(revision, size, passwordFunc(password))
 	if err != nil {
-		return false
+		return false, false
 	}
 	docMDP := rdr.Trailer().Key("Root").Key("Perms").Key("DocMDP")
 	if docMDP.IsNull() {
-		return false
+		return false, true
 	}
-	if id := v.GetPtr().GetID(); id > 0 {
-		return docMDP.GetPtr().GetID() == id
+
+	// Both are normally the same indirect object.
+	if id := v.GetPtr().GetID(); id > 0 && docMDP.GetPtr().GetID() == id {
+		return true, true
 	}
-	// A signature dictionary written directly into its field has no object
-	// number; the signature bytes identify it instead.
+	// Either may instead be written directly into its container and then
+	// carries that container's pointer; the signature bytes identify the
+	// dictionary in that case.
 	contents := v.Key("Contents").RawString()
-	return contents != "" && docMDP.Key("Contents").RawString() == contents
+	return contents != "" && docMDP.Key("Contents").RawString() == contents, true
 }
 
 // objDefPattern matches a classic PDF indirect object definition header

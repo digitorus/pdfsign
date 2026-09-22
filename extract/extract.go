@@ -6,6 +6,7 @@ import (
 	"iter"
 
 	pdflib "github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/acroform"
 )
 
 // Signature represents a signature dictionary in the PDF.
@@ -66,10 +67,6 @@ func (s *Signature) SignedData() (io.Reader, error) {
 	}, nil
 }
 
-// maxFieldTreeDepth bounds the AcroForm field tree walk; a conforming document
-// nests fields far less deeply, and a crafted one must not recurse without end.
-const maxFieldTreeDepth = 64
-
 // Iter returns an iterator over all signature dictionaries in the PDF reader.
 func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 	return func(yield func(*Signature, error) bool) {
@@ -81,62 +78,27 @@ func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 			return
 		}
 
-		fields := acroForm.Key("Fields")
+		acroform.SignatureFields(root, func(field pdflib.Value) bool {
+			v := field.Key("V")
+			isSig := false
+			sigType := v.Key("Type").Name()
+			if sigType == "Sig" || sigType == "DocTimeStamp" {
+				isSig = true
+			} else if !v.Key("Filter").IsNull() && !v.Key("Contents").IsNull() {
+				isSig = true
+			}
 
-		// /FT is inheritable (ISO 32000-1 Table 220), so a field takes it
-		// from its ancestors when it has none of its own. A visited set and
-		// a depth bound keep a crafted /Kids cycle from recursing without end.
-		visited := make(map[uint32]bool)
-		var traverse func(pdflib.Value, string, int) bool
-		traverse = func(arr pdflib.Value, inheritedFT string, depth int) bool {
-			if !arr.IsNull() && arr.Kind() == pdflib.Array && depth <= maxFieldTreeDepth {
-				for i := 0; i < arr.Len(); i++ {
-					field := arr.Index(i)
-					if id := field.GetPtr().GetID(); id > 0 {
-						if visited[id] {
-							continue
-						}
-						visited[id] = true
-					}
-
-					ft := field.Key("FT").Name()
-					if ft == "" {
-						ft = inheritedFT
-					}
-
-					if ft == "Sig" {
-						v := field.Key("V")
-						isSig := false
-						sigType := v.Key("Type").Name()
-						if sigType == "Sig" || sigType == "DocTimeStamp" {
-							isSig = true
-						} else if !v.Key("Filter").IsNull() && !v.Key("Contents").IsNull() {
-							isSig = true
-						}
-
-						if isSig {
-							sig := &Signature{
-								Obj:  v,
-								File: file,
-							}
-							if !yield(sig, nil) {
-								return false
-							}
-						}
-					}
-
-					kids := field.Key("Kids")
-					if !kids.IsNull() {
-						if !traverse(kids, ft, depth+1) {
-							return false
-						}
-					}
+			if isSig {
+				sig := &Signature{
+					Obj:  v,
+					File: file,
+				}
+				if !yield(sig, nil) {
+					return false
 				}
 			}
 			return true
-		}
-
-		traverse(fields, "", 0)
+		})
 	}
 }
 

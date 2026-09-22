@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/acroform"
 )
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -119,78 +120,40 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 		return nil, fmt.Errorf("no digital signature in document (SigFlags missing)")
 	}
 
-	// Iterate over the AcroForm Fields to find signature fields
-	fields := acroForm.Key("Fields")
 	// foundField tracks whether a signature field was encountered.
 	// foundSignature tracks whether at least one was successfully processed.
 	foundField := false
 	foundSignature := false
 
-	// /FT is inheritable (ISO 32000-1 Table 220), so a field takes it from
-	// its ancestors when it has none of its own. A visited set and a depth
-	// bound keep a crafted /Kids cycle from recursing without end.
-	visited := make(map[uint32]bool)
-	var traverse func(pdf.Value, string, int) bool
-	traverse = func(arr pdf.Value, inheritedFT string, depth int) bool {
-		if !arr.IsNull() && arr.Kind() == pdf.Array && depth <= maxFieldTreeDepth {
-			for i := 0; i < arr.Len(); i++ {
-				field := arr.Index(i)
-				if id := field.GetPtr().GetID(); id > 0 {
-					if visited[id] {
-						continue
-					}
-					visited[id] = true
-				}
+	acroform.SignatureFields(root, func(field pdf.Value) bool {
+		// Get the signature dictionary (the value of the field)
+		v := field.Key("V")
 
-				ft := field.Key("FT").Name()
-				if ft == "" {
-					ft = inheritedFT
-				}
-
-				// Check if this field is a signature
-				if ft == "Sig" {
-					// Get the signature dictionary (the value of the field)
-					v := field.Key("V")
-
-					// Verify if it is a signature dictionary and has the correct filter
-					if !v.IsNull() && v.Key("Filter").Name() == "Adobe.PPKLite" {
-						foundField = true
-
-						// Use the new modular signature processing function
-						signer, err := VerifySignature(v, file, size, options)
-						if err != nil {
-							// Skip this signature if there's a critical error
-							return true // Continue to next
-						}
-
-						// Mark at least one signature as successfully processed
-						foundSignature = true
-
-						// Set any error message if present (Legacy API support)
-						if len(signer.ValidationErrors) > 0 && apiResp.Error == "" {
-							// For legacy single-string error, we use the first validation error
-							apiResp.Error = signer.ValidationErrors[0].Error()
-						}
-
-						apiResp.Signers = append(apiResp.Signers, *signer)
-					}
-				}
-
-				// Recurse into Kids
-				kids := field.Key("Kids")
-				if !kids.IsNull() {
-					if !traverse(kids, ft, depth+1) {
-						return false
-					}
-				}
-			}
+		// Verify if it is a signature dictionary and has the correct filter
+		if v.IsNull() || v.Key("Filter").Name() != "Adobe.PPKLite" {
+			return true
 		}
-		return true
-	}
+		foundField = true
 
-	if !fields.IsNull() {
-		traverse(fields, "", 0)
-	}
+		// Use the new modular signature processing function
+		signer, err := VerifySignature(v, file, size, options)
+		if err != nil {
+			// Skip this signature if there's a critical error
+			return true // Continue to next
+		}
+
+		// Mark at least one signature as successfully processed
+		foundSignature = true
+
+		// Set any error message if present (Legacy API support)
+		if len(signer.ValidationErrors) > 0 && apiResp.Error == "" {
+			// For legacy single-string error, we use the first validation error
+			apiResp.Error = signer.ValidationErrors[0].Error()
+		}
+
+		apiResp.Signers = append(apiResp.Signers, *signer)
+		return true
+	})
 
 	if !foundField {
 		return nil, fmt.Errorf("inconsistent PDF: SigFlags implies signatures but none found in AcroForm Fields")
@@ -211,10 +174,6 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 
 // passwordFunc returns a password callback for pdf.NewReaderEncrypted that
 // offers password once. An empty password means only the empty password is tried.
-// maxFieldTreeDepth bounds the AcroForm field tree walk; a conforming document
-// nests fields far less deeply, and a crafted one must not recurse without end.
-const maxFieldTreeDepth = 64
-
 func passwordFunc(password string) func() string {
 	return func() string {
 		p := password

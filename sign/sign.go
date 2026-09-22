@@ -19,6 +19,7 @@ import (
 	_ "crypto/sha512"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/acroform"
 	"github.com/digitorus/pkcs7"
 
 	"github.com/mattetti/filebuffer"
@@ -277,59 +278,10 @@ func (context *SignContext) validatePermsSignature(key string) error {
 	return nil
 }
 
-// maxFieldTreeDepth bounds the field tree walk; a conforming document nests
-// fields far less deeply, and a crafted one must not recurse without end.
-const maxFieldTreeDepth = 64
-
 // walkSignatureFields calls fn for every terminal signature field in the
-// AcroForm field tree until fn returns false. /FT is inheritable (ISO 32000-1
-// Table 220), so a field takes it from its ancestors when it has none of its
-// own; kids that carry no /T are the widget annotations of their parent, not
-// fields. A visited set and a depth bound keep a crafted /Kids cycle from
-// recursing without end.
+// AcroForm field tree until fn returns false.
 func (context *SignContext) walkSignatureFields(fn func(field pdf.Value) bool) {
-	fields := context.PDFReader.Trailer().Key("Root").Key("AcroForm").Key("Fields")
-	walkSignatureFieldsIn(fields, "", make(map[uint32]bool), 0, fn)
-}
-
-func walkSignatureFieldsIn(fields pdf.Value, inheritedFT string, visited map[uint32]bool, depth int, fn func(pdf.Value) bool) bool {
-	if fields.Kind() != pdf.Array || depth > maxFieldTreeDepth {
-		return true
-	}
-	for i := 0; i < fields.Len(); i++ {
-		field := fields.Index(i)
-		if id := field.GetPtr().GetID(); id > 0 {
-			if visited[id] {
-				continue
-			}
-			visited[id] = true
-		}
-
-		ft := field.Key("FT").Name()
-		if ft == "" {
-			ft = inheritedFT
-		}
-
-		kids := field.Key("Kids")
-		hasChildFields := false
-		for j := 0; kids.Kind() == pdf.Array && j < kids.Len(); j++ {
-			if !kids.Index(j).Key("T").IsNull() {
-				hasChildFields = true
-				break
-			}
-		}
-
-		if !hasChildFields {
-			if ft == "Sig" && !fn(field) {
-				return false
-			}
-			continue
-		}
-		if !walkSignatureFieldsIn(kids, ft, visited, depth+1, fn) {
-			return false
-		}
-	}
-	return true
+	acroform.SignatureFields(context.PDFReader.Trailer().Key("Root"), fn)
 }
 
 // hasSignedField reports whether the document already contains a signature
