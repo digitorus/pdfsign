@@ -47,7 +47,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 
 	// Copy over existing catalog entries except for type and AcroForum
 	for _, key := range root.Keys() {
-		if key != "Type" && key != "AcroForm" && !(writeDocMDP && key == "Perms") {
+		if key != "Type" && key != "AcroForm" && (!writeDocMDP || key != "Perms") {
 			_, _ = fmt.Fprintf(&catalog_buffer, "  %s ", pdfName(key))
 			if err := context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key)); err != nil {
 				return nil, fmt.Errorf("failed to serialize catalog entry %q: %w", key, err)

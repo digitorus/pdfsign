@@ -57,7 +57,7 @@ func catalogForFile(t *testing.T, file string, certType CertType, sigObjectId ui
 	if err != nil {
 		t.Fatalf("open %s: %v", file, err)
 	}
-	t.Cleanup(func() { inputFile.Close() })
+	t.Cleanup(func() { _ = inputFile.Close() })
 
 	finfo, err := inputFile.Stat()
 	if err != nil {
@@ -113,7 +113,7 @@ func readCatalog(t *testing.T, path string) pdf.Value {
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
-	t.Cleanup(func() { f.Close() })
+	t.Cleanup(func() { _ = f.Close() })
 
 	finfo, err := f.Stat()
 	if err != nil {
