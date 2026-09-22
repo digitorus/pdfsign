@@ -126,14 +126,29 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 	foundField := false
 	foundSignature := false
 
-	var traverse func(pdf.Value) bool
-	traverse = func(arr pdf.Value) bool {
-		if !arr.IsNull() && arr.Kind() == pdf.Array {
+	// /FT is inheritable (ISO 32000-1 Table 220), so a field takes it from
+	// its ancestors when it has none of its own. A visited set and a depth
+	// bound keep a crafted /Kids cycle from recursing without end.
+	visited := make(map[uint32]bool)
+	var traverse func(pdf.Value, string, int) bool
+	traverse = func(arr pdf.Value, inheritedFT string, depth int) bool {
+		if !arr.IsNull() && arr.Kind() == pdf.Array && depth <= maxFieldTreeDepth {
 			for i := 0; i < arr.Len(); i++ {
 				field := arr.Index(i)
+				if id := field.GetPtr().GetID(); id > 0 {
+					if visited[id] {
+						continue
+					}
+					visited[id] = true
+				}
+
+				ft := field.Key("FT").Name()
+				if ft == "" {
+					ft = inheritedFT
+				}
 
 				// Check if this field is a signature
-				if field.Key("FT").Name() == "Sig" {
+				if ft == "Sig" {
 					// Get the signature dictionary (the value of the field)
 					v := field.Key("V")
 
@@ -164,7 +179,7 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 				// Recurse into Kids
 				kids := field.Key("Kids")
 				if !kids.IsNull() {
-					if !traverse(kids) {
+					if !traverse(kids, ft, depth+1) {
 						return false
 					}
 				}
@@ -174,7 +189,7 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 	}
 
 	if !fields.IsNull() {
-		traverse(fields)
+		traverse(fields, "", 0)
 	}
 
 	if !foundField {
@@ -196,6 +211,10 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 
 // passwordFunc returns a password callback for pdf.NewReaderEncrypted that
 // offers password once. An empty password means only the empty password is tried.
+// maxFieldTreeDepth bounds the AcroForm field tree walk; a conforming document
+// nests fields far less deeply, and a crafted one must not recurse without end.
+const maxFieldTreeDepth = 64
+
 func passwordFunc(password string) func() string {
 	return func() string {
 		p := password

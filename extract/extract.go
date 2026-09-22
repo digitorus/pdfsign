@@ -66,6 +66,10 @@ func (s *Signature) SignedData() (io.Reader, error) {
 	}, nil
 }
 
+// maxFieldTreeDepth bounds the AcroForm field tree walk; a conforming document
+// nests fields far less deeply, and a crafted one must not recurse without end.
+const maxFieldTreeDepth = 64
+
 // Iter returns an iterator over all signature dictionaries in the PDF reader.
 func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 	return func(yield func(*Signature, error) bool) {
@@ -79,13 +83,28 @@ func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 
 		fields := acroForm.Key("Fields")
 
-		var traverse func(pdflib.Value) bool
-		traverse = func(arr pdflib.Value) bool {
-			if !arr.IsNull() && arr.Kind() == pdflib.Array {
+		// /FT is inheritable (ISO 32000-1 Table 220), so a field takes it
+		// from its ancestors when it has none of its own. A visited set and
+		// a depth bound keep a crafted /Kids cycle from recursing without end.
+		visited := make(map[uint32]bool)
+		var traverse func(pdflib.Value, string, int) bool
+		traverse = func(arr pdflib.Value, inheritedFT string, depth int) bool {
+			if !arr.IsNull() && arr.Kind() == pdflib.Array && depth <= maxFieldTreeDepth {
 				for i := 0; i < arr.Len(); i++ {
 					field := arr.Index(i)
+					if id := field.GetPtr().GetID(); id > 0 {
+						if visited[id] {
+							continue
+						}
+						visited[id] = true
+					}
 
-					if field.Key("FT").Name() == "Sig" {
+					ft := field.Key("FT").Name()
+					if ft == "" {
+						ft = inheritedFT
+					}
+
+					if ft == "Sig" {
 						v := field.Key("V")
 						isSig := false
 						sigType := v.Key("Type").Name()
@@ -108,7 +127,7 @@ func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 
 					kids := field.Key("Kids")
 					if !kids.IsNull() {
-						if !traverse(kids) {
+						if !traverse(kids, ft, depth+1) {
 							return false
 						}
 					}
@@ -117,7 +136,7 @@ func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 			return true
 		}
 
-		traverse(fields)
+		traverse(fields, "", 0)
 	}
 }
 
