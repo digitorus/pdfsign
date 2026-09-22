@@ -57,7 +57,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	}
 
 	if writeDocMDP {
-		if err := context.writePermsWithDocMDP(&catalog_buffer, rootPtr.GetID(), root.Key("Perms")); err != nil {
+		if err := context.writePermsWithDocMDP(&catalog_buffer, root.Key("Perms")); err != nil {
 			return nil, err
 		}
 	}
@@ -160,34 +160,29 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 // read as an ordinary approval signature: Acrobat shows no "Certified by" banner
 // and the DocMDP restriction is not enforced.
 //
-// SignData.objectId holds the signature dictionary's object number; it is set by
-// addSignatureObject, which SignPDF runs before addCatalog.
-func (context *SignContext) writePermsWithDocMDP(w *bytes.Buffer, rootObjId uint32, perms pdf.Value) error {
-	if !perms.IsNull() {
-		if perms.Kind() != pdf.Dict {
-			return errors.New("cannot add a certification signature: the document catalog /Perms entry is not a dictionary")
+// validateCertificationSignature has already rejected a document that cannot
+// take a certification signature, so perms is either null or a dictionary
+// without a /DocMDP entry. SignData.objectId holds the signature dictionary's
+// object number; it is set by addSignatureObject, which SignPDF runs before
+// addCatalog.
+func (context *SignContext) writePermsWithDocMDP(w io.Writer, perms pdf.Value) error {
+	_, _ = io.WriteString(w, "  /Perms <<\n")
+
+	// Direct values inside /Perms carry the pointer of the object they were
+	// read from: the catalog when /Perms is written inline, or the /Perms
+	// object itself when it is indirect. serializeCatalogEntry needs that
+	// pointer, not the catalog's, to tell them apart from references.
+	permsObjId := perms.GetPtr().GetID()
+	for _, key := range perms.Keys() {
+		_, _ = fmt.Fprintf(w, "    /%s ", key)
+		if err := context.serializeCatalogEntry(w, permsObjId, perms.Key(key)); err != nil {
+			return fmt.Errorf("failed to serialize /Perms entry %q: %w", key, err)
 		}
-		// Only one DocMDP signature is permitted per document, so an existing
-		// entry is never overwritten; such a document can only take an
-		// approval signature.
-		if !perms.Key("DocMDP").IsNull() {
-			return errors.New("cannot add a certification signature: the document is already certified (catalog /Perms contains /DocMDP)")
-		}
+		_, _ = io.WriteString(w, "\n")
 	}
 
-	w.WriteString("  /Perms <<\n")
-	if !perms.IsNull() {
-		// Preserve entries such as /UR3 that grant usage rights.
-		for _, key := range perms.Keys() {
-			_, _ = fmt.Fprintf(w, "    /%s ", key)
-			if err := context.serializeCatalogEntry(w, rootObjId, perms.Key(key)); err != nil {
-				return fmt.Errorf("failed to serialize /Perms entry %q: %w", key, err)
-			}
-			w.WriteString("\n")
-		}
-	}
 	_, _ = fmt.Fprintf(w, "    /DocMDP %d 0 R\n", context.SignData.objectId)
-	w.WriteString("  >>\n")
+	_, _ = io.WriteString(w, "  >>\n")
 
 	return nil
 }

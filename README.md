@@ -51,7 +51,7 @@ The library is organized into specialized subpackages, though most users will pr
 | `-location` | string | | Location of the signatory |
 | `-reason` | string | | Reason for signing |
 | `-contact` | string | | Contact information for signatory |
-| `-certType` | string | `CertificationSignature` | Certificate type: `CertificationSignature`, `ApprovalSignature`, `DocumentTimestamp` |
+| `-certType` | string | `CertificationSignature` | Certificate type: `CertificationSignature`, `ApprovalSignature`, `DocumentTimestamp`. A certification signature must be the first signature in a document; use `ApprovalSignature` to sign a document that is already signed or certified |
 | `-tsa` | string | `https://freetsa.org/tsr` | URL for Time-Stamp Authority |
 
 ### Signing Examples

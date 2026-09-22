@@ -11,18 +11,21 @@ import (
 	"github.com/digitorus/pdf"
 )
 
-// writePDFWithCatalogPerms builds a minimal PDF whose document catalog already
-// carries the given raw /Perms dictionary, and returns its path.
-func writePDFWithCatalogPerms(t *testing.T, perms string) string {
+// writePDFWithCatalog builds a minimal one-page PDF whose document catalog is
+// extended with the given raw entries, followed by any extra objects (numbered
+// from 6), and returns its path. Object 5 is a bare signature dictionary that
+// the catalog entries can point at.
+func writePDFWithCatalog(t *testing.T, catalogEntries string, extraObjects ...string) string {
 	t.Helper()
 
-	objects := []string{
-		"<< /Type /Catalog /Pages 2 0 R " + perms + " >>",
+	content := "BT ET\n"
+	objects := append([]string{
+		"<< /Type /Catalog /Pages 2 0 R " + catalogEntries + " >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>",
-		"<< /Length 8 >>\nstream\nBT ET\nendstream",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(content), content),
 		"<< /Type /Sig /Filter /Adobe.PPKLite >>",
-	}
+	}, extraObjects...)
 
 	var buf bytes.Buffer
 	buf.WriteString("%PDF-1.7\n")
@@ -38,7 +41,7 @@ func writePDFWithCatalogPerms(t *testing.T, perms string) string {
 	}
 	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
 
-	path := filepath.Join(t.TempDir(), "perms.pdf")
+	path := filepath.Join(t.TempDir(), "catalog.pdf")
 	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
 		t.Fatalf("write test PDF: %v", err)
 	}
@@ -84,6 +87,46 @@ func catalogForFile(t *testing.T, file string, certType CertType, sigObjectId ui
 	return context.createCatalog()
 }
 
+// signFileAs signs input into a temporary file with the given certificate type
+// and returns the output path and the signing error.
+func signFileAs(t *testing.T, input string, certType CertType) (string, error) {
+	t.Helper()
+
+	certificate, privateKey := LoadCertificateAndKey(t)
+	output := filepath.Join(t.TempDir(), "signed.pdf")
+	err := SignFile(input, output, SignData{
+		Signature: SignDataSignature{
+			CertType:   certType,
+			DocMDPPerm: DoNotAllowAnyChangesPerms,
+		},
+		Signer:      privateKey,
+		Certificate: certificate,
+	})
+	return output, err
+}
+
+// readCatalog opens a signed file and returns its document catalog.
+func readCatalog(t *testing.T, path string) pdf.Value {
+	t.Helper()
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	t.Cleanup(func() { f.Close() })
+
+	finfo, err := f.Stat()
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+
+	rdr, err := pdf.NewReader(f, finfo.Size())
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return rdr.Trailer().Key("Root")
+}
+
 // TestCreateCatalogPermsDocMDP covers ISO 32000-1 12.8.2.2: the /Perms /DocMDP
 // entry in the document catalog is what makes a reader treat a signature as a
 // certification signature and apply its /P permission level. The /Reference
@@ -101,8 +144,8 @@ func TestCreateCatalogPermsDocMDP(t *testing.T) {
 		}
 	})
 
-	t.Run("existing /Perms entries are preserved", func(t *testing.T) {
-		file := writePDFWithCatalogPerms(t, "/Perms << /UR3 5 0 R >>")
+	t.Run("an inline /Perms keeps its entries", func(t *testing.T) {
+		file := writePDFWithCatalog(t, "/Perms << /UR3 5 0 R >>")
 
 		catalog, err := catalogForFile(t, file, CertificationSignature, 9)
 		if err != nil {
@@ -121,10 +164,37 @@ func TestCreateCatalogPermsDocMDP(t *testing.T) {
 		}
 	})
 
-	t.Run("an already certified document is rejected", func(t *testing.T) {
-		file := writePDFWithCatalogPerms(t, "/Perms << /DocMDP 5 0 R >>")
+	t.Run("an indirect /Perms keeps its direct values inline", func(t *testing.T) {
+		// Direct values read from an indirect /Perms carry that object's
+		// pointer (6 0 R here); they must be written as values, not as
+		// references back to the superseded /Perms object.
+		file := writePDFWithCatalog(t, "/Perms 6 0 R", "<< /UR3 5 0 R /Custom 1 >>")
 
-		if _, err := catalogForFile(t, file, CertificationSignature, 9); err == nil {
+		catalog, err := catalogForFile(t, file, CertificationSignature, 9)
+		if err != nil {
+			t.Fatalf("createCatalog: %v", err)
+		}
+
+		got := string(catalog)
+		if strings.Contains(got, "6 0 R") {
+			t.Errorf("a /Perms entry was written as a reference to the old /Perms object:\n%s", got)
+		}
+		for _, want := range []string{"/UR3 5 0 R", "/Custom 1", "/DocMDP 9 0 R"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("catalog is missing %q:\n%s", want, got)
+			}
+		}
+	})
+}
+
+// TestCertificationSignatureValidation covers the documents that cannot take a
+// certification signature: only one DocMDP signature is permitted, and it has
+// to be the first signature in the document.
+func TestCertificationSignatureValidation(t *testing.T) {
+	t.Run("an already certified document is rejected", func(t *testing.T) {
+		file := writePDFWithCatalog(t, "/Perms << /DocMDP 5 0 R >>")
+
+		if _, err := signFileAs(t, file, CertificationSignature); err == nil {
 			t.Fatal("expected an error when certifying an already certified document")
 		} else if !strings.Contains(err.Error(), "already certified") {
 			t.Errorf("unexpected error: %v", err)
@@ -132,22 +202,59 @@ func TestCreateCatalogPermsDocMDP(t *testing.T) {
 
 		// The same document can still take an approval signature, which
 		// leaves the existing /Perms untouched.
-		catalog, err := catalogForFile(t, file, ApprovalSignature, 9)
+		output, err := signFileAs(t, file, ApprovalSignature)
 		if err != nil {
 			t.Fatalf("approval signature: %v", err)
 		}
-		if !strings.Contains(string(catalog), "/Perms <</DocMDP 5 0 R>>") {
-			t.Errorf("approval signature did not preserve the existing /Perms:\n%s", catalog)
+		if got := readCatalog(t, output).Key("Perms").Key("DocMDP").Key("Type").Name(); got != "Sig" {
+			t.Errorf("approval signature did not preserve the existing /Perms /DocMDP, got /Type /%s", got)
 		}
 	})
 
-	t.Run("a malformed /Perms is rejected", func(t *testing.T) {
-		file := writePDFWithCatalogPerms(t, "/Perms 5")
+	t.Run("a /DocMDP that cannot be resolved still counts", func(t *testing.T) {
+		// Object 99 does not exist, so the entry resolves to null; it would
+		// otherwise be copied next to the new /DocMDP as a duplicate key.
+		file := writePDFWithCatalog(t, "/Perms << /DocMDP 99 0 R >>")
 
-		if _, err := catalogForFile(t, file, CertificationSignature, 9); err == nil {
-			t.Fatal("expected an error for a non-dictionary /Perms")
-		} else if !strings.Contains(err.Error(), "not a dictionary") {
+		if _, err := signFileAs(t, file, CertificationSignature); err == nil {
+			t.Fatal("expected an error for a /Perms with a dangling /DocMDP")
+		} else if !strings.Contains(err.Error(), "already certified") {
 			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a /Perms that cannot be read is rejected", func(t *testing.T) {
+		for name, entries := range map[string]string{
+			"not a dictionary":   "/Perms 5",
+			"dangling reference": "/Perms 99 0 R",
+		} {
+			t.Run(name, func(t *testing.T) {
+				file := writePDFWithCatalog(t, entries)
+
+				if _, err := signFileAs(t, file, CertificationSignature); err == nil {
+					t.Fatal("expected an error")
+				} else if !strings.Contains(err.Error(), "could not be read as a dictionary") {
+					t.Errorf("unexpected error: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("an already signed document is rejected", func(t *testing.T) {
+		signed, err := signFileAs(t, "../testfiles/testfile20.pdf", ApprovalSignature)
+		if err != nil {
+			t.Fatalf("approval signature: %v", err)
+		}
+
+		if _, err := signFileAs(t, signed, CertificationSignature); err == nil {
+			t.Fatal("expected an error when certifying an already signed document")
+		} else if !strings.Contains(err.Error(), "first signature") {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// A second approval signature is fine.
+		if _, err := signFileAs(t, signed, ApprovalSignature); err != nil {
+			t.Fatalf("second approval signature: %v", err)
 		}
 	})
 }
@@ -156,8 +263,6 @@ func TestCreateCatalogPermsDocMDP(t *testing.T) {
 // /Perms /DocMDP reference through the PDF reader, which is how a conforming
 // reader finds the certification signature.
 func TestSignedFilePermsDocMDP(t *testing.T) {
-	certificate, privateKey := LoadCertificateAndKey(t)
-
 	for _, tc := range []struct {
 		certType  CertType
 		wantPerms bool
@@ -166,35 +271,12 @@ func TestSignedFilePermsDocMDP(t *testing.T) {
 		{ApprovalSignature, false},
 	} {
 		t.Run(tc.certType.String(), func(t *testing.T) {
-			outputPath := filepath.Join(t.TempDir(), "signed.pdf")
-			if err := SignFile("../testfiles/testfile20.pdf", outputPath, SignData{
-				Signature: SignDataSignature{
-					CertType:   tc.certType,
-					DocMDPPerm: DoNotAllowAnyChangesPerms,
-				},
-				Signer:      privateKey,
-				Certificate: certificate,
-			}); err != nil {
+			output, err := signFileAs(t, "../testfiles/testfile20.pdf", tc.certType)
+			if err != nil {
 				t.Fatalf("sign: %v", err)
 			}
 
-			outputFile, err := os.Open(outputPath)
-			if err != nil {
-				t.Fatalf("open signed file: %v", err)
-			}
-			defer outputFile.Close()
-
-			finfo, err := outputFile.Stat()
-			if err != nil {
-				t.Fatalf("stat signed file: %v", err)
-			}
-
-			rdr, err := pdf.NewReader(outputFile, finfo.Size())
-			if err != nil {
-				t.Fatalf("read signed file: %v", err)
-			}
-
-			perms := rdr.Trailer().Key("Root").Key("Perms")
+			perms := readCatalog(t, output).Key("Perms")
 			if !tc.wantPerms {
 				if !perms.IsNull() {
 					t.Fatalf("%s wrote a catalog /Perms entry", tc.certType)
