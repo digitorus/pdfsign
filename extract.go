@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"iter"
 
-	pdflib "github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/extract"
 )
 
@@ -14,7 +13,7 @@ func (d *Document) Signatures() iter.Seq2[*Signature, error] {
 		rdr := d.rdr
 		if rdr == nil {
 			var err error
-			rdr, err = pdflib.NewReader(d.reader, d.size)
+			rdr, err = newReader(d.reader, d.size, d.password)
 			if err != nil {
 				yield(nil, fmt.Errorf("failed to create reader: %w", err))
 				return

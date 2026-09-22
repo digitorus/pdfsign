@@ -33,7 +33,9 @@ certs/*
 *.pdf
 *.pdf.*
 !testfile*.pdf
+!testfiles/encrypted/*.pdf
 testfiles/*_signed.pdf
 testfiles/failed/*
 testfiles/success/*
+testfiles/encrypted_output/
 tmp/

@@ -41,9 +41,10 @@ import (
 // verification there's no natural "configure once, read many times from
 // many goroutines" use case to make safe.
 type Document struct {
-	reader io.ReaderAt
-	size   int64
-	rdr    *pdflib.Reader
+	reader   io.ReaderAt
+	size     int64
+	rdr      *pdflib.Reader
+	password string // password for encrypted documents, used when re-opening
 
 	// Registered resources
 	fonts  map[string]*Font
@@ -62,8 +63,18 @@ type Document struct {
 
 // Open initializes a PDF Document from an io.ReaderAt (e.g., an open file or memory buffer).
 // The size parameter must be the total size of the PDF in bytes.
+// Encrypted documents can only be opened if the user password is empty; use
+// OpenWithPassword otherwise.
 func Open(reader io.ReaderAt, size int64) (*Document, error) {
-	rdr, err := pdflib.NewReader(reader, size)
+	return OpenWithPassword(reader, size, "")
+}
+
+// OpenWithPassword initializes a PDF Document like Open, using password (the
+// user or owner password) to open an encrypted document. Objects added to an
+// encrypted document, such as signatures, are encrypted with the document's
+// key, and the document stays encrypted.
+func OpenWithPassword(reader io.ReaderAt, size int64, password string) (*Document, error) {
+	rdr, err := newReader(reader, size, password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PDF: %w", err)
 	}
@@ -71,6 +82,7 @@ func Open(reader io.ReaderAt, size int64) (*Document, error) {
 		reader:        reader,
 		size:          size,
 		rdr:           rdr,
+		password:      password,
 		fonts:         make(map[string]*Font),
 		images:        make(map[string]*Image),
 		pendingFields: make(map[string]any),
@@ -87,6 +99,12 @@ func Open(reader io.ReaderAt, size int64) (*Document, error) {
 
 // OpenFile is a convenience method to initialize a PDF Document from a file on disk.
 func OpenFile(path string) (*Document, error) {
+	return OpenFileWithPassword(path, "")
+}
+
+// OpenFileWithPassword is a convenience method to initialize a PDF Document
+// from an encrypted file on disk, see OpenWithPassword.
+func OpenFileWithPassword(path, password string) (*Document, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -98,7 +116,19 @@ func OpenFile(path string) (*Document, error) {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
-	return Open(file, finfo.Size())
+	return OpenWithPassword(file, finfo.Size(), password)
+}
+
+// newReader opens a PDF reader, trying the empty password and then password.
+func newReader(reader io.ReaderAt, size int64, password string) (*pdflib.Reader, error) {
+	offered := false
+	return pdflib.NewReaderEncrypted(reader, size, func() string {
+		if offered {
+			return ""
+		}
+		offered = true
+		return password
+	})
 }
 
 // SetCompression configures the zlib compression level for new objects added to the PDF.

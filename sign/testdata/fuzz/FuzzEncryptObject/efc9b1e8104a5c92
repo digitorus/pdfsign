@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<<//Length 0>>stream\n\nendstream")

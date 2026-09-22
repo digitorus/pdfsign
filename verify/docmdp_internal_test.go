@@ -3,7 +3,10 @@ package verify
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"testing"
+
+	"github.com/digitorus/pdf"
 )
 
 // writeObj writes a classic PDF object definition to buf and returns its byte offset.
@@ -61,7 +64,7 @@ func TestCheckIncrementalUpdateScope(t *testing.T) {
 		// legitimate P=2/P=3 update.
 		fileBytes, signedEnd := buildMinimalPDFWithUpdate(t, 7, "<< /Type /Annot /Subtype /Widget /Rect [0 0 10 10] >>")
 		r := bytes.NewReader(fileBytes)
-		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd); err != nil {
+		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd, ""); err != nil {
 			t.Errorf("expected no error for an update that only adds a new object, got: %v", err)
 		}
 	})
@@ -70,7 +73,7 @@ func TestCheckIncrementalUpdateScope(t *testing.T) {
 		fileBytes, signedEnd := buildMinimalPDFWithUpdate(t, 4,
 			"<< /Length 30 >>\nstream\nBT /F1 12 Tf (HACKED) Tj ET\nendstream")
 		r := bytes.NewReader(fileBytes)
-		err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd)
+		err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd, "")
 		if err == nil {
 			t.Fatal("expected an error for an update that rewrites the page's content stream, got nil")
 		}
@@ -81,7 +84,7 @@ func TestCheckIncrementalUpdateScope(t *testing.T) {
 		fileBytes, signedEnd := buildMinimalPDFWithUpdate(t, 3,
 			"<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Rotate 90 >>")
 		r := bytes.NewReader(fileBytes)
-		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd); err == nil {
+		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd, ""); err == nil {
 			t.Fatal("expected an error for an update that rewrites the page object itself, got nil")
 		}
 	})
@@ -89,7 +92,7 @@ func TestCheckIncrementalUpdateScope(t *testing.T) {
 	t.Run("update rewriting the Resources dict is rejected", func(t *testing.T) {
 		fileBytes, signedEnd := buildMinimalPDFWithUpdate(t, 5, "<< /Font << /F1 6 0 R /F2 6 0 R >> >>")
 		r := bytes.NewReader(fileBytes)
-		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd); err == nil {
+		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd, ""); err == nil {
 			t.Fatal("expected an error for an update that rewrites the page's Resources dict, got nil")
 		}
 	})
@@ -98,8 +101,44 @@ func TestCheckIncrementalUpdateScope(t *testing.T) {
 		fileBytes, signedEnd := buildMinimalPDFWithUpdate(t, 6,
 			"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>")
 		r := bytes.NewReader(fileBytes)
-		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd); err == nil {
+		if err := checkIncrementalUpdateScope(r, int64(len(fileBytes)), signedEnd, ""); err == nil {
 			t.Fatal("expected an error for an update that rewrites a font referenced by the page's Resources, got nil")
 		}
 	})
+}
+
+// TestCheckIncrementalUpdateScopeEncrypted checks that the scope check also
+// runs on encrypted documents when the password is known, instead of being
+// skipped because the document cannot be opened.
+func TestCheckIncrementalUpdateScopeEncrypted(t *testing.T) {
+	const password = "pdfsign"
+	original, err := os.ReadFile("../testfiles/encrypted/aes256_r6.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rdr, err := pdf.NewReaderEncrypted(bytes.NewReader(original), int64(len(original)), passwordFunc(password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trailer := rdr.Trailer()
+	pageID := rdr.Page(1).V.GetPtr().GetID()
+	ids := trailer.Key("ID")
+
+	// Append an update that rewrites the page object.
+	var buf bytes.Buffer
+	buf.Write(original)
+	signedEnd := int64(buf.Len())
+	offset := writeObj(&buf, int(pageID), "<< /Type /Page /Rotate 90 >>")
+	xrefOffset := buf.Len()
+	fmt.Fprintf(&buf, "xref\n%d 1\n%010d 00000 n \n", pageID, offset)
+	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root %d 0 R /Encrypt %d 0 R /ID [<%x><%x>] /Prev %d >>\n",
+		trailer.Key("Size").Int64(), trailer.Key("Root").GetPtr().GetID(), trailer.Key("Encrypt").GetPtr().GetID(),
+		ids.Index(0).RawString(), ids.Index(1).RawString(), rdr.XrefInformation.StartPos)
+	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOffset)
+	fileBytes := buf.Bytes()
+
+	err = checkIncrementalUpdateScope(bytes.NewReader(fileBytes), int64(len(fileBytes)), signedEnd, password)
+	if err == nil {
+		t.Fatal("expected an error for an update that rewrites the page object of an encrypted document, got nil")
+	}
 }
