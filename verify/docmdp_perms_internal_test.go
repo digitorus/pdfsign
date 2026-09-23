@@ -130,7 +130,10 @@ func checkFixture(t *testing.T, f signedPDF) (*Signer, error) {
 
 	signer := NewSigner()
 	file := bytes.NewReader(fileBytes)
-	signed, revision := signedSignatureDictionary(v, file, int64(len(fileBytes)), signer, "")
+	signed, revision, ok := signedSignatureDictionary(v, file, int64(len(fileBytes)), signer, "")
+	if !ok {
+		return signer, nil
+	}
 	err = checkDocMDP(signed, revision, file, int64(len(fileBytes)), signer, "")
 	return signer, err
 }
@@ -198,8 +201,8 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "permits none") {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
-		if !hasWarning(signer, "enforced as declared") {
-			t.Fatalf("expected a warning about the unreadable revision, got %v", signer.Warnings)
+		if len(signer.Warnings) != 1 || !strings.Contains(signer.Warnings[0].Error(), "enforced as declared") {
+			t.Fatalf("expected one warning about the unreadable revision, got %v", signer.Warnings)
 		}
 	})
 

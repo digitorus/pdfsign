@@ -8,21 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/internal/testpki"
 	"github.com/digitorus/pdfsign/sign"
 	"github.com/digitorus/pdfsign/verify"
 )
 
 var (
-	signatureObject = regexp.MustCompile(`(?s)\n(\d+) 0 obj\n(<<\n /Type /Sig\n.*?)\nendobj\n`)
-	referenceEntry  = regexp.MustCompile(`(?s)\s*/Reference \[.*?\]`)
-	lastStartxref   = regexp.MustCompile(`startxref\r?\n(\d+)\r?\n%%EOF\r?\n?$`)
-	trailerRoot     = regexp.MustCompile(`/Root (\d+ \d+ R)`)
-	trailerSize     = regexp.MustCompile(`/Size (\d+)`)
+	referenceEntry = regexp.MustCompile(`(?s)\s*/Reference \[.*?\]`)
+	lastStartxref  = regexp.MustCompile(`startxref\r?\n(\d+)\r?\n%%EOF\r?\n?$`)
 )
 
 // TestVerifyRedefinedSignatureDictionary certifies a document with pdfsign,
@@ -54,21 +51,33 @@ func TestVerifyRedefinedSignatureDictionary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := signatureObject.FindSubmatch(original)
-	if m == nil {
-		t.Fatal("signature dictionary not found in the signed file")
+	// The parser gives the signature object's number and the trailer
+	// entries; only the object's text and the last startxref are taken from
+	// the bytes, since the update has to carry a copy of that text.
+	rdr, err := pdf.NewReader(bytes.NewReader(original), int64(len(original)))
+	if err != nil {
+		t.Fatalf("read signed file: %v", err)
 	}
-	objectNumber, _ := strconv.Atoi(string(m[1]))
-	stripped := referenceEntry.ReplaceAllString(string(m[2]), "")
-	if stripped == string(m[2]) {
+	trailer := rdr.Trailer()
+	sig := trailer.Key("Root").Key("AcroForm").Key("Fields").Index(0).Key("V")
+	objectNumber := sig.GetPtr().GetID()
+	if objectNumber == 0 || sig.Key("Reference").IsNull() {
+		t.Fatal("signature dictionary with a /Reference not found in the signed file")
+	}
+	rootPtr := trailer.Key("Root").GetPtr()
+
+	object := regexp.MustCompile(fmt.Sprintf(`(?s)\n%d 0 obj\r?\n(.*?)\r?\nendobj`, objectNumber)).FindSubmatch(original)
+	if object == nil {
+		t.Fatalf("object %d not found in the signed file", objectNumber)
+	}
+	stripped := referenceEntry.ReplaceAllString(string(object[1]), "")
+	if stripped == string(object[1]) {
 		t.Fatal("no /Reference entry to strip from the signature dictionary")
 	}
 
 	prev := lastStartxref.FindSubmatch(original)
-	root := trailerRoot.FindAll(original, -1)
-	size := trailerSize.FindAll(original, -1)
-	if prev == nil || root == nil || size == nil {
-		t.Fatal("trailer of the signed file not found")
+	if prev == nil {
+		t.Fatal("startxref of the signed file not found")
 	}
 
 	// Revision 2: the redefined signature dictionary and a classic
@@ -82,8 +91,8 @@ func TestVerifyRedefinedSignatureDictionary(t *testing.T) {
 	fmt.Fprintf(&tampered, "%d 0 obj\n%s\nendobj\n", objectNumber, stripped)
 	xref := tampered.Len()
 	fmt.Fprintf(&tampered, "xref\n0 1\n0000000000 65535 f \n%d 1\n%010d 00000 n \n", objectNumber, offset)
-	fmt.Fprintf(&tampered, "trailer\n<< %s %s /Prev %s >>\nstartxref\n%d\n%%%%EOF\n",
-		string(size[len(size)-1]), string(root[len(root)-1]), string(prev[1]), xref)
+	fmt.Fprintf(&tampered, "trailer\n<< /Size %d /Root %d %d R /Prev %s >>\nstartxref\n%d\n%%%%EOF\n",
+		trailer.Key("Size").Int64(), rootPtr.GetID(), rootPtr.GetGen(), string(prev[1]), xref)
 
 	response, err := verify.VerifyWithOptions(bytes.NewReader(tampered.Bytes()), int64(tampered.Len()), verify.DefaultVerifyOptions())
 	if err != nil {

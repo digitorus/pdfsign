@@ -110,4 +110,18 @@ func TestCanonical(t *testing.T) {
 	if got != want {
 		t.Errorf("canonical(/Reference) = %s, want %s", got, want)
 	}
+
+	// An indirect object stays a reference: /Data on a signature reference
+	// dictionary points at the catalog, which must not be rendered in full.
+	withData := inline
+	withData.signature = signatureDict(strings.Replace(docMDPReference, "/Type /SigRef", "/Type /SigRef /Data 1 0 R", 1))
+	fileBytes = withData.build(t)
+	rdr, err = pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	ref = rdr.Trailer().Key("Root").Key("AcroForm").Key("Fields").Index(0).Key("V").Key("Reference")
+	if got := canonical(ref, 0); !strings.Contains(got, "/Data 1 0 R") || strings.Contains(got, "Catalog") {
+		t.Errorf("canonical(/Reference) resolved the /Data reference: %s", got)
+	}
 }
