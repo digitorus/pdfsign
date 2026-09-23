@@ -3,10 +3,8 @@ package verify
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/digitorus/pdf"
@@ -84,42 +82,39 @@ func checkPermittedChanges(signed, current *pdf.Reader, p permissions) error {
 
 // changedObjects returns the numbers of the objects whose cross-reference
 // entry differs between the signed revision and the current document, in
-// order, and the members of every object stream among them, whose own
-// entries name the stream and a position that a rewritten stream keeps. The
-// tables the readers parsed decide, not the bytes of the updates: an update
-// that defines, re-points or frees an object does so through its
-// cross-reference section, however its bytes are laid out. When the entries
-// cannot be read, every object of either table is compared.
+// order, and the members of every object stream among them: an entry names
+// the stream and a position, which a rewritten stream keeps, so every entry
+// of either table that names a changed stream counts. The tables the readers
+// parsed decide, not the bytes of the updates: an update that defines,
+// re-points or frees an object does so through its cross-reference section,
+// however its bytes or an object stream's header are laid out. When the
+// entries cannot be read, every object of either table is compared.
 func changedObjects(signed, current *pdf.Reader) []uint32 {
 	signedEntries, okSigned := xrefEntries(signed)
 	currentEntries, okCurrent := xrefEntries(current)
 	n := max(len(signed.Xref()), len(current.Xref()))
-	var ids []uint32
+	entry := func(entries []xrefEntry, id int) xrefEntry {
+		if id < len(entries) {
+			return entries[id]
+		}
+		return xrefEntry{}
+	}
+	changed := make(map[uint32]bool)
 	for id := 1; id < n; id++ {
-		var s, c xrefEntry
-		if id < len(signedEntries) {
-			s = signedEntries[id]
-		}
-		if id < len(currentEntries) {
-			c = currentEntries[id]
-		}
-		if !useXrefTables || !okSigned || !okCurrent || s != c {
-			ids = append(ids, uint32(id))
+		if !useXrefTables || !okSigned || !okCurrent || entry(signedEntries, id) != entry(currentEntries, id) {
+			changed[uint32(id)] = true
 		}
 	}
-	seen := make(map[uint32]bool, len(ids))
-	for _, id := range ids {
-		seen[id] = true
-	}
-	for _, id := range ids {
-		if v, err := current.GetObject(id); err == nil && v.Kind() == pdf.Stream && v.Key("Type").Name() == "ObjStm" {
-			for _, member := range objectStreamMembers(v) {
-				if !seen[member] {
-					seen[member] = true
-					ids = append(ids, member)
-				}
+	for id := 1; id < n; id++ {
+		for _, e := range []xrefEntry{entry(signedEntries, id), entry(currentEntries, id)} {
+			if e.inStream && changed[e.stream] {
+				changed[uint32(id)] = true
 			}
 		}
+	}
+	ids := make([]uint32, 0, len(changed))
+	for id := range changed {
+		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	return ids
@@ -169,30 +164,6 @@ func xrefEntries(r *pdf.Reader) (entries []xrefEntry, ok bool) {
 		}
 	}
 	return entries, true
-}
-
-// objectStreamMembers returns the numbers of the objects an object stream
-// holds, from the pairs of object number and offset that open its data (ISO
-// 32000-1 7.5.7).
-func objectStreamMembers(stream pdf.Value) []uint32 {
-	n, first := stream.Key("N").Int64(), stream.Key("First").Int64()
-	if n <= 0 || first <= 0 || first > 1<<24 {
-		return nil
-	}
-	r := stream.Reader()
-	header := make([]byte, first)
-	read, _ := io.ReadFull(r, header)
-	_ = r.Close()
-	fields := strings.Fields(string(header[:read]))
-	var members []uint32
-	for i := 0; i+1 < len(fields) && int64(len(members)) < n; i += 2 {
-		id, err := strconv.ParseUint(fields[i], 10, 32)
-		if err != nil {
-			break
-		}
-		members = append(members, uint32(id))
-	}
-	return members
 }
 
 // collectReferences adds the numbers of the indirect objects reachable from
@@ -487,9 +458,10 @@ func (c *changeChecker) fields(old, cur pdf.Value) error {
 // newSignature reports whether a signature field or widget is one the
 // updates created and signed: the field that carries /FT /Sig, the object
 // itself or an ancestor, is not part of the signed revision, and it holds a
-// signature. A widget added to a field the signed revision holds, whose
-// signature it would inherit, adds an appearance to the page and no
-// signature to the document.
+// signature dictionary that is not part of it either. A widget added to a
+// field the signed revision holds, or a field pointed at a signature the
+// signed revision holds, adds an appearance to the page and no signature to
+// the document.
 func (c *changeChecker) newSignature(v pdf.Value) bool {
 	field := v
 	for depth := 0; depth <= acroform.MaxDepth && field.Kind() == pdf.Dict && field.Key("FT").Name() != "Sig"; depth++ {
@@ -502,7 +474,14 @@ func (c *changeChecker) newSignature(v pdf.Value) bool {
 	if id == 0 || !object(c.signed, id).IsNull() {
 		return false
 	}
-	return acroform.IsSignatureDictionary(fieldValue(field))
+	value := fieldValue(field)
+	if !acroform.IsSignatureDictionary(value) {
+		return false
+	}
+	// A signature written directly into its field carries the field's
+	// pointer and is as new as the field.
+	valueID := value.GetPtr().GetID()
+	return valueID == id || object(c.signed, valueID).IsNull()
 }
 
 // page compares a page with the signed revision's: only its annotations may

@@ -178,6 +178,10 @@ func TestCheckPermittedChanges(t *testing.T) {
 			{3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots [8 0 R 10 0 R 13 0 R] >>"},
 			{13, "<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [0 0 612 792] /AP << /N 11 0 R >> >>"},
 		}, []int{3}, "adds an annotation to page object 3"},
+		{"a signature field reusing the certification signature", nil, 0, []update{
+			{7, "<< /Fields [8 0 R 10 0 R 13 0 R] /SigFlags 3 /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >>"},
+			{13, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (sig2) /V 9 0 R /Rect [0 0 612 792] /AP << /N 11 0 R >> >>"},
+		}, nil, "adds a signature field"},
 		{"the certification signature re-signed", nil, 0, []update{{10, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (cert) /V 14 0 R /Rect [0 0 0 0] >>"}, {14, approval}}, nil, "changes the signature of field 10"},
 		{"the signature dictionary rewritten", nil, 0, []update{{9, approval}}, nil, "rewrites the signature dictionary 9"},
 		{"an annotation added", nil, 0, []update{
@@ -316,6 +320,78 @@ func TestCheckPermittedChangesXrefStreamRepointed(t *testing.T) {
 	err := checkUpdate(t, fileBytes, signedEnd, "", 3)
 	if err == nil || !strings.Contains(err.Error(), "removes object 8") {
 		t.Errorf("got %v, want the re-pointed field reported as removed", err)
+	}
+}
+
+// TestCheckPermittedChangesInheritedMember covers an update that rewrites
+// an object stream holding the page, with a header that lists only a decoy
+// member, while the page's own cross-reference entry, naming the stream and
+// a position, is inherited unchanged: the page is found as a member of the
+// rewritten stream through the tables, not through the stream's header.
+func TestCheckPermittedChangesInheritedMember(t *testing.T) {
+	// The signed revision keeps the page (3) in object stream 13 at position
+	// 1, behind a decoy member (14) at position 0.
+	page := certifiedForm[2]
+	const decoy = "<< /Decoy true >>"
+	// objStm returns the stream with the member offsets relative to the
+	// /First it writes: the header's own length when first is 0, else the
+	// given value, which the reader honours whatever the header holds.
+	objStm := func(pageBody string, first int) string {
+		header := ""
+		for i := 0; i < 3; i++ { // the offsets' digits settle the header's length
+			f := first
+			if f == 0 {
+				f = len(header)
+			}
+			header = fmt.Sprintf("14 %d 3 %d ", len(header)-f, len(header)+len(decoy)-f)
+		}
+		if first == 0 {
+			first = len(header)
+		}
+		data := header + decoy + pageBody
+		return fmt.Sprintf("<< /Type /ObjStm /N 2 /First %d /Length %d >>\nstream\n%s\nendstream", first, len(data), data)
+	}
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.7\n")
+	rows := make([]xrefStreamRow, 16)
+	rows[0] = xrefStreamRow{0, 0, 65535}
+	for i, obj := range certifiedForm {
+		if i == 2 {
+			continue
+		}
+		rows[i+1] = xrefStreamRow{1, uint32(writeObj(&buf, i+1, obj)), 0}
+	}
+	rows[13] = xrefStreamRow{1, uint32(writeObj(&buf, 13, objStm(page, 0))), 0}
+	rows[3] = xrefStreamRow{2, 13, 1}
+	rows[14] = xrefStreamRow{2, 13, 0}
+	xref1 := buf.Len()
+	rows[15] = xrefStreamRow{1, uint32(xref1), 0}
+	writeXrefStream(&buf, 15, "0 16", "/Size 16 /Root 1 0 R /Info 12 0 R", rows...)
+	signedEnd := int64(buf.Len())
+
+	// The update rewrites the stream with the page rotated, and /First set
+	// so that only the decoy pair lies before it; object 3 is not listed.
+	rotated := strings.Replace(page, " >>", " /Rotate 90 >>", 1)
+	streamOffset := writeObj(&buf, 13, objStm(rotated, len("14 0 ")))
+	xref2 := buf.Len()
+	writeXrefStream(&buf, 16, "13 1 16 1", fmt.Sprintf("/Size 17 /Root 1 0 R /Info 12 0 R /Prev %d", xref1),
+		xrefStreamRow{1, uint32(streamOffset), 0}, xrefStreamRow{1, uint32(xref2), 0})
+	fileBytes := buf.Bytes()
+
+	current, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if got := current.Trailer().Key("Root").Key("Pages").Key("Kids").Index(0).Key("Rotate").Int64(); got != 90 {
+		t.Fatalf("the rewritten object stream did not take effect: /Rotate = %d", got)
+	}
+	for _, tables := range []bool{true, false} {
+		useXrefTables = tables
+		err := checkUpdate(t, fileBytes, signedEnd, "", 3)
+		useXrefTables = true
+		if err == nil || !strings.Contains(err.Error(), "/Rotate of page object 3") {
+			t.Errorf("tables %v: got %v, want the page rewrite inside the object stream reported", tables, err)
+		}
 	}
 }
 
