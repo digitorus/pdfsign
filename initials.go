@@ -137,14 +137,18 @@ func (d *Document) applyInitials(sb *SignBuilder) func(context *sign.SignContext
 	}
 }
 
+// maxPageTreeDepth bounds the page tree walk; a conforming tree is far
+// shallower, and a crafted /Kids cycle must not recurse without end.
+const maxPageTreeDepth = 64
+
 func (d *Document) findPage(pageNum int) (pdf.Value, error) {
 	root := d.rdr.Trailer().Key("Root")
 	pages := root.Key("Pages")
-	p, _, err := d.findPageRec(pages, pageNum)
+	p, _, err := d.findPageRec(pages, pageNum, make(map[pdf.Ptr]bool), 0)
 	return p, err
 }
 
-func (d *Document) findPageRec(node pdf.Value, pageNum int) (pdf.Value, int, error) {
+func (d *Document) findPageRec(node pdf.Value, pageNum int, visited map[pdf.Ptr]bool, depth int) (pdf.Value, int, error) {
 	nodeType := node.Key("Type").Name()
 	if nodeType == "Page" {
 		if pageNum == 1 {
@@ -153,11 +157,21 @@ func (d *Document) findPageRec(node pdf.Value, pageNum int) (pdf.Value, int, err
 		return pdf.Value{}, pageNum - 1, nil
 	}
 
-	if nodeType == "Pages" {
+	if nodeType == "Pages" && depth <= maxPageTreeDepth {
 		kids := node.Key("Kids")
 		if kids.Kind() == pdf.Array {
 			for i := 0; i < kids.Len(); i++ {
-				p, n, err := d.findPageRec(kids.Index(i), pageNum)
+				kid := kids.Index(i)
+				// A node written directly into the array carries the
+				// array's own pointer, so only an indirect object
+				// identifies a node.
+				if ptr := kid.GetPtr(); ptr != kids.GetPtr() {
+					if visited[ptr] {
+						continue
+					}
+					visited[ptr] = true
+				}
+				p, n, err := d.findPageRec(kid, pageNum, visited, depth+1)
 				if err != nil {
 					return pdf.Value{}, 0, err
 				}

@@ -147,3 +147,38 @@ func TestSignatureFields(t *testing.T) {
 		}
 	})
 }
+
+// TestFields covers the general walk: fully qualified names are the partial
+// names joined with periods, an untitled node adds nothing to the name, /FT
+// is inherited, and FieldsOf walks one subtree under a given prefix.
+func TestFields(t *testing.T) {
+	root := rootWithFields(t, "[4 0 R 7 0 R 9 0 R]",
+		"<< /T (form) /FT /Tx /Kids [5 0 R 6 0 R] >>",
+		"<< /Parent 4 0 R /T (name) /V (Ada) >>",
+		"<< /Parent 4 0 R /Kids [10 0 R] >>",
+		"<< /T (sig1) /FT /Sig >>",
+		"<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] >>",
+		"<< /T (check) /FT /Btn /V /Yes /Kids [8 0 R] >>",
+		"<< /Parent 6 0 R /T (deep) /FT /Ch >>",
+	)
+
+	var got []string
+	Fields(root, func(f Field) bool {
+		got = append(got, f.Name+":"+f.Type)
+		return true
+	})
+	want := "form.name:Tx form.deep:Ch sig1:Sig check:Btn"
+	if strings.Join(got, " ") != want {
+		t.Errorf("Fields = %q, want %q", strings.Join(got, " "), want)
+	}
+
+	got = nil
+	FieldsOf(root.Key("AcroForm").Key("Fields").Index(0), "doc", func(f Field) bool {
+		got = append(got, f.Name+":"+f.Type)
+		return true
+	})
+	want = "doc.form.name:Tx doc.form.deep:Ch"
+	if strings.Join(got, " ") != want {
+		t.Errorf("FieldsOf = %q, want %q", strings.Join(got, " "), want)
+	}
+}
