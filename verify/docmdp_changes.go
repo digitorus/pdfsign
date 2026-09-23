@@ -41,10 +41,6 @@ func docMDPPermissions(p int) permissions {
 	return permissions{level: p}
 }
 
-// objDefPattern matches a classic PDF indirect object definition header
-// ("<id> <gen> obj"), capturing the object number.
-var objDefPattern = regexp.MustCompile(`(?:^|[^0-9])([0-9]+)[ \t\r\n\f\x00]+[0-9]+[ \t\r\n\f\x00]+obj\b`)
-
 // maxUpdateSize bounds the bytes of incremental updates that are scanned for
 // object definitions.
 const maxUpdateSize = 1 << 28
@@ -134,17 +130,9 @@ func updatedObjects(current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd i
 			return nil, err
 		}
 	}
-	var headers []uint32
-	for _, m := range objDefPattern.FindAllSubmatch(buf, -1) {
-		id, err := strconv.ParseUint(string(m[1]), 10, 32)
-		if err != nil {
-			continue
-		}
-		headers = append(headers, uint32(id))
-		add(uint32(id))
-	}
-	for _, id := range headers {
-		if v, err := current.GetObject(id); err == nil && v.Kind() == pdf.Stream && v.Key("Type").Name() == "ObjStm" {
+	for _, h := range objectHeaders(buf) {
+		add(h.id)
+		if v, err := current.GetObject(h.id); err == nil && v.Kind() == pdf.Stream && v.Key("Type").Name() == "ObjStm" {
 			for _, member := range objectStreamMembers(v) {
 				add(member)
 			}
@@ -163,13 +151,85 @@ type xrefSubsection struct {
 	start, count int64
 }
 
+// objectHeader is a classic indirect object header ("id gen obj") in a
+// byte slice: the object number and the offset just past the keyword.
+type objectHeader struct {
+	id  uint32
+	end int
+}
+
+// objectHeaders returns the object headers in buf, in order: an obj keyword
+// on its own, preceded by a generation and an object number that no digit
+// precedes (ISO 32000-1 7.3.10).
+func objectHeaders(buf []byte) []objectHeader {
+	var headers []objectHeader
+	for i := 0; ; {
+		j := bytes.Index(buf[i:], []byte("obj"))
+		if j < 0 {
+			return headers
+		}
+		at := i + j
+		i = at + 3
+		if i < len(buf) && isRegular(buf[i]) {
+			continue
+		}
+		p := at - 1
+		digits := func() (int64, bool) {
+			end := p
+			for p >= 0 && buf[p] >= '0' && buf[p] <= '9' {
+				p--
+			}
+			if p == end {
+				return 0, false
+			}
+			n, err := strconv.ParseInt(string(buf[p+1:end+1]), 10, 64)
+			return n, err == nil
+		}
+		whitespace := func() bool {
+			end := p
+			for p >= 0 && isPDFWhitespace(buf[p]) {
+				p--
+			}
+			return p < end
+		}
+		if !whitespace() {
+			continue
+		}
+		if _, ok := digits(); !ok || !whitespace() {
+			continue
+		}
+		id, ok := digits()
+		if !ok || id < 0 || id > maxObjects {
+			continue
+		}
+		headers = append(headers, objectHeader{uint32(id), i})
+	}
+}
+
+// isRegular reports whether b is a regular character: neither white space
+// nor a delimiter (7.2.2).
+func isRegular(b byte) bool {
+	return !isPDFWhitespace(b) && !strings.ContainsRune("()<>[]{}/%", rune(b))
+}
+
+// xrefKeywords returns the offsets just past every xref keyword that opens
+// a line in buf.
+func xrefKeywords(buf []byte) []int {
+	var ends []int
+	for i := 0; ; {
+		j := bytes.Index(buf[i:], []byte("xref"))
+		if j < 0 {
+			return ends
+		}
+		at := i + j
+		i = at + 4
+		if (at == 0 || buf[at-1] == '\n' || buf[at-1] == '\r') && i < len(buf) && isPDFWhitespace(buf[i]) {
+			ends = append(ends, i)
+		}
+	}
+}
+
 var (
-	// xrefKeyword matches the keyword that opens a classic cross-reference
-	// section at the start of a line.
-	xrefKeyword = regexp.MustCompile(`(?m)^xref[ \t\r\n\f\x00]`)
-	// streamDict matches the dictionary of an indirect object that is a
-	// stream, up to the stream keyword.
-	streamDict = regexp.MustCompile(`(?s)[0-9]+[ \t\r\n\f\x00]+[0-9]+[ \t\r\n\f\x00]+obj[ \t\r\n\f\x00]*(<<.*?>>)[ \t\r\n\f\x00]*stream`)
 	// nameEscape matches a #xx escape in a name.
 	nameEscape = regexp.MustCompile(`#([0-9A-Fa-f]{2})`)
 	xrefType   = regexp.MustCompile(`/Type[ \t\r\n\f\x00]*/XRef\b`)
@@ -184,8 +244,8 @@ var (
 // cross-reference stream (7.5.8), or its /Size when it has none.
 func xrefSections(buf []byte) []xrefSubsection {
 	var sections []xrefSubsection
-	for _, loc := range xrefKeyword.FindAllIndex(buf, -1) {
-		scan := tokens{buf: buf, pos: loc[1]}
+	for _, end := range xrefKeywords(buf) {
+		scan := tokens{buf: buf, pos: end}
 		for {
 			start, ok1 := scan.int()
 			count, ok2 := scan.int()
@@ -200,8 +260,12 @@ func xrefSections(buf []byte) []xrefSubsection {
 			}
 		}
 	}
-	for _, m := range streamDict.FindAllSubmatch(buf, -1) {
-		dict := nameEscape.ReplaceAllFunc(m[1], func(escape []byte) []byte {
+	for _, h := range objectHeaders(buf) {
+		dict, ok := streamDictionary(buf[h.end:])
+		if !ok {
+			continue
+		}
+		dict = nameEscape.ReplaceAllFunc(dict, func(escape []byte) []byte {
 			b, _ := strconv.ParseUint(string(escape[1:]), 16, 8)
 			return []byte{byte(b)}
 		})
@@ -224,6 +288,26 @@ func xrefSections(buf []byte) []xrefSubsection {
 		}
 	}
 	return sections
+}
+
+// maxStreamDictionary bounds the dictionary of a cross-reference stream.
+const maxStreamDictionary = 1 << 16
+
+// streamDictionary returns the dictionary that opens an indirect object
+// which is a stream: the bytes from the object header to the stream keyword,
+// when they form a dictionary of bounded size.
+func streamDictionary(after []byte) ([]byte, bool) {
+	window := after[:min(len(after), maxStreamDictionary)]
+	end := bytes.Index(window, []byte("stream"))
+	if end < 0 {
+		return nil, false
+	}
+	dict := bytes.TrimLeft(window[:end], " \t\r\n\f\x00")
+	dict = bytes.TrimRight(dict, " \t\r\n\f\x00")
+	if !bytes.HasPrefix(dict, []byte("<<")) || !bytes.HasSuffix(dict, []byte(">>")) {
+		return nil, false
+	}
+	return dict, true
 }
 
 // tokens reads whitespace-separated tokens from a byte slice, stopping at
