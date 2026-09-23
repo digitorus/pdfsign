@@ -555,7 +555,7 @@ func checkDocMDP(v pdf.Value, revision, current *pdf.Reader, file io.ReaderAt, f
 		}
 	}
 	p := docMDPPermissions(perms)
-	if err := checkPermittedChanges(revision, current, file, fileSize, signedEnd, p); err != nil {
+	if err := checkPermittedChanges(revision, current, p); err != nil {
 		return err
 	}
 	msg := "DocMDP P=%d: incremental update found; it adds validation data or document timestamps only"

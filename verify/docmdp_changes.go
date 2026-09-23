@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"regexp"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,17 +49,17 @@ const maxUpdateSize = 1 << 28
 // revision a certification signature covers against its DocMDP permissions.
 // signed reads that revision and current the whole file.
 //
-// Every object the updates define is compared with the object as the signed
-// revision holds it; a new object changes nothing by itself and is judged
-// where a permitted change references it. An object that differs is
-// classified by what it was: the catalog, the interactive form dictionary, a
-// page, a form field, an annotation, a signature dictionary, validation data,
-// the document information dictionary, or anything else, and the difference
-// is held against what the permissions allow. The trailer is compared the
-// same way, and a page, content stream or resource the signed revision
-// reaches must still exist. The first change the permissions do not allow is
-// returned as the error.
-func checkPermittedChanges(signed, current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd int64, p permissions) error {
+// Every object whose cross-reference entry the updates changed is compared
+// with the object as the signed revision holds it; a new object changes
+// nothing by itself and is judged where a permitted change references it. An
+// object that differs is classified by what it was: the catalog, the
+// interactive form dictionary, a page, a form field, an annotation, a
+// signature dictionary, validation data, the document information
+// dictionary, or anything else, and the difference is held against what the
+// permissions allow. The trailer is compared the same way, and a page,
+// content stream or resource the signed revision reaches must still exist.
+// The first change the permissions do not allow is returned as the error.
+func checkPermittedChanges(signed, current *pdf.Reader, p permissions) error {
 	c := &changeChecker{signed: signed, current: current, p: p, exempt: make(map[uint32]bool), roles: make(map[uint32]role)}
 	// What may change freely is decided by the signed revision alone: what
 	// the update's catalog or trailer point at is the attacker's to choose.
@@ -78,11 +78,7 @@ func checkPermittedChanges(signed, current *pdf.Reader, file io.ReaderAt, fileSi
 	if err := c.trailer(); err != nil {
 		return err
 	}
-	ids, err := updatedObjects(current, file, fileSize, signedEnd)
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
+	for _, id := range changedObjects(signed, current) {
 		if err := c.object(id); err != nil {
 			return err
 		}
@@ -90,259 +86,93 @@ func checkPermittedChanges(signed, current *pdf.Reader, file io.ReaderAt, fileSi
 	return c.pageObjectsKept()
 }
 
-// updatedObjects returns the numbers of the objects the incremental updates
-// after signedEnd may have changed, in order: every object a cross-reference
-// section of the updates covers, whether a classic section's subsections or
-// a cross-reference stream's /Index (a section can point an object at other
-// bytes, or free it, without writing it), every object with a classic
-// object header in the update bytes, and the members of every object stream
-// among them.
-func updatedObjects(current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd int64) ([]uint32, error) {
-	updateLen := fileSize - signedEnd
-	if updateLen > maxUpdateSize {
-		return nil, fmt.Errorf("incremental updates of %d bytes are too large to check against the DocMDP permissions", updateLen)
-	}
-	buf := make([]byte, updateLen)
-	if _, err := file.ReadAt(buf, signedEnd); err != nil {
-		return nil, fmt.Errorf("incremental updates could not be read: %w", err)
-	}
-
-	seen := make(map[uint32]bool)
+// changedObjects returns the numbers of the objects whose cross-reference
+// entry differs between the signed revision and the current document, in
+// order, and the members of every object stream among them, whose own
+// entries name the stream and a position that a rewritten stream keeps. The
+// tables the readers parsed decide, not the bytes of the updates: an update
+// that defines, re-points or frees an object does so through its
+// cross-reference section, however its bytes are laid out. When the entries
+// cannot be read, every object of either table is compared.
+func changedObjects(signed, current *pdf.Reader) []uint32 {
+	signedEntries, okSigned := xrefEntries(signed)
+	currentEntries, okCurrent := xrefEntries(current)
+	n := max(len(signed.Xref()), len(current.Xref()))
 	var ids []uint32
-	add := func(id uint32) {
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
+	for id := 1; id < n; id++ {
+		var s, c xrefEntry
+		if id < len(signedEntries) {
+			s = signedEntries[id]
+		}
+		if id < len(currentEntries) {
+			c = currentEntries[id]
+		}
+		if !useXrefTables || !okSigned || !okCurrent || s != c {
+			ids = append(ids, uint32(id))
 		}
 	}
-	addRange := func(start, count int64) error {
-		if start < 0 || count < 0 || start+count > maxObjects {
-			return fmt.Errorf("incremental update cross-reference section covers objects %d to %d, beyond what can be checked", start, start+count)
-		}
-		for id := start; id < start+count; id++ {
-			add(uint32(id))
-		}
-		return nil
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		seen[id] = true
 	}
-
-	for _, section := range xrefSections(buf) {
-		if err := addRange(section.start, section.count); err != nil {
-			return nil, err
-		}
-	}
-	for _, h := range objectHeaders(buf) {
-		add(h.id)
-		if v, err := current.GetObject(h.id); err == nil && v.Kind() == pdf.Stream && v.Key("Type").Name() == "ObjStm" {
+	for _, id := range ids {
+		if v, err := current.GetObject(id); err == nil && v.Kind() == pdf.Stream && v.Key("Type").Name() == "ObjStm" {
 			for _, member := range objectStreamMembers(v) {
-				add(member)
+				if !seen[member] {
+					seen[member] = true
+					ids = append(ids, member)
+				}
 			}
 		}
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids, nil
+	return ids
 }
 
-// maxObjects bounds the object numbers a cross-reference section may cover.
-const maxObjects = 1 << 23
+// useXrefTables selects the comparison of cross-reference entries over the
+// comparison of every object; tests clear it to cover the latter.
+var useXrefTables = true
 
-// xrefSubsection is a range of objects a cross-reference section covers: the
-// first object number and how many.
-type xrefSubsection struct {
-	start, count int64
+// xrefEntry is a cross-reference entry as the reader holds it: where an
+// object is, or that it is free.
+type xrefEntry struct {
+	generation uint16
+	inStream   bool
+	stream     uint32
+	offset     int64
 }
 
-// objectHeader is a classic indirect object header ("id gen obj") in a
-// byte slice: the object number and the offset just past the keyword.
-type objectHeader struct {
-	id  uint32
-	end int
-}
-
-// objectHeaders returns the object headers in buf, in order: an obj keyword
-// on its own, preceded by a generation and an object number that no digit
-// precedes (ISO 32000-1 7.3.10).
-func objectHeaders(buf []byte) []objectHeader {
-	var headers []objectHeader
-	for i := 0; ; {
-		j := bytes.Index(buf[i:], []byte("obj"))
-		if j < 0 {
-			return headers
-		}
-		at := i + j
-		i = at + 3
-		if i < len(buf) && isRegular(buf[i]) {
-			continue
-		}
-		p := at - 1
-		digits := func() (int64, bool) {
-			end := p
-			for p >= 0 && buf[p] >= '0' && buf[p] <= '9' {
-				p--
-			}
-			if p == end {
-				return 0, false
-			}
-			n, err := strconv.ParseInt(string(buf[p+1:end+1]), 10, 64)
-			return n, err == nil
-		}
-		whitespace := func() bool {
-			end := p
-			for p >= 0 && isPDFWhitespace(buf[p]) {
-				p--
-			}
-			return p < end
-		}
-		if !whitespace() {
-			continue
-		}
-		if _, ok := digits(); !ok || !whitespace() {
-			continue
-		}
-		id, ok := digits()
-		if !ok || id < 0 || id > maxObjects {
-			continue
-		}
-		headers = append(headers, objectHeader{uint32(id), i})
-	}
-}
-
-// isRegular reports whether b is a regular character: neither white space
-// nor a delimiter (7.2.2).
-func isRegular(b byte) bool {
-	return !isPDFWhitespace(b) && !strings.ContainsRune("()<>[]{}/%", rune(b))
-}
-
-// xrefKeywords returns the offsets just past every xref keyword that opens
-// a line in buf.
-func xrefKeywords(buf []byte) []int {
-	var ends []int
-	for i := 0; ; {
-		j := bytes.Index(buf[i:], []byte("xref"))
-		if j < 0 {
-			return ends
-		}
-		at := i + j
-		i = at + 4
-		if (at == 0 || buf[at-1] == '\n' || buf[at-1] == '\r') && i < len(buf) && isPDFWhitespace(buf[i]) {
-			ends = append(ends, i)
-		}
-	}
-}
-
-var (
-	// nameEscape matches a #xx escape in a name.
-	nameEscape = regexp.MustCompile(`#([0-9A-Fa-f]{2})`)
-	xrefType   = regexp.MustCompile(`/Type[ \t\r\n\f\x00]*/XRef\b`)
-	xrefIndex  = regexp.MustCompile(`/Index[ \t\r\n\f\x00]*\[([^\]]*)\]`)
-	xrefSize   = regexp.MustCompile(`/Size[ \t\r\n\f\x00]+([0-9]+)`)
-)
-
-// xrefSections returns the ranges of objects the cross-reference sections in
-// buf cover, read from the bytes rather than through the reader so that a
-// section counts whether or not the document resolves it: the subsections of
-// every classic section (ISO 32000-1 7.5.4), and the /Index of every
-// cross-reference stream (7.5.8), or its /Size when it has none.
-func xrefSections(buf []byte) []xrefSubsection {
-	var sections []xrefSubsection
-	for _, end := range xrefKeywords(buf) {
-		scan := tokens{buf: buf, pos: end}
-		for {
-			start, ok1 := scan.int()
-			count, ok2 := scan.int()
-			if !ok1 || !ok2 || count < 0 || count > maxObjects {
-				break
-			}
-			sections = append(sections, xrefSubsection{start, count})
-			for i := int64(0); i < 3*count; i++ {
-				if _, ok := scan.next(); !ok {
-					break
-				}
-			}
-		}
-	}
-	for _, h := range objectHeaders(buf) {
-		dict, ok := streamDictionary(buf[h.end:])
-		if !ok {
-			continue
-		}
-		dict = nameEscape.ReplaceAllFunc(dict, func(escape []byte) []byte {
-			b, _ := strconv.ParseUint(string(escape[1:]), 16, 8)
-			return []byte{byte(b)}
-		})
-		if !xrefType.Match(dict) {
-			continue
-		}
-		if index := xrefIndex.FindSubmatch(dict); index != nil {
-			fields := strings.Fields(string(index[1]))
-			for i := 0; i+1 < len(fields); i += 2 {
-				start, err1 := strconv.ParseInt(fields[i], 10, 64)
-				count, err2 := strconv.ParseInt(fields[i+1], 10, 64)
-				if err1 != nil || err2 != nil {
-					break
-				}
-				sections = append(sections, xrefSubsection{start, count})
-			}
-		} else if size := xrefSize.FindSubmatch(dict); size != nil {
-			count, _ := strconv.ParseInt(string(size[1]), 10, 64)
-			sections = append(sections, xrefSubsection{0, count})
-		}
-	}
-	return sections
-}
-
-// maxStreamDictionary bounds the dictionary of a cross-reference stream.
-const maxStreamDictionary = 1 << 16
-
-// streamDictionary returns the dictionary that opens an indirect object
-// which is a stream: the bytes from the object header to the stream keyword,
-// when they form a dictionary of bounded size.
-func streamDictionary(after []byte) ([]byte, bool) {
-	window := after[:min(len(after), maxStreamDictionary)]
-	end := bytes.Index(window, []byte("stream"))
-	if end < 0 {
+// xrefEntries returns the cross-reference entries of the reader, by object
+// number. The reader's entry type is not exported, so the fields are read by
+// reflection; ok is false when they are not laid out as expected, and every
+// object is compared instead.
+func xrefEntries(r *pdf.Reader) (entries []xrefEntry, ok bool) {
+	table := reflect.ValueOf(r.Xref())
+	if table.Kind() != reflect.Slice {
 		return nil, false
 	}
-	dict := bytes.TrimLeft(window[:end], " \t\r\n\f\x00")
-	dict = bytes.TrimRight(dict, " \t\r\n\f\x00")
-	if !bytes.HasPrefix(dict, []byte("<<")) || !bytes.HasSuffix(dict, []byte(">>")) {
-		return nil, false
+	entries = make([]xrefEntry, table.Len())
+	for i := range entries {
+		x := table.Index(i)
+		if x.Kind() != reflect.Struct {
+			return nil, false
+		}
+		ptr, inStream, stream, offset := x.FieldByName("ptr"), x.FieldByName("inStream"), x.FieldByName("stream"), x.FieldByName("offset")
+		if ptr.Kind() != reflect.Struct || stream.Kind() != reflect.Struct || inStream.Kind() != reflect.Bool || offset.Kind() != reflect.Int64 {
+			return nil, false
+		}
+		generation, streamID := ptr.FieldByName("gen"), stream.FieldByName("id")
+		if generation.Kind() != reflect.Uint16 || streamID.Kind() != reflect.Uint32 {
+			return nil, false
+		}
+		entries[i] = xrefEntry{
+			generation: uint16(generation.Uint()),
+			inStream:   inStream.Bool(),
+			stream:     uint32(streamID.Uint()),
+			offset:     offset.Int(),
+		}
 	}
-	return dict, true
-}
-
-// tokens reads whitespace-separated tokens from a byte slice, stopping at
-// the trailer keyword.
-type tokens struct {
-	buf []byte
-	pos int
-}
-
-func isPDFWhitespace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == '\f' || b == 0
-}
-
-func (t *tokens) next() ([]byte, bool) {
-	for t.pos < len(t.buf) && isPDFWhitespace(t.buf[t.pos]) {
-		t.pos++
-	}
-	start := t.pos
-	for t.pos < len(t.buf) && !isPDFWhitespace(t.buf[t.pos]) {
-		t.pos++
-	}
-	token := t.buf[start:t.pos]
-	if len(token) == 0 || bytes.Equal(token, []byte("trailer")) {
-		return nil, false
-	}
-	return token, true
-}
-
-func (t *tokens) int() (int64, bool) {
-	token, ok := t.next()
-	if !ok {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(string(token), 10, 64)
-	return n, err == nil
+	return entries, true
 }
 
 // objectStreamMembers returns the numbers of the objects an object stream
@@ -651,11 +481,32 @@ func (c *changeChecker) fields(old, cur pdf.Value) error {
 		if !acroform.IsField(field) || fieldType(field) != "Sig" {
 			return c.violation("adds a field to /AcroForm /Fields that is not a signature field")
 		}
-		if !c.signingPermitted(field.Key("V")) {
+		if !c.newSignature(field) || !c.signingPermitted(fieldValue(field)) {
 			return c.violation("adds a signature field")
 		}
 	}
 	return nil
+}
+
+// newSignature reports whether a signature field or widget is one the
+// updates created and signed: the field that carries /FT /Sig, the object
+// itself or an ancestor, is not part of the signed revision, and it holds a
+// signature. A widget added to a field the signed revision holds, whose
+// signature it would inherit, adds an appearance to the page and no
+// signature to the document.
+func (c *changeChecker) newSignature(v pdf.Value) bool {
+	field := v
+	for depth := 0; depth <= acroform.MaxDepth && field.Kind() == pdf.Dict && field.Key("FT").Name() != "Sig"; depth++ {
+		field = field.Key("Parent")
+	}
+	if field.Key("FT").Name() != "Sig" {
+		return false
+	}
+	id := field.GetPtr().GetID()
+	if id == 0 || !object(c.signed, id).IsNull() {
+		return false
+	}
+	return acroform.IsSignatureDictionary(fieldValue(field))
 }
 
 // page compares a page with the signed revision's: only its annotations may
@@ -689,7 +540,7 @@ func (c *changeChecker) annots(page uint32, old, cur pdf.Value) error {
 		if c.p.annotations {
 			continue
 		}
-		if annot.Key("Subtype").Name() != "Widget" || fieldType(annot) != "Sig" {
+		if annot.Key("Subtype").Name() != "Widget" || fieldType(annot) != "Sig" || !c.newSignature(annot) {
 			return c.violation("adds an annotation to page object %d", page)
 		}
 		if !c.signingPermitted(fieldValue(annot)) {

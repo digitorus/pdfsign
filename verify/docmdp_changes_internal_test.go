@@ -123,7 +123,7 @@ func checkUpdate(t *testing.T, fileBytes []byte, signedEnd int64, password strin
 	if err != nil {
 		t.Fatalf("read file: %v", err)
 	}
-	return checkPermittedChanges(signed, current, file, size, signedEnd, docMDPPermissions(level))
+	return checkPermittedChanges(signed, current, docMDPPermissions(level))
 }
 
 // TestCheckPermittedChanges covers ISO 32000-1 Table 254: what an
@@ -174,6 +174,10 @@ func TestCheckPermittedChanges(t *testing.T) {
 		}, nil, "not a signature field"},
 		{"an approval signature", nil, 0, signing(approval), []int{2, 3}, "adds a signature field"},
 		{"a document timestamp", nil, 0, signing(timestamp), []int{1, 2, 3}, ""},
+		{"a widget attached to the signed field", nil, 0, []update{
+			{3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots [8 0 R 10 0 R 13 0 R] >>"},
+			{13, "<< /Type /Annot /Subtype /Widget /Parent 10 0 R /Rect [0 0 612 792] /AP << /N 11 0 R >> >>"},
+		}, []int{3}, "adds an annotation to page object 3"},
 		{"the certification signature re-signed", nil, 0, []update{{10, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (cert) /V 14 0 R /Rect [0 0 0 0] >>"}, {14, approval}}, nil, "changes the signature of field 10"},
 		{"the signature dictionary rewritten", nil, 0, []update{{9, approval}}, nil, "rewrites the signature dictionary 9"},
 		{"an annotation added", nil, 0, []update{
@@ -232,6 +236,12 @@ func TestCheckPermittedChanges(t *testing.T) {
 			fileBytes, signedEnd := buildUpdate(t, objects, tc.root, tc.updates...)
 			for level := 1; level <= 3; level++ {
 				err := checkUpdate(t, fileBytes, signedEnd, "", level)
+				useXrefTables = false
+				exhaustive := checkUpdate(t, fileBytes, signedEnd, "", level)
+				useXrefTables = true
+				if (err == nil) != (exhaustive == nil) || (err != nil && err.Error() != exhaustive.Error()) {
+					t.Errorf("P=%d: comparing every object gives %v, the cross-reference entries %v", level, exhaustive, err)
+				}
 				permitted := false
 				for _, l := range tc.permitted {
 					permitted = permitted || l == level
@@ -304,6 +314,72 @@ func TestCheckPermittedChangesXrefStreamRepointed(t *testing.T) {
 	err := checkUpdate(t, fileBytes, signedEnd, "", 3)
 	if err == nil || !strings.Contains(err.Error(), "removes object 8") {
 		t.Errorf("got %v, want the re-pointed field reported as removed", err)
+	}
+}
+
+// TestCheckPermittedChangesObscuredHeaders covers an update whose object
+// headers carry a comment between the object number and the keyword, which
+// the reader skips: the page rewrite is found through the cross-reference
+// entries the reader parsed, not through the text of the update.
+func TestCheckPermittedChangesObscuredHeaders(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.7\n")
+	rows := []xrefStreamRow{{0, 0, 65535}}
+	for i, obj := range certifiedForm {
+		rows = append(rows, xrefStreamRow{1, uint32(writeObj(&buf, i+1, obj)), 0})
+	}
+	xref1 := buf.Len()
+	rows = append(rows, xrefStreamRow{1, uint32(xref1), 0})
+	writeXrefStream(&buf, 13, "0 14", "/Size 14 /Root 1 0 R /Info 12 0 R", rows...)
+	signedEnd := int64(buf.Len())
+
+	pageOffset := buf.Len()
+	buf.WriteString("3%evade\n0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots [8 0 R 10 0 R] /Rotate 90 >>\nendobj\n")
+	xref2 := buf.Len()
+	var data bytes.Buffer
+	for _, r := range []xrefStreamRow{{1, uint32(pageOffset), 0}, {1, uint32(xref2), 0}} {
+		data.WriteByte(r.kind)
+		_ = binary.Write(&data, binary.BigEndian, r.field2)
+		_ = binary.Write(&data, binary.BigEndian, r.field3)
+	}
+	fmt.Fprintf(&buf, "14%%evade\n0 obj\n<< /Type /XRef /W [1 4 2] /Index [3 1 14 1] /Size 15 /Root 1 0 R /Info 12 0 R /Prev %d /Length %d >>\nstream\n", xref1, data.Len())
+	buf.Write(data.Bytes())
+	fmt.Fprintf(&buf, "\nendstream\nendobj\nstartxref\n%d\n%%%%EOF\n", xref2)
+	fileBytes := buf.Bytes()
+
+	current, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if got := current.Trailer().Key("Root").Key("Pages").Key("Kids").Index(0).Key("Rotate").Int64(); got != 90 {
+		t.Fatalf("the obscured update did not take effect: /Rotate = %d", got)
+	}
+	err = checkUpdate(t, fileBytes, signedEnd, "", 3)
+	if err == nil || !strings.Contains(err.Error(), "/Rotate of page object 3") {
+		t.Errorf("got %v, want the page rewrite behind the obscured headers reported", err)
+	}
+}
+
+// TestXrefEntries checks that the reader's cross-reference entries can be
+// read, so that changed objects are found through them rather than by
+// comparing every object.
+func TestXrefEntries(t *testing.T) {
+	fileBytes, signedEnd := buildUpdate(t, certifiedForm, 0, update{3, certifiedForm[2] + " "}, update{13, "<< /Type /Annot >>"})
+	file := bytes.NewReader(fileBytes)
+	signed, err := pdf.NewReader(io.NewSectionReader(file, 0, signedEnd), signedEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := pdf.NewReader(file, int64(len(fileBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, ok := xrefEntries(current)
+	if !ok || len(entries) != 14 || entries[3].offset < signedEnd || entries[2].offset >= signedEnd {
+		t.Fatalf("xrefEntries = %v, %v; want 14 entries with object 3 in the update and object 2 in the signed revision", entries, ok)
+	}
+	if got := changedObjects(signed, current); len(got) != 2 || got[0] != 3 || got[1] != 13 {
+		t.Errorf("changedObjects = %v, want [3 13]", got)
 	}
 }
 
