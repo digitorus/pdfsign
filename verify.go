@@ -104,14 +104,9 @@ func (b *VerifyBuilder) doExecute() {
 		b.document.Pages = int(pages.Int64())
 	}
 
-	// Verify the signatures: the ones the field tree reaches, and any that a
-	// signed revision held but the current tree no longer does. A document
-	// without /SigFlags declares no signatures.
-	var signers []*verify.Signer
-	count := 0
-	if !b.doc.rdr.Trailer().Key("Root").Key("AcroForm").Key("SigFlags").IsNull() {
-		signers, count = verify.VerifySignatures(b.doc.rdr, b.doc.reader, b.doc.size, vOpts)
-	}
+	// Verify the signatures: the ones the field tree reaches, and any that an
+	// earlier revision held but the current tree no longer does.
+	signers, count := verify.VerifySignatures(b.doc.rdr, b.doc.reader, b.doc.size, vOpts)
 	for _, signer := range signers {
 		// Map Signer to SignatureVerifyResult
 		sigResult := SignatureVerifyResult{

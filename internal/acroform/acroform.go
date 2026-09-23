@@ -82,3 +82,17 @@ func hasFields(kids pdf.Value) bool {
 	}
 	return false
 }
+
+// IsSignatureDictionary reports whether v is a signature dictionary (ISO
+// 32000-1 Table 252): one typed as a signature or a document timestamp, or
+// one that names its handler and carries signature bytes.
+func IsSignatureDictionary(v pdf.Value) bool {
+	if v.Kind() != pdf.Dict {
+		return false
+	}
+	switch v.Key("Type").Name() {
+	case "Sig", "DocTimeStamp":
+		return true
+	}
+	return !v.Key("Filter").IsNull() && !v.Key("Contents").IsNull()
+}

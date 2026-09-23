@@ -80,15 +80,7 @@ func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 
 		acroform.SignatureFields(root, func(field pdflib.Value) bool {
 			v := field.Key("V")
-			isSig := false
-			sigType := v.Key("Type").Name()
-			if sigType == "Sig" || sigType == "DocTimeStamp" {
-				isSig = true
-			} else if !v.Key("Filter").IsNull() && !v.Key("Contents").IsNull() {
-				isSig = true
-			}
-
-			if isSig {
+			if acroform.IsSignatureDictionary(v) {
 				sig := &Signature{
 					Obj:  v,
 					File: file,

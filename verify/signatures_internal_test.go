@@ -14,8 +14,8 @@ import (
 func TestSignatureSet(t *testing.T) {
 	contents := func(set signatureSet) []string {
 		var out []string
-		for _, v := range set.found {
-			out = append(out, v.Key("Contents").RawString())
+		for _, sig := range set.found {
+			out = append(out, sig.dict.Key("Contents").RawString())
 		}
 		return out
 	}
@@ -55,71 +55,83 @@ func TestSignatureSet(t *testing.T) {
 			t.Fatalf("read: %v", err)
 		}
 
-		set := signatureSet{seen: make(map[string]bool)}
+		var set signatureSet
 		root := rdr.Trailer().Key("Root")
-		set.addFields(root, true)
-		set.addPerms(root)
+		set.addFields(root, fromFields)
+		set.addPerms(root, fromPerms)
 		if got := contents(set); !equal(got, []string{"\x03"}) {
 			t.Fatalf("current document: found %q, want the approval signature only", got)
 		}
 
-		end, ok := signedRangeEnd(set.found[0], size)
+		// The file has one earlier revision, the one the approval
+		// signature's /ByteRange covers.
+		end, ok := signedRangeEnd(set.found[0].dict, size)
 		if !ok {
 			t.Fatal("approval signature has no usable /ByteRange")
+		}
+		if ends := revisionEnds(file, size); len(ends) != 1 || ends[0] != end {
+			t.Fatalf("revisionEnds = %v, want [%d]", ends, end)
+		}
+		set.addRevisions(file, size, "")
+		if got := contents(set); !equal(got, []string{"\x03", "\x01"}) || set.found[1].source != fromRevision {
+			t.Fatalf("with the earlier revision: found %q, want the certification signature recovered once", got)
 		}
 		revision, err := pdf.NewReader(io.NewSectionReader(file, 0, end), end)
 		if err != nil {
 			t.Fatalf("read signed revision: %v", err)
 		}
 		signedRoot := revision.Trailer().Key("Root")
-		set.addFields(signedRoot, false)
-		set.addPerms(signedRoot)
-		if got := contents(set); !equal(got, []string{"\x03", "\x01"}) {
-			t.Fatalf("with the signed revision: found %q, want the certification signature recovered once", got)
-		}
-		set.addFields(signedRoot, false)
-		set.addPerms(signedRoot)
+		set.addFields(signedRoot, fromRevision)
+		set.addPerms(signedRoot, fromRevision)
 		if got := contents(set); len(got) != 2 {
-			t.Fatalf("adding the revision again: found %q, want no further signature", got)
+			t.Fatalf("adding the signed revision as well: found %q, want no further signature", got)
 		}
 
 		// VerifySignatures walks the same way. Both signatures stop at a
 		// validation error before their bytes are parsed: the approval
 		// signature is not part of the revision it claims to cover, and the
-		// certification signature is reported as unreachable first, with its
-		// P=1 restriction enforced against the update.
+		// certification signature is reported as removed first, with its P=1
+		// restriction enforced against the update, and is not valid.
 		signers, found := VerifySignatures(rdr, file, size, DefaultVerifyOptions())
 		if found != 2 || len(signers) != 2 {
 			t.Fatalf("VerifySignatures found %d signatures and processed %d, want 2 and 2", found, len(signers))
 		}
-		if hasValidationError(signers[0], unreachableSignature) || !hasValidationError(signers[0], "not part of the revision") {
+		if hasValidationError(signers[0], removedSignature) || !hasValidationError(signers[0], "not part of the revision") {
 			t.Errorf("approval signature: errors %v", signers[0].ValidationErrors)
 		}
-		if errs := signers[1].ValidationErrors; len(errs) < 2 || errs[0].Error() != unreachableSignature || !hasValidationError(signers[1], "P=1") {
-			t.Errorf("recovered certification signature: errors %v", errs)
+		if errs := signers[1].ValidationErrors; len(errs) < 2 || errs[0].Error() != removedSignature || !hasValidationError(signers[1], "P=1") || signers[1].ValidSignature {
+			t.Errorf("recovered certification signature: errors %v, valid %v", errs, signers[1].ValidSignature)
 		}
 	})
 
 	t.Run("the catalog /Perms names a signature the tree does not reach", func(t *testing.T) {
+		// An update follows, so the P=1 restriction records an error before
+		// the signature bytes are parsed and the signature is processed.
 		f := signedPDF{
-			catalog:   "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /SigFlags 3 >> /Perms << /DocMDP 5 0 R >> >>",
-			field:     signatureField,
-			signature: signatureDict(docMDPReference),
+			catalog:    "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /SigFlags 3 >> /Perms << /DocMDP 5 0 R >> >>",
+			field:      signatureField,
+			signature:  signatureDict(docMDPReference),
+			updateID:   7,
+			updateBody: newAnnotation,
 		}
 		fileBytes := f.build(t)
 		rdr, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
 		if err != nil {
 			t.Fatalf("read: %v", err)
 		}
-		set := signatureSet{seen: make(map[string]bool)}
+		var set signatureSet
 		root := rdr.Trailer().Key("Root")
-		set.addFields(root, true)
+		set.addFields(root, fromFields)
 		if len(set.found) != 0 {
 			t.Fatalf("field tree: found %d signatures, want none", len(set.found))
 		}
-		set.addPerms(root)
-		if got := contents(set); !equal(got, []string{"\x01"}) {
+		set.addPerms(root, fromPerms)
+		if got := contents(set); !equal(got, []string{"\x01"}) || set.found[0].source != fromPerms {
 			t.Errorf("with /Perms: found %q, want the certification signature", got)
+		}
+		signers, _ := VerifySignatures(rdr, bytes.NewReader(fileBytes), int64(len(fileBytes)), DefaultVerifyOptions())
+		if len(signers) != 1 || len(signers[0].ValidationErrors) < 2 || signers[0].ValidationErrors[0].Error() != permsOnlySignature || !hasValidationError(signers[0], "P=1") || signers[0].ValidSignature {
+			t.Errorf("VerifySignatures: %+v", signers)
 		}
 	})
 
@@ -136,8 +148,8 @@ func TestSignatureSet(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read: %v", err)
 		}
-		set := signatureSet{seen: make(map[string]bool)}
-		set.addFields(rdr.Trailer().Key("Root"), true)
+		var set signatureSet
+		set.addFields(rdr.Trailer().Key("Root"), fromFields)
 		if got := contents(set); !equal(got, []string{"\x01", "\x01"}) {
 			t.Errorf("found %q, want the signature once per field", got)
 		}
