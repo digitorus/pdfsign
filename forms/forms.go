@@ -121,8 +121,15 @@ func GenerateUpdate(v pdf.Value, value any) ([]byte, error) {
 		if key == "V" {
 			continue // Skip old value
 		}
-		// Copy existing key-value
-		fmt.Fprintf(&buf, "  /%s %s\n", key, v.Key(key).String())
+		// Copy the entry: an indirect object stays a reference (a direct
+		// entry carries the field's own pointer), so a parent, appearance
+		// or resource is neither duplicated nor turned into a copy.
+		entry := v.Key(key)
+		if entryPtr := entry.GetPtr(); entryPtr != ptr {
+			fmt.Fprintf(&buf, "  /%s %d %d R\n", key, entryPtr.GetID(), entryPtr.GetGen())
+			continue
+		}
+		fmt.Fprintf(&buf, "  /%s %s\n", key, entry.String())
 	}
 
 	// Add/Update value

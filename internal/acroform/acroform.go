@@ -29,7 +29,7 @@ func walk(kids pdf.Value, inheritedFT string, visited map[pdf.Ptr]bool, depth in
 	}
 	for i := 0; i < kids.Len(); i++ {
 		field := kids.Index(i)
-		if !isField(field) {
+		if !IsField(field) {
 			continue
 		}
 		// A dictionary written directly into the array carries the array's
@@ -59,9 +59,9 @@ func walk(kids pdf.Value, inheritedFT string, visited map[pdf.Ptr]bool, depth in
 	return true
 }
 
-// isField reports whether v is a field dictionary rather than a widget
+// IsField reports whether v is a field dictionary rather than a widget
 // annotation: a field carries at least one of the entries a widget does not.
-func isField(v pdf.Value) bool {
+func IsField(v pdf.Value) bool {
 	if v.Kind() != pdf.Dict {
 		return false
 	}
@@ -76,7 +76,7 @@ func isField(v pdf.Value) bool {
 // hasFields reports whether the /Kids array holds any field dictionary.
 func hasFields(kids pdf.Value) bool {
 	for i := 0; kids.Kind() == pdf.Array && i < kids.Len(); i++ {
-		if isField(kids.Index(i)) {
+		if IsField(kids.Index(i)) {
 			return true
 		}
 	}

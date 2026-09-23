@@ -18,8 +18,9 @@ const (
 	// that permits no changes.
 	docMDPReference = `/Reference [ << /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >> ]`
 
-	// newAnnotation is an incremental update that only adds an object.
-	newAnnotation = "<< /Type /Annot /Subtype /Widget /Rect [0 0 10 10] >>"
+	// rotatedPage is an incremental update rewriting the page (object 3),
+	// a change no DocMDP permission level allows.
+	rotatedPage = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Rotate 90 >>"
 
 	// signatureField is the signature field (object 4) whose value is the
 	// signature dictionary in object 5.
@@ -134,7 +135,7 @@ func checkFixture(t *testing.T, f signedPDF) (*Signer, error) {
 	if !ok {
 		return signer, nil
 	}
-	err = checkDocMDP(signed, revision, file, int64(len(fileBytes)), signer, "")
+	err = checkDocMDP(signed, revision, nil, file, int64(len(fileBytes)), signer, "")
 	return signer, err
 }
 
@@ -147,8 +148,8 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 
 	t.Run("a referenced certification signature is enforced", func(t *testing.T) {
 		f := certified
-		f.updateID, f.updateBody = 7, newAnnotation
-		if _, err := checkFixture(t, f); err == nil || !strings.Contains(err.Error(), "permits none") {
+		f.updateID, f.updateBody = 3, rotatedPage
+		if _, err := checkFixture(t, f); err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
 	})
@@ -168,7 +169,7 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				f := certified
 				f.catalog = catalog
-				f.updateID, f.updateBody = 7, newAnnotation
+				f.updateID, f.updateBody = 3, rotatedPage
 				signer, err := checkFixture(t, f)
 				if err != nil {
 					t.Fatalf("P=1 must not be enforced on an approval signature, got %v", err)
@@ -185,7 +186,7 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 		// still carries it, so the certification stays enforced.
 		f := certified
 		f.updateID, f.updateBody = 1, plainCatalog
-		if _, err := checkFixture(t, f); err == nil || !strings.Contains(err.Error(), "permits none") {
+		if _, err := checkFixture(t, f); err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
 	})
@@ -196,9 +197,9 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 		// downgraded to an approval signature on that account.
 		f := certified
 		f.endOffset = -40
-		f.updateID, f.updateBody = 7, newAnnotation
+		f.updateID, f.updateBody = 3, rotatedPage
 		signer, err := checkFixture(t, f)
-		if err == nil || !strings.Contains(err.Error(), "permits none") {
+		if err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
 		if len(signer.Warnings) != 1 || !strings.Contains(signer.Warnings[0].Error(), "enforced as declared") {
@@ -214,10 +215,10 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 			catalog:    "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> /Perms << /DocMDP " + direct + " >> >>",
 			field:      "<< /FT /Sig /T (sig1) /V " + direct + " >>",
 			signature:  "<< /Type /Sig /Contents <09> >>",
-			updateID:   7,
-			updateBody: newAnnotation,
+			updateID:   3,
+			updateBody: rotatedPage,
 		}
-		if _, err := checkFixture(t, f); err == nil || !strings.Contains(err.Error(), "permits none") {
+		if _, err := checkFixture(t, f); err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
 	})

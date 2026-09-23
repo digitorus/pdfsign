@@ -67,11 +67,15 @@ func TestVerifyRemovedSignatureField(t *testing.T) {
 		t.Fatalf("the catalog carries no /Perms:\n%s", catalog)
 	}
 
+	// The kept signature stays valid in both cases: the approval signature
+	// has no permissions to enforce, and the certification's form-filling
+	// permission sees the same fields in the current document as in the
+	// revision it signed, the approval's field having come and gone since.
 	for _, tc := range []struct {
 		name      string
 		keep      int    // the index in /Fields of the field the update keeps
 		dropPerms bool   // whether the update drops the catalog /Perms as well
-		removed   string // the certificate of the signature the update drops
+		removed   string // the signer name of the signature the update drops
 	}{
 		{"the certification field is dropped", 1, true, "Certifier"},
 		{"the approval field is dropped", 0, false, "Approver"},
@@ -110,11 +114,10 @@ func TestVerifyRemovedSignatureField(t *testing.T) {
 				joined := strings.Join(messages, "; ")
 				reported := strings.Contains(joined, "not reachable from the current /AcroForm /Fields") ||
 					strings.Contains(joined, "/Perms names a certification signature")
-				if len(signer.Certificates) == 0 {
-					t.Fatalf("signer %d has no certificate", i)
-				}
-				name := signer.Certificates[0].Certificate.Subject.CommonName
+				name := signer.Name
 				switch {
+				case name != "Certifier" && name != "Approver":
+					t.Errorf("signer %d has an unexpected name %q", i, name)
 				case name == tc.removed && !reported:
 					t.Errorf("the removed %s signature was not reported: %s", name, joined)
 				case name == tc.removed && signer.ValidSignature:

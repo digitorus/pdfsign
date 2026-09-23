@@ -8,7 +8,6 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -25,15 +24,16 @@ import (
 // that an incremental update removed from the field tree; this verifies the
 // one given.
 func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, error) {
-	signer, _, err := verifyDocumentSignature(v, file, fileSize, options)
+	signer, _, err := verifyDocumentSignature(v, nil, file, fileSize, options)
 	return signer, err
 }
 
-// verifyDocumentSignature verifies the signature dictionary v. The reader returned
-// is over the revision the signature covers, when that could be read, so a
-// caller can find the signatures that revision held; it is set whether or
-// not verification got further.
-func verifyDocumentSignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, *pdf.Reader, error) {
+// verifyDocumentSignature verifies the signature dictionary v. current reads
+// the whole document, or is nil to have it opened when needed. The reader
+// returned is over the revision the signature covers, when that could be
+// read, so a caller can find the signatures that revision held; it is set
+// whether or not verification got further.
+func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, *pdf.Reader, error) {
 	signer := NewSigner()
 
 	// Validate the signature dictionary as it was signed, not as the current
@@ -49,7 +49,7 @@ func verifyDocumentSignature(v pdf.Value, file io.ReaderAt, fileSize int64, opti
 	signer.ContactInfo = v.Key("ContactInfo").Text()
 
 	// Check for DocMDP and incremental updates
-	if err := checkDocMDP(v, revision, file, fileSize, signer, options.Password); err != nil {
+	if err := checkDocMDP(v, revision, current, file, fileSize, signer, options.Password); err != nil {
 		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("DocMDP validation failed: %v", err)})
 		return signer, revision, nil
 	}
@@ -472,7 +472,12 @@ func canonical(v pdf.Value, depth int) string {
 		}
 		return "<<" + strings.Join(parts, " ") + ">>"
 	case pdf.Stream:
-		return "stream"
+		keys := v.Keys()
+		parts := make([]string, len(keys))
+		for i, key := range keys {
+			parts[i] = "/" + key + " " + canonicalEntry(v, v.Key(key), depth+1)
+		}
+		return "<<" + strings.Join(parts, " ") + ">>stream"
 	}
 	return "null"
 }
@@ -500,7 +505,12 @@ func canonicalEntry(container, entry pdf.Value, depth int) string {
 // when that revision cannot be read (revision is nil, which
 // signedSignatureDictionary has warned about), the transform is enforced as
 // declared.
-func checkDocMDP(v pdf.Value, revision *pdf.Reader, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
+//
+// The incremental updates after the signed revision are then held against
+// the permission level: every change they make has to be one the level
+// permits (see checkPermittedChanges). current reads the whole document, or
+// is nil to have it opened here.
+func checkDocMDP(v pdf.Value, revision, current *pdf.Reader, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
 	transform, ok := docMDPTransform(v.Key("Reference"))
 	if !ok {
 		return nil
@@ -530,33 +540,28 @@ func checkDocMDP(v pdf.Value, revision *pdf.Reader, file io.ReaderAt, fileSize i
 		}
 	}
 
-	// Detect if there are modifications (bytes appended)
-	if fileSize > signedEnd {
-		// We have an incremental update
-
-		// P=1: No changes permitted
-		if perms == 1 {
-			// Strictly invalid
-			return fmt.Errorf("incremental update found but P=1 (NoChanges) permits none")
-		}
-
-		// P=2 (form filling) and P=3 (annotations) permit an
-		// incremental update, but never one that rewrites a page's
-		// own content stream or resources - legitimate form fills,
-		// new signatures, and new annotations are always written as
-		// new, additional objects. An update that also rewrites page
-		// content in the same pass (hidden behind a permitted
-		// change) is the PDF "Shadow Attack" pattern (Mainka et al.,
-		// USENIX Security 2021); reject it rather than merely warn.
-		if perms == 2 || perms == 3 {
-			if err := checkIncrementalUpdateScope(file, fileSize, signedEnd, password); err != nil {
-				return err
-			}
-			signer.Warnings = append(signer.Warnings, &Warning{
-				Msg: fmt.Sprintf("DocMDP P=%d: incremental update found; page content/resources were not among the objects it rewrote", perms),
-			})
+	if fileSize <= signedEnd {
+		return nil
+	}
+	// An incremental update follows the signed revision.
+	if revision == nil {
+		return fmt.Errorf("incremental update found but the revision the signature covers could not be read, so the changes cannot be checked against P=%d", perms)
+	}
+	if current == nil {
+		var err error
+		if current, err = pdf.NewReaderEncrypted(file, fileSize, passwordFunc(password)); err != nil {
+			return fmt.Errorf("incremental update found but the document could not be read to check the changes against P=%d: %w", perms, err)
 		}
 	}
+	p := docMDPPermissions(perms)
+	if err := checkPermittedChanges(revision, current, file, fileSize, signedEnd, p); err != nil {
+		return err
+	}
+	msg := "DocMDP P=%d: incremental update found; it adds validation data or document timestamps only"
+	if p.formFilling {
+		msg = "DocMDP P=%d: incremental update found; it holds permitted changes only"
+	}
+	signer.Warnings = append(signer.Warnings, &Warning{Msg: fmt.Sprintf(msg, perms)})
 	return nil
 }
 
@@ -593,52 +598,6 @@ func catalogReferencesDocMDP(v pdf.Value, revision *pdf.Reader) (referenced, kno
 		return true, true
 	}
 	return sameSignature(v, docMDP), true
-}
-
-// objDefPattern matches a classic PDF indirect object definition header
-// ("<id> <gen> obj"), capturing the object number.
-var objDefPattern = regexp.MustCompile(`(?:^|[^0-9])([0-9]+)[ \t\r\n\f\x00]+[0-9]+[ \t\r\n\f\x00]+obj\b`)
-
-// checkIncrementalUpdateScope returns an error if the incremental update
-// appended after signedEnd redefines a page object, or a page's own
-// /Contents or /Resources object, in the CURRENT (fully updated) document.
-//
-// Limitation: object definitions are located by scanning the update's raw
-// bytes for classic "<id> <gen> obj" headers. An object written only inside
-// a compressed object stream (used by some xref-stream-format incremental
-// updates) has no such textual header and is not covered by this check.
-func checkIncrementalUpdateScope(file io.ReaderAt, fileSize, signedEnd int64, password string) error {
-	rdr, err := pdf.NewReaderEncrypted(file, fileSize, passwordFunc(password))
-	if err != nil {
-		return nil // Can't determine scope; structural checks elsewhere catch a broken file.
-	}
-
-	protected := make(map[uint32]bool)
-	pagesRoot := rdr.Trailer().Key("Root").Key("Pages")
-	collectProtectedPageObjects(pagesRoot, pagesRoot.Key("Resources"), protected, make(map[uint32]bool))
-	if len(protected) == 0 {
-		return nil
-	}
-
-	updateLen := fileSize - signedEnd
-	if updateLen <= 0 || updateLen > 1<<28 {
-		return nil
-	}
-	buf := make([]byte, updateLen)
-	if _, err := file.ReadAt(buf, signedEnd); err != nil {
-		return nil
-	}
-
-	for _, m := range objDefPattern.FindAllSubmatch(buf, -1) {
-		id, err := strconv.ParseUint(string(m[1]), 10, 32)
-		if err != nil {
-			continue
-		}
-		if protected[uint32(id)] {
-			return fmt.Errorf("incremental update redefines object %d (a page, its content stream, or its resources), which DocMDP form-filling/annotation permissions do not allow", id)
-		}
-	}
-	return nil
 }
 
 // collectProtectedPageObjects walks the current page tree starting at node,
