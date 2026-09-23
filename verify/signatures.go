@@ -77,7 +77,7 @@ func VerifySignatures(rdr *pdf.Reader, file io.ReaderAt, fileSize int64, options
 		}
 		sig := set.found[i]
 		i++
-		signer, revision, err := verifyDocumentSignature(sig.dict, file, fileSize, options)
+		signer, revision, err := verifyDocumentSignature(sig.dict, rdr, file, fileSize, options)
 		if end, ok := signedRangeEnd(sig.dict, fileSize); revision != nil && ok && end < fileSize {
 			delete(pending, markerEnd(file, end))
 			signedRoot := revision.Trailer().Key("Root")

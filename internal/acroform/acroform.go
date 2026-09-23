@@ -95,7 +95,7 @@ func walk(kids pdf.Value, parent Field, visited map[visit]bool, depth int, vis v
 // node visits one entry of a /Fields or /Kids array. container is that array,
 // or a null value when the entry is visited on its own.
 func node(field, container pdf.Value, parent Field, visited map[visit]bool, depth int, vis visitor) bool {
-	if !isField(field) {
+	if !IsField(field) {
 		return true
 	}
 	f := Field{Dict: field, Name: parent.Name, Type: field.Key("FT").Name(), Value: field.Key("V")}
@@ -132,9 +132,9 @@ func node(field, container pdf.Value, parent Field, visited map[visit]bool, dept
 	return walk(children, f, visited, depth+1, vis)
 }
 
-// isField reports whether v is a field dictionary rather than a widget
+// IsField reports whether v is a field dictionary rather than a widget
 // annotation: a field carries at least one of the entries a widget does not.
-func isField(v pdf.Value) bool {
+func IsField(v pdf.Value) bool {
 	if v.Kind() != pdf.Dict {
 		return false
 	}
@@ -149,7 +149,7 @@ func isField(v pdf.Value) bool {
 // hasFields reports whether the /Kids array holds any field dictionary.
 func hasFields(kids pdf.Value) bool {
 	for i := 0; kids.Kind() == pdf.Array && i < kids.Len(); i++ {
-		if isField(kids.Index(i)) {
+		if IsField(kids.Index(i)) {
 			return true
 		}
 	}

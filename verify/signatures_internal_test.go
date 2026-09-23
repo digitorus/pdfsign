@@ -111,8 +111,8 @@ func TestSignatureSet(t *testing.T) {
 			catalog:    "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /SigFlags 3 >> /Perms << /DocMDP 5 0 R >> >>",
 			field:      signatureField,
 			signature:  signatureDict(docMDPReference),
-			updateID:   7,
-			updateBody: newAnnotation,
+			updateID:   3,
+			updateBody: rotatedPage,
 		}
 		fileBytes := f.build(t)
 		rdr, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))

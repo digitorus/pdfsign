@@ -17,9 +17,9 @@ func TestSignedSignatureDictionary(t *testing.T) {
 
 	t.Run("an unchanged dictionary passes", func(t *testing.T) {
 		f := certified
-		f.updateID, f.updateBody = 7, newAnnotation
+		f.updateID, f.updateBody = 3, rotatedPage
 		signer, err := checkFixture(t, f)
-		if err == nil || !strings.Contains(err.Error(), "permits none") {
+		if err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Fatalf("expected the P=1 rejection for the update, got %v", err)
 		}
 		if len(signer.ValidationErrors) != 0 {
@@ -36,7 +36,7 @@ func TestSignedSignatureDictionary(t *testing.T) {
 		if !hasValidationError(signer, "modified after signing: /Reference") {
 			t.Errorf("expected the redefinition to be reported, got %v", signer.ValidationErrors)
 		}
-		if err == nil || !strings.Contains(err.Error(), "permits none") {
+		if err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Errorf("expected the signed transform to stay enforced, got %v", err)
 		}
 	})
@@ -64,7 +64,7 @@ func TestSignedSignatureDictionary(t *testing.T) {
 		if !hasValidationError(signer, "modified after signing: /Reference") {
 			t.Errorf("expected the copy to be reported, got %v", signer.ValidationErrors)
 		}
-		if err == nil || !strings.Contains(err.Error(), "permits none") {
+		if err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Errorf("expected the signed transform to stay enforced, got %v", err)
 		}
 	})
