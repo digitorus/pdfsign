@@ -2,8 +2,9 @@ package extract_test
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
+
+	"github.com/digitorus/pdfsign/internal/testpdf"
 
 	pdflib "github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/extract"
@@ -13,27 +14,11 @@ import (
 // [4 0 R], followed by the given objects numbered from 4.
 func buildFormPDF(t *testing.T, objects ...string) []byte {
 	t.Helper()
-
-	all := append([]string{
+	return testpdf.Bytes(append([]string{
 		"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-	}, objects...)
-
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n")
-	offsets := make([]int, len(all))
-	for i, obj := range all {
-		offsets[i] = buf.Len()
-		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, obj)
-	}
-	xref := buf.Len()
-	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(all)+1)
-	for _, off := range offsets {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
-	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(all)+1, xref)
-	return buf.Bytes()
+	}, objects...)...)
 }
 
 // TestIterFieldTree covers the AcroForm field tree walk behind Iter: /FT is

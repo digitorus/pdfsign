@@ -1,45 +1,25 @@
 package acroform
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/testpdf"
 )
 
-// rootWithFields builds a document whose AcroForm /Fields array is fieldsArray
-// (object 4 being the first extra object) and returns its catalog. Object 5 is
-// a bare signature dictionary the fields can point at.
+// rootWithFields builds a document whose AcroForm /Fields array is
+// fieldsArray (object 4 being the first extra object) and returns its catalog.
+// Object 5 is a bare signature dictionary the fields can point at.
 func rootWithFields(t *testing.T, fieldsArray string, objects ...string) pdf.Value {
 	t.Helper()
-
 	all := append([]string{
 		"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields " + fieldsArray + " /SigFlags 3 >> >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
 	}, objects...)
-
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n")
-	offsets := make([]int, len(all))
-	for i, obj := range all {
-		offsets[i] = buf.Len()
-		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, obj)
-	}
-	xref := buf.Len()
-	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(all)+1)
-	for _, off := range offsets {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
-	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(all)+1, xref)
-
-	rdr, err := pdf.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	return rdr.Trailer().Key("Root")
+	return testpdf.Reader(t, all...).Trailer().Key("Root")
 }
 
 // names collects the /T of every signature field the walk reports.
@@ -108,6 +88,17 @@ func TestSignatureFields(t *testing.T) {
 			},
 			want: []string{"sig1"},
 		},
+		"a field shared by parents of different types": {
+			// Reached first under a text field, X inherits /Tx and is not a
+			// signature; under the signature field it is, and is reported.
+			fields: "[4 0 R 6 0 R]",
+			objects: []string{
+				"<< /T (a) /FT /Tx /V (x) /Kids [7 0 R] >>", sig,
+				"<< /T (b) /FT /Sig /Kids [7 0 R] >>",
+				"<< /T (x) /V 5 0 R >>",
+			},
+			want: []string{"x"},
+		},
 		"a field referencing itself": {
 			fields:  "[4 0 R]",
 			objects: []string{"<< /T (self) /FT /Sig /Kids [4 0 R] >>"},
@@ -146,4 +137,47 @@ func TestSignatureFields(t *testing.T) {
 			t.Errorf("signature beyond MaxDepth was reported: %q", got)
 		}
 	})
+}
+
+// TestFields covers the general walk: every field is reported, a parent
+// before its kids, with fully qualified names (the partial names joined with
+// periods, an untitled node adding nothing), inherited /FT and /V, and the
+// terminal flag; FieldsOf walks one subtree under a given prefix.
+func TestFields(t *testing.T) {
+	root := rootWithFields(t, "[4 0 R 7 0 R 9 0 R]",
+		"<< /T (form) /FT /Tx /V (default) /Kids [5 0 R 6 0 R] >>",
+		"<< /Parent 4 0 R /T (name) /V (Ada) >>",
+		"<< /Parent 4 0 R /Kids [10 0 R] >>",
+		"<< /T (sig1) /FT /Sig >>",
+		"<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] >>",
+		"<< /T <FEFF0063006800650063006B> /FT /Btn /V /Yes /Kids [8 0 R] >>",
+		"<< /Parent 6 0 R /T (deep) /FT /Ch >>",
+	)
+
+	describe := func(f Field) string {
+		s := f.Name + ":" + f.Type + "=" + f.Value.Text()
+		if f.Terminal {
+			s += "*"
+		}
+		return s
+	}
+	var got []string
+	Fields(root, func(f Field) bool {
+		got = append(got, describe(f))
+		return true
+	})
+	want := "form:Tx=default form.name:Tx=Ada* form:Tx=default form.deep:Ch=default* sig1:Sig=* check:Btn=*"
+	if strings.Join(got, " ") != want {
+		t.Errorf("Fields = %q, want %q", strings.Join(got, " "), want)
+	}
+
+	got = nil
+	FieldsOf(root.Key("AcroForm").Key("Fields").Index(0), "doc", func(f Field) bool {
+		got = append(got, describe(f))
+		return true
+	})
+	want = "doc.form:Tx=default doc.form.name:Tx=Ada* doc.form:Tx=default doc.form.deep:Ch=default*"
+	if strings.Join(got, " ") != want {
+		t.Errorf("FieldsOf = %q, want %q", strings.Join(got, " "), want)
+	}
 }
