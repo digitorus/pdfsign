@@ -41,10 +41,6 @@ func docMDPPermissions(p int) permissions {
 	return permissions{level: p}
 }
 
-// maxUpdateSize bounds the bytes of incremental updates that are scanned for
-// object definitions.
-const maxUpdateSize = 1 << 28
-
 // checkPermittedChanges checks the incremental updates appended after the
 // revision a certification signature covers against its DocMDP permissions.
 // signed reads that revision and current the whole file.
@@ -184,9 +180,9 @@ func objectStreamMembers(stream pdf.Value) []uint32 {
 		return nil
 	}
 	r := stream.Reader()
-	defer r.Close()
 	header := make([]byte, first)
 	read, _ := io.ReadFull(r, header)
+	_ = r.Close()
 	fields := strings.Fields(string(header[:read]))
 	var members []uint32
 	for i := 0; i+1 < len(fields) && int64(len(members)) < n; i += 2 {

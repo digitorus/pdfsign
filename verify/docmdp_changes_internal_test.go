@@ -272,7 +272,9 @@ func TestCheckPermittedChangesRepointed(t *testing.T) {
 	}
 	prev := bytes.LastIndex(fileBytes, []byte("startxref\n")) + len("startxref\n")
 	var prevOffset int64
-	fmt.Sscanf(string(fileBytes[prev:]), "%d", &prevOffset)
+	if _, err := fmt.Sscanf(string(fileBytes[prev:]), "%d", &prevOffset); err != nil {
+		t.Fatalf("startxref of the signed revision: %v", err)
+	}
 
 	var buf bytes.Buffer
 	buf.Write(fileBytes)
