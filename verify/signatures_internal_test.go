@@ -69,10 +69,10 @@ func TestSignatureSet(t *testing.T) {
 		if !ok {
 			t.Fatal("approval signature has no usable /ByteRange")
 		}
-		if ends := revisionEnds(file, size); len(ends) != 1 || ends[0] != end {
-			t.Fatalf("revisionEnds = %v, want [%d]", ends, end)
+		if ends := revisionEnds(file, size); len(ends) != 1 || ends[0] != markerEnd(file, end) {
+			t.Fatalf("revisionEnds = %v, want [%d]", ends, markerEnd(file, end))
 		}
-		set.addRevisions(file, size, "")
+		set.addRevision(file, markerEnd(file, end), "")
 		if got := contents(set); !equal(got, []string{"\x03", "\x01"}) || set.found[1].source != fromRevision {
 			t.Fatalf("with the earlier revision: found %q, want the certification signature recovered once", got)
 		}

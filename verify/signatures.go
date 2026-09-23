@@ -38,9 +38,9 @@ const (
 // with a validation error saying so ahead of whatever else its verification
 // finds, and is not reported as valid.
 //
-// Earlier revisions are read at each %%EOF marker of the file; the revision a
-// signature's /ByteRange covers, which its verification opens anyway, is read
-// as well, for a file whose revisions are not laid out that way.
+// Earlier revisions end at the %%EOF markers of the file, and only those that
+// wrote a signature dictionary are read (see revisionEnds), through the reader
+// a signature's verification opens where its /ByteRange covers the revision.
 func VerifySignatures(rdr *pdf.Reader, file io.ReaderAt, fileSize int64, options *VerifyOptions) (signers []*Signer, found int) {
 	root := rdr.Trailer().Key("Root")
 	if root.Key("AcroForm").Key("SigFlags").IsNull() {
@@ -50,12 +50,36 @@ func VerifySignatures(rdr *pdf.Reader, file io.ReaderAt, fileSize int64, options
 	var set signatureSet
 	set.addFields(root, fromFields)
 	set.addPerms(root, fromPerms)
-	set.addRevisions(file, fileSize, options.Password)
 
-	for i := 0; i < len(set.found); i++ {
+	// The earlier revisions that may hold a signature, by the end of their
+	// %%EOF marker. One that a verified signature's /ByteRange covers is read
+	// from the reader its verification opens; the rest are read once every
+	// signature found so far has been verified.
+	pending := make(map[int64]bool)
+	for _, end := range revisionEnds(file, fileSize) {
+		pending[end] = true
+	}
+	next := func() int64 {
+		var end int64
+		for e := range pending {
+			if end == 0 || e < end {
+				end = e
+			}
+		}
+		delete(pending, end)
+		return end
+	}
+
+	for i := 0; i < len(set.found) || len(pending) > 0; {
+		if i == len(set.found) {
+			set.addRevision(file, next(), options.Password)
+			continue
+		}
 		sig := set.found[i]
+		i++
 		signer, revision, err := verifyDocumentSignature(sig.dict, file, fileSize, options)
 		if end, ok := signedRangeEnd(sig.dict, fileSize); revision != nil && ok && end < fileSize {
+			delete(pending, markerEnd(file, end))
 			signedRoot := revision.Trailer().Key("Root")
 			set.addFields(signedRoot, fromRevision)
 			set.addPerms(signedRoot, fromRevision)
@@ -136,50 +160,82 @@ func (s *signatureSet) addPerms(root pdf.Value, source signatureSource) {
 	s.add(root.Key("Perms").Key("DocMDP"), source)
 }
 
-// addRevisions adds the signatures every earlier revision of the file holds.
-// A revision ends with its %%EOF marker (ISO 32000-1 7.5.5 and 7.5.6), so the
-// document as it stood at each marker is read. A section that does not read
-// as a document, such as a marker inside a stream or the first-page section
-// of a linearized file, holds nothing.
-func (s *signatureSet) addRevisions(file io.ReaderAt, fileSize int64, password string) {
-	for _, end := range revisionEnds(file, fileSize) {
-		revision, err := pdf.NewReaderEncrypted(io.NewSectionReader(file, 0, end), end, passwordFunc(password))
-		if err != nil {
-			continue
-		}
-		root := revision.Trailer().Key("Root")
-		s.addFields(root, fromRevision)
-		s.addPerms(root, fromRevision)
+// addRevision adds the signatures the revision of the file ending at end
+// holds. A section that does not read as a document, such as one ending at
+// a marker inside a stream or the first-page section of a linearized file,
+// holds nothing.
+func (s *signatureSet) addRevision(file io.ReaderAt, end int64, password string) {
+	revision, err := pdf.NewReaderEncrypted(io.NewSectionReader(file, 0, end), end, passwordFunc(password))
+	if err != nil {
+		return
 	}
+	root := revision.Trailer().Key("Root")
+	s.addFields(root, fromRevision)
+	s.addPerms(root, fromRevision)
 }
 
-// revisionEnds returns the end of every revision of the file but the last:
-// the offset just past each %%EOF marker and the line end that follows it.
+// markerEnd returns the offset just past the %%EOF marker of the revision
+// ending at end: the same offset less the line end that follows the marker,
+// which a signature's /ByteRange may or may not cover.
+func markerEnd(file io.ReaderAt, end int64) int64 {
+	var tail [2]byte
+	from := max(end-int64(len(tail)), 0)
+	n, _ := file.ReadAt(tail[:end-from], from)
+	for n > 0 && (tail[n-1] == '\r' || tail[n-1] == '\n') {
+		n--
+		end--
+	}
+	return end
+}
+
+// revisionEnds returns the end of every earlier revision of the file that may
+// hold a signature: the offset just past its %%EOF marker (ISO 32000-1 7.5.5
+// and 7.5.6), without the line end that follows it. Only a revision that wrote a
+// signature dictionary can hold a signature the later revisions dropped: the
+// dictionary lies inside its own /ByteRange, as a plain object of the
+// revision that signed, so a revision whose bytes hold no /ByteRange key is
+// left out.
 func revisionEnds(file io.ReaderAt, fileSize int64) []int64 {
-	const marker = "%%EOF"
+	var (
+		marker = []byte("%%EOF")
+		token  = []byte("/ByteRange")
+	)
 	var ends []int64
 	buf := make([]byte, 1<<16)
-	// Reads overlap by one byte less than the marker, so a marker across
-	// two reads is found in the second and none is found twice.
-	for offset := int64(0); offset < fileSize; offset += int64(len(buf) - len(marker) + 1) {
+	// Reads overlap by one byte less than the longer pattern, so a pattern
+	// across two reads is found in the second; a marker found before found
+	// was reported by the read before.
+	overlap := len(token) - 1
+	var found int64
+	signing := false
+	for offset := int64(0); offset < fileSize; offset += int64(len(buf) - overlap) {
 		n, err := file.ReadAt(buf, offset)
 		chunk := buf[:n]
-		for i := 0; ; {
-			j := bytes.Index(chunk[i:], []byte(marker))
-			if j < 0 {
+		for i := 0; i < len(chunk); {
+			m := bytes.Index(chunk[i:], marker)
+			t := bytes.Index(chunk[i:], token)
+			if m < 0 && t < 0 {
 				break
 			}
-			i += j + len(marker)
-			for i < len(chunk) && (chunk[i] == '\r' || chunk[i] == '\n') {
-				i++
+			if t >= 0 && (m < 0 || t < m) {
+				signing = true
+				i += t + len(token)
+				continue
 			}
-			if end := offset + int64(i); end < fileSize {
+			at := offset + int64(i+m)
+			i += m + len(marker)
+			if at < found {
+				continue
+			}
+			if end := offset + int64(i); signing && markerEnd(file, fileSize) > end {
 				ends = append(ends, end)
 			}
+			signing = false
 		}
 		if err != nil || n < len(buf) {
 			break
 		}
+		found = offset + int64(n) - int64(len(marker)) + 1
 	}
 	return ends
 }

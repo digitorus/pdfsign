@@ -11,17 +11,21 @@ import (
 
 var lastStartxref = regexp.MustCompile(`startxref\r?\n(\d+)\r?\n%%EOF\r?\n?$`)
 
-// appendUpdate returns the file with an incremental update that redefines
-// one object, chained to the file's last cross-reference section through a
+// appendUpdate returns the file with an incremental update that defines one
+// object, chained to the file's last cross-reference section through a
 // classic cross-reference section. trailer is the file's trailer, for its
-// /Size and /Root.
-func appendUpdate(t *testing.T, original []byte, trailer pdf.Value, objectNumber uint32, body string) []byte {
+// /Size and /Root; an object number beyond /Size grows it.
+func appendUpdate(t testing.TB, original []byte, trailer pdf.Value, objectNumber uint32, body string) []byte {
 	t.Helper()
 	prev := lastStartxref.FindSubmatch(original)
 	if prev == nil {
 		t.Fatal("startxref of the signed file not found")
 	}
 	rootPtr := trailer.Key("Root").GetPtr()
+	size := trailer.Key("Size").Int64()
+	if int64(objectNumber) >= size {
+		size = int64(objectNumber) + 1
+	}
 
 	var updated bytes.Buffer
 	updated.Write(original)
@@ -33,13 +37,13 @@ func appendUpdate(t *testing.T, original []byte, trailer pdf.Value, objectNumber
 	xref := updated.Len()
 	fmt.Fprintf(&updated, "xref\n0 1\n0000000000 65535 f \n%d 1\n%010d 00000 n \n", objectNumber, offset)
 	fmt.Fprintf(&updated, "trailer\n<< /Size %d /Root %d %d R /Prev %s >>\nstartxref\n%d\n%%%%EOF\n",
-		trailer.Key("Size").Int64(), rootPtr.GetID(), rootPtr.GetGen(), string(prev[1]), xref)
+		size, rootPtr.GetID(), rootPtr.GetGen(), string(prev[1]), xref)
 	return updated.Bytes()
 }
 
 // objectText returns the text of the latest definition of an object in the
 // file, between its "obj" and "endobj" keywords.
-func objectText(t *testing.T, file []byte, objectNumber uint32) string {
+func objectText(t testing.TB, file []byte, objectNumber uint32) string {
 	t.Helper()
 	definitions := regexp.MustCompile(fmt.Sprintf(`(?s)\n%d 0 obj\r?\n(.*?)\r?\nendobj`, objectNumber)).FindAllSubmatch(file, -1)
 	if definitions == nil {
