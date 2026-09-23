@@ -10,8 +10,10 @@ import (
 	"io"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/acroform"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
@@ -20,13 +22,21 @@ import (
 // VerifySignature processes a single digital signature found in the PDF.
 func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, error) {
 	signer := NewSigner()
+
+	// Validate the signature dictionary as it was signed, not as the current
+	// cross-reference table presents it; see signedSignatureDictionary.
+	v, revision, ok := signedSignatureDictionary(v, file, fileSize, signer, options.Password)
+	if !ok {
+		return signer, nil
+	}
+
 	signer.Name = v.Key("Name").Text()
 	signer.Reason = v.Key("Reason").Text()
 	signer.Location = v.Key("Location").Text()
 	signer.ContactInfo = v.Key("ContactInfo").Text()
 
 	// Check for DocMDP and incremental updates
-	if err := checkDocMDP(v, file, fileSize, signer, options.Password); err != nil {
+	if err := checkDocMDP(v, revision, file, fileSize, signer, options.Password); err != nil {
 		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("DocMDP validation failed: %v", err)})
 		return signer, nil
 	}
@@ -312,6 +322,158 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 	return nil
 }
 
+// signedRangeEnd returns the end of the byte range a signature covers, and
+// false when the /ByteRange cannot describe a signed revision of this file.
+func signedRangeEnd(v pdf.Value, fileSize int64) (int64, bool) {
+	br := v.Key("ByteRange")
+	if br.Len() < 4 {
+		return 0, false
+	}
+	end := br.Index(2).Int64() + br.Index(3).Int64()
+	if end <= 0 || end > fileSize {
+		return 0, false
+	}
+	return end, true
+}
+
+// signedSignatureDictionary returns the signature dictionary as the revision
+// its /ByteRange covers holds it, together with a reader over that revision.
+//
+// A signature dictionary lies inside its own byte range (ISO 32000-1 12.8.1:
+// the range covers the whole file apart from the /Contents string), so the
+// signed revision holds the authoritative copy. An incremental update can
+// redefine the object the current cross-reference table points to, or point
+// the field's /V at a copy, without disturbing the signed bytes; dropping the
+// DocMDP transform or changing the reported signer that way must not pass. A
+// current copy that differs in an entry validation depends on is recorded as
+// a validation error, and the signed copy is used either way.
+//
+// When the signed revision cannot be read, the current copy is used with a
+// warning and the returned reader is nil. ok is false when the dictionary is
+// not part of the signed revision at all; nothing about it can be trusted
+// then, and the validation error recorded is the verdict.
+func signedSignatureDictionary(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer, password string) (signed pdf.Value, revision *pdf.Reader, ok bool) {
+	signedEnd, ok := signedRangeEnd(v, fileSize)
+	if !ok {
+		return v, nil, true
+	}
+	revision, err := pdf.NewReaderEncrypted(io.NewSectionReader(file, 0, signedEnd), signedEnd, passwordFunc(password))
+	if err != nil {
+		signer.Warnings = append(signer.Warnings, &Warning{
+			Msg: "the revision this signature covers could not be read; the signature dictionary is taken from the current file and a DocMDP transform is enforced as declared",
+		})
+		return v, nil, true
+	}
+
+	signed, found := findSignatureDictionary(revision, v)
+	if !found {
+		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{
+			Msg: "signature dictionary is not part of the revision its ByteRange covers",
+		})
+		return v, revision, false
+	}
+	if key := signatureDictionaryDifference(v, signed); key != "" {
+		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{
+			Msg: fmt.Sprintf("signature dictionary was modified after signing: /%s differs from the signed revision", key),
+		})
+	}
+	return signed, revision, true
+}
+
+// findSignatureDictionary looks the signature dictionary v up in the signed
+// revision: under its own object number when that holds the same signature,
+// or else, for a dictionary written directly into its field or a field that
+// was pointed at a copy, through the field tree by its signature bytes.
+func findSignatureDictionary(revision *pdf.Reader, v pdf.Value) (pdf.Value, bool) {
+	if id := v.GetPtr().GetID(); id > 0 {
+		if signed, err := revision.GetObject(id); err == nil && sameSignature(v, signed) {
+			return signed, true
+		}
+	}
+
+	var signed pdf.Value
+	found := false
+	acroform.SignatureFields(revision.Trailer().Key("Root"), func(field pdf.Value) bool {
+		if w := field.Key("V"); sameSignature(v, w) {
+			signed, found = w, true
+			return false
+		}
+		return true
+	})
+	return signed, found
+}
+
+// sameSignature reports whether two signature dictionaries hold the same
+// signature, by their signature bytes: the object number does not identify
+// one, since either copy may be written directly into its container and then
+// carries that container's pointer.
+func sameSignature(a, b pdf.Value) bool {
+	contents := a.Key("Contents").RawString()
+	return contents != "" && b.Kind() == pdf.Dict && b.Key("Contents").RawString() == contents
+}
+
+// signatureDictionaryDifference returns the first entry that validation depends
+// on whose value differs between the current and the signed copy of a
+// signature dictionary, or "" when they agree.
+func signatureDictionaryDifference(current, signed pdf.Value) string {
+	for _, key := range []string{"Type", "Filter", "SubFilter", "ByteRange", "Contents", "Reference"} {
+		if canonicalEntry(current, current.Key(key), 0) != canonicalEntry(signed, signed.Key(key), 0) {
+			return key
+		}
+	}
+	return ""
+}
+
+// canonical renders a value with dictionary keys sorted and indirect objects
+// kept as references, so two copies compare by what they say. A DocMDP
+// signature reference dictionary may carry /Data pointing at the catalog;
+// resolving that would pull the whole document into the comparison, and the
+// signed copy is read through the signed revision anyway, so a target
+// redefined later cannot reach validation.
+func canonical(v pdf.Value, depth int) string {
+	if depth > 16 {
+		return "..."
+	}
+	switch v.Kind() {
+	case pdf.Bool:
+		return strconv.FormatBool(v.Bool())
+	case pdf.Integer:
+		return strconv.FormatInt(v.Int64(), 10)
+	case pdf.Real:
+		return strconv.FormatFloat(v.Float64(), 'f', -1, 64)
+	case pdf.String:
+		return strconv.Quote(v.RawString())
+	case pdf.Name:
+		return "/" + v.Name()
+	case pdf.Array:
+		parts := make([]string, v.Len())
+		for i := range parts {
+			parts[i] = canonicalEntry(v, v.Index(i), depth+1)
+		}
+		return "[" + strings.Join(parts, " ") + "]"
+	case pdf.Dict:
+		keys := v.Keys()
+		parts := make([]string, len(keys))
+		for i, key := range keys {
+			parts[i] = "/" + key + " " + canonicalEntry(v, v.Key(key), depth+1)
+		}
+		return "<<" + strings.Join(parts, " ") + ">>"
+	case pdf.Stream:
+		return "stream"
+	}
+	return "null"
+}
+
+// canonicalEntry renders an entry of container: as a reference when it is an
+// indirect object (a direct entry carries its container's pointer), else in
+// full.
+func canonicalEntry(container, entry pdf.Value, depth int) string {
+	if ptr := entry.GetPtr(); ptr != container.GetPtr() {
+		return fmt.Sprintf("%d %d R", ptr.GetID(), ptr.GetGen())
+	}
+	return canonical(entry, depth)
+}
+
 // checkDocMDP verifies Document Modification Detection and Prevention permissions.
 //
 // ISO 32000-1 12.8.2.2: the certification signature is the one the document
@@ -322,29 +484,23 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 // every reader, so its permission level is not enforced here either. The
 // catalog is read from the revision the signature covers, since an update
 // appended later could otherwise remove the entry and switch enforcement off;
-// when that revision cannot be read, the transform is enforced as declared.
-func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
+// when that revision cannot be read (revision is nil, which
+// signedSignatureDictionary has warned about), the transform is enforced as
+// declared.
+func checkDocMDP(v pdf.Value, revision *pdf.Reader, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
 	transform, ok := docMDPTransform(v.Key("Reference"))
 	if !ok {
 		return nil
 	}
 
-	br := v.Key("ByteRange")
-	if br.Len() < 4 {
+	signedEnd, ok := signedRangeEnd(v, fileSize)
+	if !ok {
 		return nil // Should fail elsewhere if ByteRange is bad
 	}
 
-	// End of the signed range
-	signedEnd := br.Index(2).Int64() + br.Index(3).Int64()
-	if signedEnd <= 0 || signedEnd > fileSize {
-		return nil
-	}
-
-	switch referenced, known := catalogReferencesDocMDP(v, io.NewSectionReader(file, 0, signedEnd), signedEnd, password); {
+	switch referenced, known := catalogReferencesDocMDP(v, revision); {
 	case !known:
-		signer.Warnings = append(signer.Warnings, &Warning{
-			Msg: "the revision this signature covers could not be read to check the document catalog /Perms; the DocMDP transform is enforced as declared",
-		})
+		// Enforced as declared.
 	case !referenced:
 		signer.Warnings = append(signer.Warnings, &Warning{
 			Msg: "signature declares a DocMDP transform but the document catalog /Perms does not reference it; readers treat it as an approval signature and its permission level is not applied",
@@ -407,27 +563,23 @@ func docMDPTransform(refs pdf.Value) (pdf.Value, bool) {
 }
 
 // catalogReferencesDocMDP reports whether the document catalog's /Perms /DocMDP
-// entry, as read from the given (signed) revision of the file, is the signature
-// dictionary v. known is false when that revision could not be read.
-func catalogReferencesDocMDP(v pdf.Value, revision io.ReaderAt, size int64, password string) (referenced, known bool) {
-	rdr, err := pdf.NewReaderEncrypted(revision, size, passwordFunc(password))
-	if err != nil {
+// entry of the signed revision is the signature dictionary v. known is false
+// when the revision is not available.
+func catalogReferencesDocMDP(v pdf.Value, revision *pdf.Reader) (referenced, known bool) {
+	if revision == nil {
 		return false, false
 	}
-	docMDP := rdr.Trailer().Key("Root").Key("Perms").Key("DocMDP")
+	docMDP := revision.Trailer().Key("Root").Key("Perms").Key("DocMDP")
 	if docMDP.IsNull() {
 		return false, true
 	}
 
-	// Both are normally the same indirect object.
+	// Both are normally the same indirect object; either may instead be
+	// written directly into its container.
 	if id := v.GetPtr().GetID(); id > 0 && docMDP.GetPtr().GetID() == id {
 		return true, true
 	}
-	// Either may instead be written directly into its container and then
-	// carries that container's pointer; the signature bytes identify the
-	// dictionary in that case.
-	contents := v.Key("Contents").RawString()
-	return contents != "" && docMDP.Key("Contents").RawString() == contents, true
+	return sameSignature(v, docMDP), true
 }
 
 // objDefPattern matches a classic PDF indirect object definition header

@@ -44,12 +44,19 @@ func signatureDict(entries string) string {
 // object 6 an unrelated signature dictionary. endOffset shifts the value
 // endToken expands to away from the true end of revision 1. When updateID is
 // not zero, an incremental update writing updateBody under that object number
-// follows revision 1.
+// follows revision 1; updates adds further objects to that update.
 type signedPDF struct {
 	catalog, field, signature string
 	endOffset                 int64
 	updateID                  int
 	updateBody                string
+	updates                   []updateObject
+}
+
+// updateObject is an object written by the incremental update of a fixture.
+type updateObject struct {
+	id   int
+	body string
 }
 
 func (f signedPDF) build(t *testing.T) []byte {
@@ -79,11 +86,25 @@ func (f signedPDF) build(t *testing.T) []byte {
 		fmt.Fprintf(&buf, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xref)
 		end := int64(buf.Len())
 
+		updates := f.updates
 		if f.updateID != 0 {
-			offset := writeObj(&buf, f.updateID, f.updateBody)
+			updates = append([]updateObject{{f.updateID, f.updateBody}}, updates...)
+		}
+		if len(updates) > 0 {
+			offsets := make([]int64, len(updates))
+			size := 7
+			for i, u := range updates {
+				offsets[i] = writeObj(&buf, u.id, expand(u.body))
+				if u.id >= size {
+					size = u.id + 1
+				}
+			}
 			xref2 := int64(buf.Len())
-			fmt.Fprintf(&buf, "xref\n%d 1\n%010d 00000 n \n", f.updateID, offset)
-			fmt.Fprintf(&buf, "trailer\n<< /Size 8 /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", xref, xref2)
+			buf.WriteString("xref\n")
+			for i, u := range updates {
+				fmt.Fprintf(&buf, "%d 1\n%010d 00000 n \n", u.id, offsets[i])
+			}
+			fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", size, xref, xref2)
 		}
 		return buf.Bytes(), end
 	}
@@ -108,7 +129,12 @@ func checkFixture(t *testing.T, f signedPDF) (*Signer, error) {
 	v := rdr.Trailer().Key("Root").Key("AcroForm").Key("Fields").Index(0).Key("V")
 
 	signer := NewSigner()
-	err = checkDocMDP(v, bytes.NewReader(fileBytes), int64(len(fileBytes)), signer, "")
+	file := bytes.NewReader(fileBytes)
+	signed, revision, ok := signedSignatureDictionary(v, file, int64(len(fileBytes)), signer, "")
+	if !ok {
+		return signer, nil
+	}
+	err = checkDocMDP(signed, revision, file, int64(len(fileBytes)), signer, "")
 	return signer, err
 }
 
@@ -195,4 +221,15 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
 	})
+}
+
+// hasValidationError reports whether any validation error on the signer
+// contains text.
+func hasValidationError(signer *Signer, text string) bool {
+	for _, e := range signer.ValidationErrors {
+		if strings.Contains(e.Error(), text) {
+			return true
+		}
+	}
+	return false
 }
