@@ -35,7 +35,7 @@ type Field struct {
 // intermediate node is walked like any other field: /T is optional. A visited
 // set and a depth bound keep a crafted /Kids cycle from recursing without end.
 func Fields(root pdf.Value, fn func(Field) bool) {
-	walk(root.Key("AcroForm").Key("Fields"), Field{}, make(map[pdf.Ptr]bool), 0, visitor{visit: fn})
+	walk(root.Key("AcroForm").Key("Fields"), Field{}, make(map[visit]bool), 0, visitor{visit: fn})
 }
 
 // FieldsOf calls fn for the given field and every field below it, a parent
@@ -43,7 +43,7 @@ func Fields(root pdf.Value, fn func(Field) bool) {
 // of the field's parent, or "" for a top-level field; entries the field would
 // inherit from above it are not available here.
 func FieldsOf(field pdf.Value, prefix string, fn func(Field) bool) {
-	node(field, pdf.Value{}, Field{Name: prefix}, make(map[pdf.Ptr]bool), 0, visitor{visit: fn})
+	node(field, pdf.Value{}, Field{Name: prefix}, make(map[visit]bool), 0, visitor{visit: fn})
 }
 
 // SignatureFields calls fn for every signature field below the document
@@ -53,7 +53,7 @@ func FieldsOf(field pdf.Value, prefix string, fn func(Field) bool) {
 // its kids would only inherit that value.
 func SignatureFields(root pdf.Value, fn func(field pdf.Value) bool) {
 	signed := func(f Field) bool { return f.Type == "Sig" && !f.Dict.Key("V").IsNull() }
-	walk(root.Key("AcroForm").Key("Fields"), Field{}, make(map[pdf.Ptr]bool), 0, visitor{
+	walk(root.Key("AcroForm").Key("Fields"), Field{}, make(map[visit]bool), 0, visitor{
 		visit: func(f Field) bool {
 			if f.Type == "Sig" && (f.Terminal || signed(f)) {
 				return fn(f.Dict)
@@ -71,7 +71,16 @@ type visitor struct {
 	descend func(Field) bool
 }
 
-func walk(kids pdf.Value, parent Field, visited map[pdf.Ptr]bool, depth int, vis visitor) bool {
+// visit identifies a node of the walk. A conforming field has one parent, but
+// a crafted tree can reach the same object under parents that pass down
+// different types; it is then walked once per type, so a signature field is
+// found however it is reached, while a cycle still ends.
+type visit struct {
+	ptr pdf.Ptr
+	typ string
+}
+
+func walk(kids pdf.Value, parent Field, visited map[visit]bool, depth int, vis visitor) bool {
 	if kids.Kind() != pdf.Array || depth > MaxDepth {
 		return true
 	}
@@ -85,22 +94,22 @@ func walk(kids pdf.Value, parent Field, visited map[pdf.Ptr]bool, depth int, vis
 
 // node visits one entry of a /Fields or /Kids array. container is that array,
 // or a null value when the entry is visited on its own.
-func node(field, container pdf.Value, parent Field, visited map[pdf.Ptr]bool, depth int, vis visitor) bool {
+func node(field, container pdf.Value, parent Field, visited map[visit]bool, depth int, vis visitor) bool {
 	if !isField(field) {
 		return true
+	}
+	f := Field{Dict: field, Name: parent.Name, Type: field.Key("FT").Name(), Value: field.Key("V")}
+	if f.Type == "" {
+		f.Type = parent.Type
 	}
 	// A dictionary written directly into the array carries the array's own
 	// pointer, so only an indirect object identifies a node.
 	if ptr := field.GetPtr(); container.IsNull() || ptr != container.GetPtr() {
-		if visited[ptr] {
+		key := visit{ptr, f.Type}
+		if visited[key] {
 			return true
 		}
-		visited[ptr] = true
-	}
-
-	f := Field{Dict: field, Name: parent.Name, Type: field.Key("FT").Name(), Value: field.Key("V")}
-	if f.Type == "" {
-		f.Type = parent.Type
+		visited[key] = true
 	}
 	if f.Value.IsNull() {
 		f.Value = parent.Value

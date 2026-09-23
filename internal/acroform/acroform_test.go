@@ -88,6 +88,17 @@ func TestSignatureFields(t *testing.T) {
 			},
 			want: []string{"sig1"},
 		},
+		"a field shared by parents of different types": {
+			// Reached first under a text field, X inherits /Tx and is not a
+			// signature; under the signature field it is, and is reported.
+			fields: "[4 0 R 6 0 R]",
+			objects: []string{
+				"<< /T (a) /FT /Tx /V (x) /Kids [7 0 R] >>", sig,
+				"<< /T (b) /FT /Sig /Kids [7 0 R] >>",
+				"<< /T (x) /V 5 0 R >>",
+			},
+			want: []string{"x"},
+		},
 		"a field referencing itself": {
 			fields:  "[4 0 R]",
 			objects: []string{"<< /T (self) /FT /Sig /Kids [4 0 R] >>"},
