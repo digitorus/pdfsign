@@ -104,22 +104,10 @@ func (b *VerifyBuilder) doExecute() {
 		b.document.Pages = int(pages.Int64())
 	}
 
-	// Iterate Signatures
-	count := 0
-	for sig, err := range b.doc.Signatures() {
-		if err != nil {
-			b.err = fmt.Errorf("verification failed: could not iterate signatures: %w", err)
-			return
-		}
-		count++
-
-		// Call internal verify logic
-		signer, err := verify.VerifySignature(sig.Object(), b.doc.reader, b.doc.size, vOpts)
-		if err != nil {
-			// Legacy behavior: skip signatures that can't be processed or verified
-			continue
-		}
-
+	// Verify the signatures: the ones the field tree reaches, and any that an
+	// earlier revision held but the current tree no longer does.
+	signers, count := verify.VerifySignatures(b.doc.rdr, b.doc.reader, b.doc.size, vOpts)
+	for _, signer := range signers {
 		// Map Signer to SignatureVerifyResult
 		sigResult := SignatureVerifyResult{
 			SignatureInfo: SignatureInfo{

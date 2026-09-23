@@ -20,14 +20,27 @@ import (
 )
 
 // VerifySignature processes a single digital signature found in the PDF.
+//
+// VerifySignatures verifies every signature a document holds, including one
+// that an incremental update removed from the field tree; this verifies the
+// one given.
 func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, error) {
+	signer, _, err := verifyDocumentSignature(v, file, fileSize, options)
+	return signer, err
+}
+
+// verifyDocumentSignature verifies the signature dictionary v. The reader returned
+// is over the revision the signature covers, when that could be read, so a
+// caller can find the signatures that revision held; it is set whether or
+// not verification got further.
+func verifyDocumentSignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *VerifyOptions) (*Signer, *pdf.Reader, error) {
 	signer := NewSigner()
 
 	// Validate the signature dictionary as it was signed, not as the current
 	// cross-reference table presents it; see signedSignatureDictionary.
 	v, revision, ok := signedSignatureDictionary(v, file, fileSize, signer, options.Password)
 	if !ok {
-		return signer, nil
+		return signer, revision, nil
 	}
 
 	signer.Name = v.Key("Name").Text()
@@ -38,7 +51,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 	// Check for DocMDP and incremental updates
 	if err := checkDocMDP(v, revision, file, fileSize, signer, options.Password); err != nil {
 		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("DocMDP validation failed: %v", err)})
-		return signer, nil
+		return signer, revision, nil
 	}
 
 	// Parse signature time if available from the signature object
@@ -53,7 +66,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 	rawSignature := []byte(v.Key("Contents").RawString())
 	p7, err := pkcs7.Parse(rawSignature)
 	if err != nil {
-		return signer, fmt.Errorf("failed to parse PKCS#7: %w", err)
+		return signer, revision, fmt.Errorf("failed to parse PKCS#7: %w", err)
 	}
 
 	isDocTimeStamp := (v.Key("SubFilter").Name() == "ETSI.RFC3161")
@@ -64,7 +77,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 		pdfBytes, err := readByteRange(v, file)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to read ByteRange: %v", err)})
-			return signer, nil
+			return signer, revision, nil
 		}
 
 		// Parse TSTInfo to check MessageImprint.
@@ -73,7 +86,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 		ts, err := timestamp.Parse(rawSignature)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to parse TSTInfo: %v", err)})
-			return signer, nil
+			return signer, revision, nil
 		}
 		signer.TimeStamp = ts
 
@@ -82,7 +95,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 		h.Write(pdfBytes)
 		if !bytes.Equal(h.Sum(nil), ts.HashedMessage) {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: "timestamp hash does not match"})
-			return signer, nil
+			return signer, revision, nil
 		}
 
 		// Verify reference to the previous signature (if available).
@@ -96,7 +109,7 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 		if err != nil {
 			// Specific error for DocTimeStamp
 			signer.ValidationErrors = append(signer.ValidationErrors, &InvalidSignatureError{Msg: fmt.Sprintf("Failed to verify timestamp signature: %v", err)})
-			return signer, nil
+			return signer, revision, nil
 		}
 
 	} else {
@@ -105,21 +118,21 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 		err = processByteRange(v, file, p7)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to process ByteRange: %v", err)})
-			return signer, nil
+			return signer, revision, nil
 		}
 
 		// Process timestamp if present (as an attribute)
 		err = processTimestamp(p7, signer)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to process timestamp: %v", err)})
-			return signer, nil
+			return signer, revision, nil
 		}
 
 		// Verify the digital signature
 		err = verifySignature(p7, signer)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &InvalidSignatureError{Msg: fmt.Sprintf("Failed to verify signature: %v", err)})
-			return signer, nil
+			return signer, revision, nil
 		}
 	}
 
@@ -135,10 +148,10 @@ func VerifySignature(v pdf.Value, file io.ReaderAt, fileSize int64, options *Ver
 	// Check algorithm constraints
 	if algoErr := verifyAlgorithmAndKeySize(signer, p7, options); algoErr != nil {
 		signer.ValidationErrors = append(signer.ValidationErrors, &PolicyError{Msg: fmt.Sprintf("Algorithm verification failed: %v", algoErr)})
-		return signer, nil
+		return signer, revision, nil
 	}
 
-	return signer, nil
+	return signer, revision, nil
 }
 
 func verifyAlgorithmAndKeySize(signer *Signer, p7 *pkcs7.PKCS7, options *VerifyOptions) error {

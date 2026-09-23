@@ -2,7 +2,6 @@ package verify_test
 
 import (
 	"bytes"
-	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -13,10 +12,7 @@ import (
 	"github.com/digitorus/pdfsign/verify"
 )
 
-var (
-	referenceEntry = regexp.MustCompile(`(?s)\s*/Reference \[.*?\]`)
-	lastStartxref  = regexp.MustCompile(`startxref\r?\n(\d+)\r?\n%%EOF\r?\n?$`)
-)
+var referenceEntry = regexp.MustCompile(`(?s)\s*/Reference \[.*?\]`)
 
 // TestVerifyRedefinedSignatureDictionary certifies a document with pdfsign,
 // then appends an incremental update that redefines the signature dictionary
@@ -53,37 +49,17 @@ func TestVerifyRedefinedSignatureDictionary(t *testing.T) {
 	if objectNumber == 0 || sig.Key("Reference").IsNull() {
 		t.Fatal("signature dictionary with a /Reference not found in the signed file")
 	}
-	rootPtr := trailer.Key("Root").GetPtr()
 
-	object := regexp.MustCompile(fmt.Sprintf(`(?s)\n%d 0 obj\r?\n(.*?)\r?\nendobj`, objectNumber)).FindSubmatch(original)
-	if object == nil {
-		t.Fatalf("object %d not found in the signed file", objectNumber)
-	}
-	stripped := referenceEntry.ReplaceAllString(string(object[1]), "")
-	if stripped == string(object[1]) {
+	object := objectText(t, original, objectNumber)
+	stripped := referenceEntry.ReplaceAllString(object, "")
+	if stripped == object {
 		t.Fatal("no /Reference entry to strip from the signature dictionary")
 	}
 
-	prev := lastStartxref.FindSubmatch(original)
-	if prev == nil {
-		t.Fatal("startxref of the signed file not found")
-	}
+	// Revision 2: the redefined signature dictionary.
+	tampered := appendUpdate(t, original, trailer, objectNumber, stripped)
 
-	// Revision 2: the redefined signature dictionary and a classic
-	// cross-reference section chained to the signed revision.
-	var tampered bytes.Buffer
-	tampered.Write(original)
-	if !bytes.HasSuffix(original, []byte("\n")) {
-		tampered.WriteString("\n")
-	}
-	offset := tampered.Len()
-	fmt.Fprintf(&tampered, "%d 0 obj\n%s\nendobj\n", objectNumber, stripped)
-	xref := tampered.Len()
-	fmt.Fprintf(&tampered, "xref\n0 1\n0000000000 65535 f \n%d 1\n%010d 00000 n \n", objectNumber, offset)
-	fmt.Fprintf(&tampered, "trailer\n<< /Size %d /Root %d %d R /Prev %s >>\nstartxref\n%d\n%%%%EOF\n",
-		trailer.Key("Size").Int64(), rootPtr.GetID(), rootPtr.GetGen(), string(prev[1]), xref)
-
-	response, err := verify.VerifyWithOptions(bytes.NewReader(tampered.Bytes()), int64(tampered.Len()), verify.DefaultVerifyOptions())
+	response, err := verify.VerifyWithOptions(bytes.NewReader(tampered), int64(len(tampered)), verify.DefaultVerifyOptions())
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
