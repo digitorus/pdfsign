@@ -39,14 +39,26 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 
+	// A certification signature has to be referenced from the catalog /Perms
+	// dictionary (see writePermsWithDocMDP below). Any existing /Perms is
+	// rewritten there, merged with the new /DocMDP entry, so it is skipped here
+	// to avoid emitting the key twice.
+	writeDocMDP := context.SignData.Signature.CertType == CertificationSignature
+
 	// Copy over existing catalog entries except for type and AcroForum
 	for _, key := range root.Keys() {
-		if key != "Type" && key != "AcroForm" {
-			_, _ = fmt.Fprintf(&catalog_buffer, "  /%s ", key)
+		if key != "Type" && key != "AcroForm" && (!writeDocMDP || key != "Perms") {
+			_, _ = fmt.Fprintf(&catalog_buffer, "  %s ", pdfName(key))
 			if err := context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key)); err != nil {
 				return nil, fmt.Errorf("failed to serialize catalog entry %q: %w", key, err)
 			}
 			catalog_buffer.WriteString("\n")
+		}
+	}
+
+	if writeDocMDP {
+		if err := context.writePermsWithDocMDP(&catalog_buffer, root.Key("Perms")); err != nil {
+			return nil, err
 		}
 	}
 
@@ -131,7 +143,55 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	return catalog_buffer.Bytes(), nil
 }
 
+// writePermsWithDocMDP writes the catalog /Perms dictionary for a certification
+// signature, preserving any entries the existing /Perms already carried.
+//
+// ISO 32000-1 12.8.2.2, "DocMDP":
+//
+//	A document can contain only one signature field that contains a DocMDP
+//	transform method; it shall be the first signed field in the document. The
+//	Perms entry in the document catalog dictionary (see 7.7.2, "Document catalog
+//	dictionary") shall contain a DocMDP entry whose value is the signature
+//	dictionary of that signature field.
+//
+// Both halves are required. The /P value in the signature dictionary's
+// /Reference -> /TransformParams states the permission level, while this /Perms
+// entry is what makes a conforming reader apply it. Without /Perms the output is
+// read as an ordinary approval signature: Acrobat shows no "Certified by" banner
+// and the DocMDP restriction is not enforced.
+//
+// validateCertificationSignature has already rejected a document that cannot
+// take a certification signature, so perms is either null or a dictionary
+// without a /DocMDP entry. SignData.objectId holds the signature dictionary's
+// object number; it is set by addSignatureObject, which SignPDF runs before
+// addCatalog.
+func (context *SignContext) writePermsWithDocMDP(w io.Writer, perms pdf.Value) error {
+	_, _ = io.WriteString(w, "  /Perms <<\n")
+
+	// Direct values inside /Perms carry the pointer of the object they were
+	// read from: the catalog when /Perms is written inline, or the /Perms
+	// object itself when it is indirect. serializeCatalogEntry needs that
+	// pointer, not the catalog's, to tell them apart from references.
+	permsObjId := perms.GetPtr().GetID()
+	for _, key := range perms.Keys() {
+		_, _ = fmt.Fprintf(w, "    %s ", pdfName(key))
+		if err := context.serializeCatalogEntry(w, permsObjId, perms.Key(key)); err != nil {
+			return fmt.Errorf("failed to serialize /Perms entry %q: %w", key, err)
+		}
+		_, _ = io.WriteString(w, "\n")
+	}
+
+	_, _ = fmt.Fprintf(w, "    /DocMDP %d 0 R\n", context.SignData.objectId)
+	_, _ = io.WriteString(w, "  >>\n")
+
+	return nil
+}
+
 // serializeCatalogEntry takes a pdf.Value and serializes it to the given writer.
+//
+// The reader decodes string escapes and #-encoded name characters, so both are
+// re-encoded on the way out: a copied value that contains a delimiter must not
+// be able to end its own token and continue as catalog structure.
 func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32, value pdf.Value) error {
 	if ptr := value.GetPtr(); ptr.GetID() > 0 && ptr.GetID() != rootObjId {
 		// Indirect object
@@ -142,7 +202,7 @@ func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32,
 	// Direct object
 	switch value.Kind() {
 	case pdf.String:
-		_, _ = fmt.Fprintf(w, "(%s)", value.RawString())
+		_, _ = io.WriteString(w, pdfLiteralString(value.RawString()))
 	case pdf.Null:
 		_, _ = fmt.Fprint(w, "null")
 	case pdf.Bool:
@@ -156,14 +216,14 @@ func (context *SignContext) serializeCatalogEntry(w io.Writer, rootObjId uint32,
 	case pdf.Real:
 		_, _ = fmt.Fprintf(w, "%f", value.Float64())
 	case pdf.Name:
-		_, _ = fmt.Fprintf(w, "/%s", value.Name())
+		_, _ = io.WriteString(w, pdfName(value.Name()))
 	case pdf.Dict:
 		_, _ = fmt.Fprint(w, "<<")
 		for idx, key := range value.Keys() {
 			if idx > 0 {
 				_, _ = fmt.Fprint(w, " ") // Space between items
 			}
-			_, _ = fmt.Fprintf(w, "/%s ", key)
+			_, _ = fmt.Fprintf(w, "%s ", pdfName(key))
 			if err := context.serializeCatalogEntry(w, rootObjId, value.Key(key)); err != nil {
 				return err
 			}
