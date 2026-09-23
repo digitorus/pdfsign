@@ -104,22 +104,15 @@ func (b *VerifyBuilder) doExecute() {
 		b.document.Pages = int(pages.Int64())
 	}
 
-	// Iterate Signatures
+	// Verify the signatures: the ones the field tree reaches, and any that a
+	// signed revision held but the current tree no longer does. A document
+	// without /SigFlags declares no signatures.
+	var signers []*verify.Signer
 	count := 0
-	for sig, err := range b.doc.Signatures() {
-		if err != nil {
-			b.err = fmt.Errorf("verification failed: could not iterate signatures: %w", err)
-			return
-		}
-		count++
-
-		// Call internal verify logic
-		signer, err := verify.VerifySignature(sig.Object(), b.doc.reader, b.doc.size, vOpts)
-		if err != nil {
-			// Legacy behavior: skip signatures that can't be processed or verified
-			continue
-		}
-
+	if !b.doc.rdr.Trailer().Key("Root").Key("AcroForm").Key("SigFlags").IsNull() {
+		signers, count = verify.VerifySignatures(b.doc.rdr, b.doc.reader, b.doc.size, vOpts)
+	}
+	for _, signer := range signers {
 		// Map Signer to SignatureVerifyResult
 		sigResult := SignatureVerifyResult{
 			SignatureInfo: SignatureInfo{

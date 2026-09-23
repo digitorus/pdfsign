@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
-	"github.com/digitorus/pdfsign/internal/acroform"
 )
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -120,47 +119,20 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 		return nil, fmt.Errorf("no digital signature in document (SigFlags missing)")
 	}
 
-	// foundField tracks whether a signature field was encountered.
-	// foundSignature tracks whether at least one was successfully processed.
-	foundField := false
-	foundSignature := false
-
-	acroform.SignatureFields(root, func(field pdf.Value) bool {
-		// Get the signature dictionary (the value of the field)
-		v := field.Key("V")
-
-		// Verify if it is a signature dictionary and has the correct filter
-		if v.IsNull() || v.Key("Filter").Name() != "Adobe.PPKLite" {
-			return true
-		}
-		foundField = true
-
-		// Use the new modular signature processing function
-		signer, err := VerifySignature(v, file, size, options)
-		if err != nil {
-			// Skip this signature if there's a critical error
-			return true // Continue to next
-		}
-
-		// Mark at least one signature as successfully processed
-		foundSignature = true
-
+	signers, found := VerifySignatures(rdr, file, size, options)
+	if found == 0 {
+		return nil, fmt.Errorf("inconsistent PDF: SigFlags implies signatures but none found in AcroForm Fields")
+	}
+	if len(signers) == 0 {
+		return nil, fmt.Errorf("found signature fields but failed to process any signatures")
+	}
+	for _, signer := range signers {
 		// Set any error message if present (Legacy API support)
 		if len(signer.ValidationErrors) > 0 && apiResp.Error == "" {
 			// For legacy single-string error, we use the first validation error
 			apiResp.Error = signer.ValidationErrors[0].Error()
 		}
-
 		apiResp.Signers = append(apiResp.Signers, *signer)
-		return true
-	})
-
-	if !foundField {
-		return nil, fmt.Errorf("inconsistent PDF: SigFlags implies signatures but none found in AcroForm Fields")
-	}
-
-	if foundField && !foundSignature {
-		return nil, fmt.Errorf("found signature fields but failed to process any signatures")
 	}
 
 	if apiResp == nil {
