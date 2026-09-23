@@ -39,15 +39,15 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	rootPtr := root.GetPtr()
 	context.CatalogData.RootString = strconv.Itoa(int(rootPtr.GetID())) + " " + strconv.Itoa(int(rootPtr.GetGen())) + " R"
 
-	// A certification signature has to be referenced from the catalog /Perms
-	// dictionary (see writePermsWithDocMDP below). Any existing /Perms is
-	// rewritten there, merged with the new /DocMDP entry, so it is skipped here
-	// to avoid emitting the key twice.
-	writeDocMDP := context.SignData.Signature.CertType == CertificationSignature
+	// A certification or usage rights signature has to be referenced from the
+	// catalog /Perms dictionary (see writePerms below). Any existing /Perms is
+	// rewritten there, merged with the new entry, so it is skipped here to
+	// avoid emitting the key twice.
+	permsKey := context.permsKey()
 
 	// Copy over existing catalog entries except for type and AcroForum
 	for _, key := range root.Keys() {
-		if key != "Type" && key != "AcroForm" && (!writeDocMDP || key != "Perms") {
+		if key != "Type" && key != "AcroForm" && (permsKey == "" || key != "Perms") {
 			_, _ = fmt.Fprintf(&catalog_buffer, "  %s ", pdfName(key))
 			if err := context.serializeCatalogEntry(&catalog_buffer, rootPtr.GetID(), root.Key(key)); err != nil {
 				return nil, fmt.Errorf("failed to serialize catalog entry %q: %w", key, err)
@@ -56,8 +56,8 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 		}
 	}
 
-	if writeDocMDP {
-		if err := context.writePermsWithDocMDP(&catalog_buffer, root.Key("Perms")); err != nil {
+	if permsKey != "" {
+		if err := context.writePerms(&catalog_buffer, root.Key("Perms"), permsKey); err != nil {
 			return nil, err
 		}
 	}
@@ -143,8 +143,23 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 	return catalog_buffer.Bytes(), nil
 }
 
-// writePermsWithDocMDP writes the catalog /Perms dictionary for a certification
-// signature, preserving any entries the existing /Perms already carried.
+// permsKey returns the entry of the catalog /Perms dictionary (ISO 32000-1
+// Table 258) that has to reference the new signature dictionary: /DocMDP for a
+// certification signature, /UR3 for a usage rights signature, and nothing for
+// the other signature types.
+func (context *SignContext) permsKey() string {
+	switch context.SignData.Signature.CertType {
+	case CertificationSignature:
+		return "DocMDP"
+	case UsageRightsSignature:
+		return "UR3"
+	}
+	return ""
+}
+
+// writePerms writes the catalog /Perms dictionary with the given entry pointing
+// at the new signature dictionary, preserving any entries the existing /Perms
+// already carried.
 //
 // ISO 32000-1 12.8.2.2, "DocMDP":
 //
@@ -158,14 +173,14 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 // /Reference -> /TransformParams states the permission level, while this /Perms
 // entry is what makes a conforming reader apply it. Without /Perms the output is
 // read as an ordinary approval signature: Acrobat shows no "Certified by" banner
-// and the DocMDP restriction is not enforced.
+// and the DocMDP restriction is not enforced. A usage rights signature is bound
+// to the document the same way through the /UR3 entry (12.8.2.3, "UR").
 //
-// validateCertificationSignature has already rejected a document that cannot
-// take a certification signature, so perms is either null or a dictionary
-// without a /DocMDP entry. SignData.objectId holds the signature dictionary's
-// object number; it is set by addSignatureObject, which SignPDF runs before
-// addCatalog.
-func (context *SignContext) writePermsWithDocMDP(w io.Writer, perms pdf.Value) error {
+// validatePermsSignature has already rejected a document that cannot take the
+// signature, so perms is either null or a dictionary without the entry.
+// SignData.objectId holds the signature dictionary's object number; it is set
+// by addSignatureObject, which SignPDF runs before addCatalog.
+func (context *SignContext) writePerms(w io.Writer, perms pdf.Value, key string) error {
 	_, _ = io.WriteString(w, "  /Perms <<\n")
 
 	// Direct values inside /Perms carry the pointer of the object they were
@@ -173,15 +188,15 @@ func (context *SignContext) writePermsWithDocMDP(w io.Writer, perms pdf.Value) e
 	// object itself when it is indirect. serializeCatalogEntry needs that
 	// pointer, not the catalog's, to tell them apart from references.
 	permsObjId := perms.GetPtr().GetID()
-	for _, key := range perms.Keys() {
-		_, _ = fmt.Fprintf(w, "    %s ", pdfName(key))
-		if err := context.serializeCatalogEntry(w, permsObjId, perms.Key(key)); err != nil {
-			return fmt.Errorf("failed to serialize /Perms entry %q: %w", key, err)
+	for _, existing := range perms.Keys() {
+		_, _ = fmt.Fprintf(w, "    %s ", pdfName(existing))
+		if err := context.serializeCatalogEntry(w, permsObjId, perms.Key(existing)); err != nil {
+			return fmt.Errorf("failed to serialize /Perms entry %q: %w", existing, err)
 		}
 		_, _ = io.WriteString(w, "\n")
 	}
 
-	_, _ = fmt.Fprintf(w, "    /DocMDP %d 0 R\n", context.SignData.objectId)
+	_, _ = fmt.Fprintf(w, "    /%s %d 0 R\n", key, context.SignData.objectId)
 	_, _ = io.WriteString(w, "  >>\n")
 
 	return nil

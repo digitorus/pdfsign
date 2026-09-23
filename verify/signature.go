@@ -313,65 +313,121 @@ func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
 }
 
 // checkDocMDP verifies Document Modification Detection and Prevention permissions.
+//
+// ISO 32000-1 12.8.2.2: the certification signature is the one the document
+// catalog's /Perms /DocMDP entry references. The DocMDP transform in the
+// signature's /Reference states the permission level, but only that catalog
+// entry makes a conforming reader apply it; a signature that carries the
+// transform without being referenced from /Perms is an approval signature to
+// every reader, so its permission level is not enforced here either. The
+// catalog is read from the revision the signature covers, since an update
+// appended later could otherwise remove the entry and switch enforcement off;
+// when that revision cannot be read, the transform is enforced as declared.
 func checkDocMDP(v pdf.Value, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
-	refs := v.Key("Reference")
-	if refs.IsNull() || refs.Kind() != pdf.Array {
+	transform, ok := docMDPTransform(v.Key("Reference"))
+	if !ok {
 		return nil
 	}
 
-	for i := 0; i < refs.Len(); i++ {
-		ref := refs.Index(i)
-		transform := ref.Key("TransformMethod")
-		if transform.Name() == "DocMDP" {
-			// Found DocMDP
-			perms := 2 // Default
-			params := ref.Key("TransformParams")
-			if !params.IsNull() {
-				p := params.Key("P")
-				if !p.IsNull() {
-					perms = int(p.Int64())
-				}
+	br := v.Key("ByteRange")
+	if br.Len() < 4 {
+		return nil // Should fail elsewhere if ByteRange is bad
+	}
+
+	// End of the signed range
+	signedEnd := br.Index(2).Int64() + br.Index(3).Int64()
+	if signedEnd <= 0 || signedEnd > fileSize {
+		return nil
+	}
+
+	switch referenced, known := catalogReferencesDocMDP(v, io.NewSectionReader(file, 0, signedEnd), signedEnd, password); {
+	case !known:
+		signer.Warnings = append(signer.Warnings, &Warning{
+			Msg: "the revision this signature covers could not be read to check the document catalog /Perms; the DocMDP transform is enforced as declared",
+		})
+	case !referenced:
+		signer.Warnings = append(signer.Warnings, &Warning{
+			Msg: "signature declares a DocMDP transform but the document catalog /Perms does not reference it; readers treat it as an approval signature and its permission level is not applied",
+		})
+		return nil
+	}
+
+	perms := 2 // Default
+	params := transform.Key("TransformParams")
+	if !params.IsNull() {
+		p := params.Key("P")
+		if !p.IsNull() {
+			perms = int(p.Int64())
+		}
+	}
+
+	// Detect if there are modifications (bytes appended)
+	if fileSize > signedEnd {
+		// We have an incremental update
+
+		// P=1: No changes permitted
+		if perms == 1 {
+			// Strictly invalid
+			return fmt.Errorf("incremental update found but P=1 (NoChanges) permits none")
+		}
+
+		// P=2 (form filling) and P=3 (annotations) permit an
+		// incremental update, but never one that rewrites a page's
+		// own content stream or resources - legitimate form fills,
+		// new signatures, and new annotations are always written as
+		// new, additional objects. An update that also rewrites page
+		// content in the same pass (hidden behind a permitted
+		// change) is the PDF "Shadow Attack" pattern (Mainka et al.,
+		// USENIX Security 2021); reject it rather than merely warn.
+		if perms == 2 || perms == 3 {
+			if err := checkIncrementalUpdateScope(file, fileSize, signedEnd, password); err != nil {
+				return err
 			}
-
-			// Check for incremental updates
-			br := v.Key("ByteRange")
-			if br.Len() < 4 {
-				return nil // Should fail elsewhere if ByteRange is bad
-			}
-
-			// End of the signed range
-			signedEnd := br.Index(2).Int64() + br.Index(3).Int64()
-
-			// Detect if there are modifications (bytes appended)
-			if fileSize > signedEnd {
-				// We have an incremental update
-
-				// P=1: No changes permitted
-				if perms == 1 {
-					// Strictly invalid
-					return fmt.Errorf("incremental update found but P=1 (NoChanges) permits none")
-				}
-
-				// P=2 (form filling) and P=3 (annotations) permit an
-				// incremental update, but never one that rewrites a page's
-				// own content stream or resources - legitimate form fills,
-				// new signatures, and new annotations are always written as
-				// new, additional objects. An update that also rewrites page
-				// content in the same pass (hidden behind a permitted
-				// change) is the PDF "Shadow Attack" pattern (Mainka et al.,
-				// USENIX Security 2021); reject it rather than merely warn.
-				if perms == 2 || perms == 3 {
-					if err := checkIncrementalUpdateScope(file, fileSize, signedEnd, password); err != nil {
-						return err
-					}
-					signer.Warnings = append(signer.Warnings, &Warning{
-						Msg: fmt.Sprintf("DocMDP P=%d: incremental update found; page content/resources were not among the objects it rewrote", perms),
-					})
-				}
-			}
+			signer.Warnings = append(signer.Warnings, &Warning{
+				Msg: fmt.Sprintf("DocMDP P=%d: incremental update found; page content/resources were not among the objects it rewrote", perms),
+			})
 		}
 	}
 	return nil
+}
+
+// docMDPTransform returns the signature reference dictionary whose transform
+// method is DocMDP, if the /Reference array carries one.
+func docMDPTransform(refs pdf.Value) (pdf.Value, bool) {
+	if refs.IsNull() || refs.Kind() != pdf.Array {
+		return pdf.Value{}, false
+	}
+	for i := 0; i < refs.Len(); i++ {
+		ref := refs.Index(i)
+		if ref.Key("TransformMethod").Name() == "DocMDP" {
+			return ref, true
+		}
+	}
+	return pdf.Value{}, false
+}
+
+// catalogReferencesDocMDP reports whether the document catalog's /Perms /DocMDP
+// entry, as read from the given (signed) revision of the file, is the signature
+// dictionary v. known is false when that revision could not be read.
+func catalogReferencesDocMDP(v pdf.Value, revision io.ReaderAt, size int64, password string) (referenced, known bool) {
+	rdr, err := pdf.NewReaderEncrypted(revision, size, passwordFunc(password))
+	if err != nil {
+		return false, false
+	}
+	docMDP := rdr.Trailer().Key("Root").Key("Perms").Key("DocMDP")
+	if docMDP.IsNull() {
+		return false, true
+	}
+
+	// Both are normally the same indirect object.
+	if id := v.GetPtr().GetID(); id > 0 && docMDP.GetPtr().GetID() == id {
+		return true, true
+	}
+	// Either may instead be written directly into its container and then
+	// carries that container's pointer; the signature bytes identify the
+	// dictionary in that case.
+	contents := v.Key("Contents").RawString()
+	return contents != "" && docMDP.Key("Contents").RawString() == contents, true
 }
 
 // objDefPattern matches a classic PDF indirect object definition header

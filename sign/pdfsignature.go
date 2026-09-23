@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/digitorus/pdf"
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
 	"golang.org/x/crypto/cryptobyte"
@@ -624,26 +625,12 @@ func (context *SignContext) replaceSignature() error {
 func (context *SignContext) fetchExistingSignatures() ([]SignData, error) {
 	var signatures []SignData
 
-	acroForm := context.PDFReader.Trailer().Key("Root").Key("AcroForm")
-	if acroForm.IsNull() {
-		return signatures, nil
-	}
-
-	fields := acroForm.Key("Fields")
-	if fields.IsNull() {
-		return signatures, nil
-	}
-
-	for i := 0; i < fields.Len(); i++ {
-		field := fields.Index(i)
-		if field.Key("FT").Name() == "Sig" {
-			ptr := field.GetPtr()
-			sig := SignData{
-				objectId: uint32(ptr.GetID()),
-			}
-			signatures = append(signatures, sig)
-		}
-	}
+	context.walkSignatureFields(func(field pdf.Value) bool {
+		signatures = append(signatures, SignData{
+			objectId: uint32(field.GetPtr().GetID()),
+		})
+		return true
+	})
 
 	return signatures, nil
 }

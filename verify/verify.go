@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/acroform"
 )
 
 // DefaultVerifyOptions returns the default verification options following RFC 9336
@@ -119,63 +120,40 @@ func VerifyWithOptions(file io.ReaderAt, size int64, options *VerifyOptions) (ap
 		return nil, fmt.Errorf("no digital signature in document (SigFlags missing)")
 	}
 
-	// Iterate over the AcroForm Fields to find signature fields
-	fields := acroForm.Key("Fields")
 	// foundField tracks whether a signature field was encountered.
 	// foundSignature tracks whether at least one was successfully processed.
 	foundField := false
 	foundSignature := false
 
-	var traverse func(pdf.Value) bool
-	traverse = func(arr pdf.Value) bool {
-		if !arr.IsNull() && arr.Kind() == pdf.Array {
-			for i := 0; i < arr.Len(); i++ {
-				field := arr.Index(i)
+	acroform.SignatureFields(root, func(field pdf.Value) bool {
+		// Get the signature dictionary (the value of the field)
+		v := field.Key("V")
 
-				// Check if this field is a signature
-				if field.Key("FT").Name() == "Sig" {
-					// Get the signature dictionary (the value of the field)
-					v := field.Key("V")
-
-					// Verify if it is a signature dictionary and has the correct filter
-					if !v.IsNull() && v.Key("Filter").Name() == "Adobe.PPKLite" {
-						foundField = true
-
-						// Use the new modular signature processing function
-						signer, err := VerifySignature(v, file, size, options)
-						if err != nil {
-							// Skip this signature if there's a critical error
-							return true // Continue to next
-						}
-
-						// Mark at least one signature as successfully processed
-						foundSignature = true
-
-						// Set any error message if present (Legacy API support)
-						if len(signer.ValidationErrors) > 0 && apiResp.Error == "" {
-							// For legacy single-string error, we use the first validation error
-							apiResp.Error = signer.ValidationErrors[0].Error()
-						}
-
-						apiResp.Signers = append(apiResp.Signers, *signer)
-					}
-				}
-
-				// Recurse into Kids
-				kids := field.Key("Kids")
-				if !kids.IsNull() {
-					if !traverse(kids) {
-						return false
-					}
-				}
-			}
+		// Verify if it is a signature dictionary and has the correct filter
+		if v.IsNull() || v.Key("Filter").Name() != "Adobe.PPKLite" {
+			return true
 		}
-		return true
-	}
+		foundField = true
 
-	if !fields.IsNull() {
-		traverse(fields)
-	}
+		// Use the new modular signature processing function
+		signer, err := VerifySignature(v, file, size, options)
+		if err != nil {
+			// Skip this signature if there's a critical error
+			return true // Continue to next
+		}
+
+		// Mark at least one signature as successfully processed
+		foundSignature = true
+
+		// Set any error message if present (Legacy API support)
+		if len(signer.ValidationErrors) > 0 && apiResp.Error == "" {
+			// For legacy single-string error, we use the first validation error
+			apiResp.Error = signer.ValidationErrors[0].Error()
+		}
+
+		apiResp.Signers = append(apiResp.Signers, *signer)
+		return true
+	})
 
 	if !foundField {
 		return nil, fmt.Errorf("inconsistent PDF: SigFlags implies signatures but none found in AcroForm Fields")

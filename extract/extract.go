@@ -6,6 +6,7 @@ import (
 	"iter"
 
 	pdflib "github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign/internal/acroform"
 )
 
 // Signature represents a signature dictionary in the PDF.
@@ -77,47 +78,27 @@ func Iter(rdr *pdflib.Reader, file io.ReaderAt) iter.Seq2[*Signature, error] {
 			return
 		}
 
-		fields := acroForm.Key("Fields")
+		acroform.SignatureFields(root, func(field pdflib.Value) bool {
+			v := field.Key("V")
+			isSig := false
+			sigType := v.Key("Type").Name()
+			if sigType == "Sig" || sigType == "DocTimeStamp" {
+				isSig = true
+			} else if !v.Key("Filter").IsNull() && !v.Key("Contents").IsNull() {
+				isSig = true
+			}
 
-		var traverse func(pdflib.Value) bool
-		traverse = func(arr pdflib.Value) bool {
-			if !arr.IsNull() && arr.Kind() == pdflib.Array {
-				for i := 0; i < arr.Len(); i++ {
-					field := arr.Index(i)
-
-					if field.Key("FT").Name() == "Sig" {
-						v := field.Key("V")
-						isSig := false
-						sigType := v.Key("Type").Name()
-						if sigType == "Sig" || sigType == "DocTimeStamp" {
-							isSig = true
-						} else if !v.Key("Filter").IsNull() && !v.Key("Contents").IsNull() {
-							isSig = true
-						}
-
-						if isSig {
-							sig := &Signature{
-								Obj:  v,
-								File: file,
-							}
-							if !yield(sig, nil) {
-								return false
-							}
-						}
-					}
-
-					kids := field.Key("Kids")
-					if !kids.IsNull() {
-						if !traverse(kids) {
-							return false
-						}
-					}
+			if isSig {
+				sig := &Signature{
+					Obj:  v,
+					File: file,
+				}
+				if !yield(sig, nil) {
+					return false
 				}
 			}
 			return true
-		}
-
-		traverse(fields)
+		})
 	}
 }
 
