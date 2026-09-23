@@ -373,7 +373,7 @@ func signedSignatureDictionary(v pdf.Value, file io.ReaderAt, fileSize int64, si
 	revision, err := pdf.NewReaderEncrypted(io.NewSectionReader(file, 0, signedEnd), signedEnd, passwordFunc(password))
 	if err != nil {
 		signer.Warnings = append(signer.Warnings, &Warning{
-			Msg: "the revision this signature covers could not be read; the signature dictionary is taken from the current file and a DocMDP transform is enforced as declared",
+			Msg: "the revision this signature covers could not be read; the signature dictionary is taken from the current file, and changes after signing cannot be checked against a DocMDP transform it declares",
 		})
 		return v, nil, true
 	}
@@ -508,8 +508,9 @@ func canonicalEntry(container, entry pdf.Value, depth int) string {
 //
 // The incremental updates after the signed revision are then held against
 // the permission level: every change they make has to be one the level
-// permits (see checkPermittedChanges). current reads the whole document, or
-// is nil to have it opened here.
+// permits (see checkPermittedChanges), which needs the signed revision; an
+// update after a revision that cannot be read fails. current reads the whole
+// document, or is nil to have it opened here.
 func checkDocMDP(v pdf.Value, revision, current *pdf.Reader, file io.ReaderAt, fileSize int64, signer *Signer, password string) error {
 	transform, ok := docMDPTransform(v.Key("Reference"))
 	if !ok {

@@ -32,6 +32,32 @@ var certifiedForm = []string{
 	"<< /Producer (fixture) >>",
 }
 
+// templatedForm is certifiedForm with a page template named in the catalog
+// (object 13), so that a page may be instantiated from it.
+var templatedForm = append(append([]string(nil), certifiedForm...),
+	"<< /Type /Page /MediaBox [0 0 612 792] >>",
+)
+
+func init() {
+	templatedForm[0] = "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> /Names << /Templates << /Names [(blank) 13 0 R] >> >> >>"
+}
+
+// indirectForm is certifiedForm with the page's /Annots (13), the form's
+// /Fields (14) and the catalog's /DSS (15, holding 16) as indirect objects,
+// which an update may rewrite in place.
+var indirectForm = append(append([]string(nil), certifiedForm...),
+	"[8 0 R 10 0 R]",
+	"[8 0 R 10 0 R]",
+	"<< /Certs [16 0 R] >>",
+	"<< /Length 4 >>\nstream\nCERT\nendstream",
+)
+
+func init() {
+	indirectForm[0] = "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> /DSS 15 0 R >>"
+	indirectForm[2] = "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots 13 0 R >>"
+	indirectForm[6] = "<< /Fields 14 0 R /SigFlags 3 /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >>"
+}
+
 // update is an object an incremental update defines.
 type update struct {
 	id   int
@@ -41,7 +67,8 @@ type update struct {
 // buildUpdate returns a file holding revision 1 with the given objects,
 // numbered from 1, followed by an incremental update defining the updates
 // under a classic cross-reference section, and the end of revision 1. root
-// is the object number the update's trailer names as /Root, or 0 for 1.
+// is the object number the update's trailer names as /Root, or 0 for 1; a
+// negative root names object 3, the page, as the trailer's /Info instead.
 func buildUpdate(t *testing.T, objects []string, root int, updates ...update) ([]byte, int64) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -58,6 +85,10 @@ func buildUpdate(t *testing.T, objects []string, root int, updates ...update) ([
 	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R /Info 12 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
 	signedEnd := int64(buf.Len())
 
+	info := 12
+	if root < 0 {
+		root, info = 1, 3
+	}
 	if root == 0 {
 		root = 1
 	}
@@ -74,7 +105,7 @@ func buildUpdate(t *testing.T, objects []string, root int, updates ...update) ([
 	for i, u := range updates {
 		fmt.Fprintf(&buf, "%d 1\n%010d 00000 n \n", u.id, updateOffsets[i])
 	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root %d 0 R /Info 12 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", size, root, xref, xref2)
+	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root %d 0 R /Info %d 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", size, root, info, xref, xref2)
 	return buf.Bytes(), signedEnd
 }
 
@@ -115,6 +146,7 @@ func TestCheckPermittedChanges(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name    string
+		objects []string // revision 1, certifiedForm when nil
 		root    int
 		updates []update
 		// permitted lists the levels at which the update passes; the other
@@ -122,54 +154,82 @@ func TestCheckPermittedChanges(t *testing.T) {
 		permitted []int
 		violation string
 	}{
-		{"an unreferenced object", 0, []update{{13, "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>"}}, []int{1, 2, 3}, ""},
-		{"the page's content stream", 0, []update{{4, "<< /Length 30 >>\nstream\nBT /F1 12 Tf (HACKED) Tj ET\nendstream"}}, nil, "rewrites object 4"},
-		{"the page object", 0, []update{{3, rotated}}, nil, "/Rotate of page object 3"},
-		{"the page's resources", 0, []update{{5, "<< /Font << /F1 6 0 R /F2 6 0 R >> >>"}}, nil, "rewrites object 5"},
-		{"a font the page uses", 0, []update{{6, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"}}, nil, "rewrites object 6"},
-		{"a content stream freed", 0, []update{{4, "null"}}, nil, "removes object 4"},
-		{"an identical rewrite", 0, []update{{3, certifiedForm[2]}, {4, certifiedForm[3]}}, []int{1, 2, 3}, ""},
-		{"a form fill", 0, []update{
+		{"an unreferenced object", nil, 0, []update{{13, "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>"}}, []int{1, 2, 3}, ""},
+		{"the page's content stream", nil, 0, []update{{4, "<< /Length 30 >>\nstream\nBT /F1 12 Tf (HACKED) Tj ET\nendstream"}}, nil, "rewrites object 4"},
+		{"the page object", nil, 0, []update{{3, rotated}}, nil, "/Rotate of page object 3"},
+		{"the page's resources", nil, 0, []update{{5, "<< /Font << /F1 6 0 R /F2 6 0 R >> >>"}}, nil, "rewrites object 5"},
+		{"a font the page uses", nil, 0, []update{{6, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"}}, nil, "rewrites object 6"},
+		{"a content stream freed", nil, 0, []update{{4, "null"}}, nil, "removes object 4"},
+		{"an identical rewrite", nil, 0, []update{{3, certifiedForm[2]}, {4, certifiedForm[3]}}, []int{1, 2, 3}, ""},
+		{"a form fill", nil, 0, []update{
 			{8, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Bob) /Rect [0 0 10 10] /AP << /N 13 0 R >> >>"},
 			{13, "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length 0 >>\nstream\n\nendstream"},
 		}, []int{2, 3}, "of field 8"},
-		{"a field renamed", 0, []update{{8, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (other) /V (Ada) /Rect [0 0 10 10] /AP << /N 11 0 R >> >>"}}, nil, "/T of field 8"},
-		{"a field freed", 0, []update{{8, "null"}}, nil, "removes object 8"},
-		{"a field removed from the form", 0, []update{{7, "<< /Fields [10 0 R] /SigFlags 3 /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >>"}}, nil, "removes a field"},
-		{"a text field added to the form", 0, []update{
+		{"a field renamed", nil, 0, []update{{8, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (other) /V (Ada) /Rect [0 0 10 10] /AP << /N 11 0 R >> >>"}}, nil, "/T of field 8"},
+		{"a field freed", nil, 0, []update{{8, "null"}}, nil, "removes object 8"},
+		{"a field removed from the form", nil, 0, []update{{7, "<< /Fields [10 0 R] /SigFlags 3 /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >>"}}, nil, "removes a field"},
+		{"a text field added to the form", nil, 0, []update{
 			{7, "<< /Fields [8 0 R 10 0 R 13 0 R] /SigFlags 3 /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 6 0 R >> >> >>"},
 			{13, "<< /Type /Annot /Subtype /Widget /FT /Tx /T (extra) /Rect [0 0 10 10] >>"},
 		}, nil, "not a signature field"},
-		{"an approval signature", 0, signing(approval), []int{2, 3}, "adds a signature field"},
-		{"a document timestamp", 0, signing(timestamp), []int{1, 2, 3}, ""},
-		{"the certification signature re-signed", 0, []update{{10, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (cert) /V 14 0 R /Rect [0 0 0 0] >>"}, {14, approval}}, nil, "changes the signature of field 10"},
-		{"the signature dictionary rewritten", 0, []update{{9, approval}}, nil, "rewrites the signature dictionary 9"},
-		{"an annotation added", 0, []update{
+		{"an approval signature", nil, 0, signing(approval), []int{2, 3}, "adds a signature field"},
+		{"a document timestamp", nil, 0, signing(timestamp), []int{1, 2, 3}, ""},
+		{"the certification signature re-signed", nil, 0, []update{{10, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (cert) /V 14 0 R /Rect [0 0 0 0] >>"}, {14, approval}}, nil, "changes the signature of field 10"},
+		{"the signature dictionary rewritten", nil, 0, []update{{9, approval}}, nil, "rewrites the signature dictionary 9"},
+		{"an annotation added", nil, 0, []update{
 			{3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots [8 0 R 10 0 R 13 0 R] >>"},
 			{13, "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>"},
 		}, []int{3}, "adds an annotation to page object 3"},
-		{"an annotation removed", 0, []update{{3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots [10 0 R] >>"}}, []int{3}, "removes an annotation from page object 3"},
-		{"validation data", 13, []update{
+		{"an annotation removed", nil, 0, []update{{3, "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R /MediaBox [0 0 612 792] /Annots [10 0 R] >>"}}, []int{3}, "removes an annotation from page object 3"},
+		{"validation data", nil, 13, []update{
 			{13, "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> /DSS 14 0 R >>"},
 			{14, "<< /Certs [15 0 R] >>"},
 			{15, "<< /Length 4 >>\nstream\nCERT\nendstream"},
 		}, []int{1, 2, 3}, ""},
-		{"validation data grown", 13, []update{
+		{"validation data grown", nil, 13, []update{
 			{13, "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> /DSS 14 0 R >>"},
 			{14, "<< /Certs [15 0 R] >>"},
 			{15, "<< /Length 4 >>\nstream\nCERT\nendstream"},
 		}, []int{1, 2, 3}, ""},
-		{"the information dictionary", 0, []update{{12, "<< /Producer (fixture) /ModDate (D:20260923000000Z) >>"}}, []int{1, 2, 3}, ""},
-		{"a replaced catalog with another page tree", 13, []update{{13, "<< /Type /Catalog /Pages 14 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> >>"}, {14, "<< /Type /Pages /Kids [] /Count 0 >>"}}, nil, "catalog entry /Pages"},
-		{"the catalog /Perms dropped", 13, []update{{13, "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R >>"}}, nil, "catalog entry /Perms"},
-		{"a page appended from a template", 0, []update{
+		{"the information dictionary", nil, 0, []update{{12, "<< /Producer (fixture) /ModDate (D:20260923000000Z) >>"}}, []int{1, 2, 3}, ""},
+		{"a replaced catalog with another page tree", nil, 13, []update{{13, "<< /Type /Catalog /Pages 14 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> >>"}, {14, "<< /Type /Pages /Kids [] /Count 0 >>"}}, nil, "catalog entry /Pages"},
+		{"the catalog /Perms dropped", nil, 13, []update{{13, "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R >>"}}, nil, "catalog entry /Perms"},
+		{"a page appended from a template", templatedForm, 0, []update{
+			{2, "<< /Type /Pages /Kids [3 0 R 14 0 R] /Count 2 >>"},
+			{14, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"},
+		}, []int{2, 3}, "page tree node 2"},
+		{"a page appended without a template", nil, 0, []update{
 			{2, "<< /Type /Pages /Kids [3 0 R 13 0 R] /Count 2 >>"},
 			{13, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"},
-		}, []int{2, 3}, "page tree node 2"},
-		{"a page removed", 0, []update{{2, "<< /Type /Pages /Kids [] /Count 0 >>"}}, nil, "page tree node 2"},
+		}, nil, "page tree node 2"},
+		{"a page removed", nil, 0, []update{{2, "<< /Type /Pages /Kids [] /Count 0 >>"}}, nil, "page tree node 2"},
+		{"the page shielded through the trailer /Info", nil, -1, []update{{3, rotated}}, nil, "/Rotate of page object 3"},
+		{"the page shielded through the catalog /DSS", nil, 13, []update{
+			{13, "<< /Type /Catalog /Pages 2 0 R /AcroForm 7 0 R /Perms << /DocMDP 9 0 R >> /DSS << /Certs [3 0 R] >> >>"},
+			{3, rotated},
+		}, nil, "/Rotate of page object 3"},
+		{"validation data grown in place", indirectForm, 0, []update{
+			{15, "<< /Certs [16 0 R 17 0 R] >>"},
+			{17, "<< /Length 4 >>\nstream\nCERT\nendstream"},
+		}, []int{1, 2, 3}, ""},
+		{"an annotation added to an indirect /Annots", indirectForm, 0, []update{
+			{13, "[8 0 R 10 0 R 17 0 R]"},
+			{17, "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>"},
+		}, []int{3}, "adds an annotation to page object 3"},
+		{"a signature field added to an indirect /Fields and /Annots", indirectForm, 0, []update{
+			{13, "[8 0 R 10 0 R 17 0 R]"},
+			{14, "[8 0 R 10 0 R 17 0 R]"},
+			{17, "<< /Type /Annot /Subtype /Widget /FT /Sig /T (sig2) /V 18 0 R /Rect [0 0 0 0] >>"},
+			{18, approval},
+		}, []int{2, 3}, "adds a signature field"},
+		{"a field removed from an indirect /Fields", indirectForm, 0, []update{{14, "[10 0 R]"}}, nil, "removes a field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			fileBytes, signedEnd := buildUpdate(t, certifiedForm, tc.root, tc.updates...)
+			objects := tc.objects
+			if objects == nil {
+				objects = certifiedForm
+			}
+			fileBytes, signedEnd := buildUpdate(t, objects, tc.root, tc.updates...)
 			for level := 1; level <= 3; level++ {
 				err := checkUpdate(t, fileBytes, signedEnd, "", level)
 				permitted := false
@@ -210,6 +270,36 @@ func TestCheckPermittedChangesRepointed(t *testing.T) {
 	fmt.Fprintf(&buf, "xref\n8 1\n%010d 00000 n \n", offsets[5]) // the font's bytes
 	fmt.Fprintf(&buf, "trailer\n<< /Size 13 /Root 1 0 R /Info 12 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", prevOffset, xref)
 	fileBytes = buf.Bytes()
+
+	err := checkUpdate(t, fileBytes, signedEnd, "", 3)
+	if err == nil || !strings.Contains(err.Error(), "removes object 8") {
+		t.Errorf("got %v, want the re-pointed field reported as removed", err)
+	}
+}
+
+// TestCheckPermittedChangesXrefStreamRepointed covers an update whose
+// cross-reference stream points the text field at the bytes of another
+// object and lists neither the field's object nor itself among the objects
+// the document resolves: the stream's /Index still names the field as
+// changed.
+func TestCheckPermittedChangesXrefStreamRepointed(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.7\n")
+	rows := []xrefStreamRow{{0, 0, 65535}}
+	var offsets []int64
+	for i, obj := range certifiedForm {
+		offsets = append(offsets, writeObj(&buf, i+1, obj))
+		rows = append(rows, xrefStreamRow{1, uint32(offsets[i]), 0})
+	}
+	xref1 := buf.Len()
+	rows = append(rows, xrefStreamRow{1, uint32(xref1), 0})
+	writeXrefStream(&buf, 13, "0 14", "/Size 14 /Root 1 0 R /Info 12 0 R", rows...)
+	signedEnd := int64(buf.Len())
+
+	// The font's bytes for object 8; the stream (object 14) is not listed.
+	writeXrefStream(&buf, 14, "8 1", fmt.Sprintf("/Size 15 /Root 1 0 R /Info 12 0 R /Prev %d", xref1),
+		xrefStreamRow{1, uint32(offsets[5]), 0})
+	fileBytes := buf.Bytes()
 
 	err := checkUpdate(t, fileBytes, signedEnd, "", 3)
 	if err == nil || !strings.Contains(err.Error(), "removes object 8") {

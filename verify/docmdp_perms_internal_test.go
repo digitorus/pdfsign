@@ -191,7 +191,7 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 		}
 	})
 
-	t.Run("an unreadable signed revision is enforced as declared", func(t *testing.T) {
+	t.Run("an unreadable signed revision fails an update", func(t *testing.T) {
 		// The ByteRange ends inside revision 1's trailer, so the covered
 		// bytes are not a readable document; the transform must not be
 		// downgraded to an approval signature on that account.
@@ -202,7 +202,7 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "P=1") {
 			t.Fatalf("expected the P=1 rejection, got %v", err)
 		}
-		if len(signer.Warnings) != 1 || !strings.Contains(signer.Warnings[0].Error(), "enforced as declared") {
+		if len(signer.Warnings) != 1 || !strings.Contains(signer.Warnings[0].Error(), "could not be read") {
 			t.Fatalf("expected one warning about the unreadable revision, got %v", signer.Warnings)
 		}
 	})

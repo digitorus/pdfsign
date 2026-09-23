@@ -64,13 +64,20 @@ const maxUpdateSize = 1 << 28
 // reaches must still exist. The first change the permissions do not allow is
 // returned as the error.
 func checkPermittedChanges(signed, current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd int64, p permissions) error {
-	c := &changeChecker{signed: signed, current: current, p: p, exempt: make(map[uint32]bool)}
-	for _, trailer := range []pdf.Value{signed.Trailer(), current.Trailer()} {
-		if id := trailer.Key("Info").GetPtr().GetID(); id > 0 {
-			c.exempt[id] = true
-		}
-		collectReferences(trailer.Key("Root").Key("DSS"), c.exempt, 0)
+	c := &changeChecker{signed: signed, current: current, p: p, exempt: make(map[uint32]bool), roles: make(map[uint32]role)}
+	// What may change freely is decided by the signed revision alone: what
+	// the update's catalog or trailer point at is the attacker's to choose.
+	trailer := signed.Trailer()
+	if id := trailer.Key("Info").GetPtr().GetID(); id > 0 {
+		c.exempt[id] = true
 	}
+	root := trailer.Key("Root")
+	if dss := root.Key("DSS"); dss.GetPtr() != root.GetPtr() && dss.GetPtr().GetID() > 0 {
+		c.exempt[dss.GetPtr().GetID()] = true
+	}
+	collectReferences(root.Key("DSS"), c.exempt, 0)
+	c.templates = !root.Key("Names").Key("Templates").IsNull()
+	c.collectRoles(root)
 
 	if err := c.trailer(); err != nil {
 		return err
@@ -122,7 +129,7 @@ func updatedObjects(current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd i
 		return nil
 	}
 
-	for _, section := range classicXrefSections(buf) {
+	for _, section := range xrefSections(buf) {
 		if err := addRange(section.start, section.count); err != nil {
 			return nil, err
 		}
@@ -137,27 +144,9 @@ func updatedObjects(current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd i
 		add(uint32(id))
 	}
 	for _, id := range headers {
-		v, err := current.GetObject(id)
-		if err != nil || v.Kind() != pdf.Stream {
-			continue
-		}
-		switch v.Key("Type").Name() {
-		case "ObjStm":
+		if v, err := current.GetObject(id); err == nil && v.Kind() == pdf.Stream && v.Key("Type").Name() == "ObjStm" {
 			for _, member := range objectStreamMembers(v) {
 				add(member)
-			}
-		case "XRef":
-			index := v.Key("Index")
-			if index.Kind() != pdf.Array {
-				if err := addRange(0, v.Key("Size").Int64()); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			for i := 0; i+1 < index.Len(); i += 2 {
-				if err := addRange(index.Index(i).Int64(), index.Index(i+1).Int64()); err != nil {
-					return nil, err
-				}
 			}
 		}
 	}
@@ -168,39 +157,108 @@ func updatedObjects(current *pdf.Reader, file io.ReaderAt, fileSize, signedEnd i
 // maxObjects bounds the object numbers a cross-reference section may cover.
 const maxObjects = 1 << 23
 
-// xrefSubsection is a subsection of a classic cross-reference section: the
-// first object number it covers and how many.
+// xrefSubsection is a range of objects a cross-reference section covers: the
+// first object number and how many.
 type xrefSubsection struct {
 	start, count int64
 }
 
-// xrefKeyword matches the keyword that opens a classic cross-reference
-// section at the start of a line.
-var xrefKeyword = regexp.MustCompile(`(?m)^xref[ \t\r\n\f\x00]`)
+var (
+	// xrefKeyword matches the keyword that opens a classic cross-reference
+	// section at the start of a line.
+	xrefKeyword = regexp.MustCompile(`(?m)^xref[ \t\r\n\f\x00]`)
+	// streamDict matches the dictionary of an indirect object that is a
+	// stream, up to the stream keyword.
+	streamDict = regexp.MustCompile(`(?s)[0-9]+[ \t\r\n\f\x00]+[0-9]+[ \t\r\n\f\x00]+obj[ \t\r\n\f\x00]*(<<.*?>>)[ \t\r\n\f\x00]*stream`)
+	// nameEscape matches a #xx escape in a name.
+	nameEscape = regexp.MustCompile(`#([0-9A-Fa-f]{2})`)
+	xrefType   = regexp.MustCompile(`/Type[ \t\r\n\f\x00]*/XRef\b`)
+	xrefIndex  = regexp.MustCompile(`/Index[ \t\r\n\f\x00]*\[([^\]]*)\]`)
+	xrefSize   = regexp.MustCompile(`/Size[ \t\r\n\f\x00]+([0-9]+)`)
+)
 
-// classicXrefSections returns the subsections of the classic cross-reference
-// sections in buf (ISO 32000-1 7.5.4): after the xref keyword, each
-// subsection opens with its first object number and entry count and holds
-// that many entries, until the trailer keyword.
-func classicXrefSections(buf []byte) []xrefSubsection {
+// xrefSections returns the ranges of objects the cross-reference sections in
+// buf cover, read from the bytes rather than through the reader so that a
+// section counts whether or not the document resolves it: the subsections of
+// every classic section (ISO 32000-1 7.5.4), and the /Index of every
+// cross-reference stream (7.5.8), or its /Size when it has none.
+func xrefSections(buf []byte) []xrefSubsection {
 	var sections []xrefSubsection
 	for _, loc := range xrefKeyword.FindAllIndex(buf, -1) {
-		rest := buf[loc[1]:]
-		if end := bytes.Index(rest, []byte("trailer")); end >= 0 {
-			rest = rest[:end]
-		}
-		fields := strings.Fields(string(rest))
-		for i := 0; i+1 < len(fields); {
-			start, err1 := strconv.ParseInt(fields[i], 10, 64)
-			count, err2 := strconv.ParseInt(fields[i+1], 10, 64)
-			if err1 != nil || err2 != nil || count < 0 || count > maxObjects {
+		scan := tokens{buf: buf, pos: loc[1]}
+		for {
+			start, ok1 := scan.int()
+			count, ok2 := scan.int()
+			if !ok1 || !ok2 || count < 0 || count > maxObjects {
 				break
 			}
 			sections = append(sections, xrefSubsection{start, count})
-			i += 2 + 3*int(count)
+			for i := int64(0); i < 3*count; i++ {
+				if _, ok := scan.next(); !ok {
+					break
+				}
+			}
+		}
+	}
+	for _, m := range streamDict.FindAllSubmatch(buf, -1) {
+		dict := nameEscape.ReplaceAllFunc(m[1], func(escape []byte) []byte {
+			b, _ := strconv.ParseUint(string(escape[1:]), 16, 8)
+			return []byte{byte(b)}
+		})
+		if !xrefType.Match(dict) {
+			continue
+		}
+		if index := xrefIndex.FindSubmatch(dict); index != nil {
+			fields := strings.Fields(string(index[1]))
+			for i := 0; i+1 < len(fields); i += 2 {
+				start, err1 := strconv.ParseInt(fields[i], 10, 64)
+				count, err2 := strconv.ParseInt(fields[i+1], 10, 64)
+				if err1 != nil || err2 != nil {
+					break
+				}
+				sections = append(sections, xrefSubsection{start, count})
+			}
+		} else if size := xrefSize.FindSubmatch(dict); size != nil {
+			count, _ := strconv.ParseInt(string(size[1]), 10, 64)
+			sections = append(sections, xrefSubsection{0, count})
 		}
 	}
 	return sections
+}
+
+// tokens reads whitespace-separated tokens from a byte slice, stopping at
+// the trailer keyword.
+type tokens struct {
+	buf []byte
+	pos int
+}
+
+func isPDFWhitespace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == '\f' || b == 0
+}
+
+func (t *tokens) next() ([]byte, bool) {
+	for t.pos < len(t.buf) && isPDFWhitespace(t.buf[t.pos]) {
+		t.pos++
+	}
+	start := t.pos
+	for t.pos < len(t.buf) && !isPDFWhitespace(t.buf[t.pos]) {
+		t.pos++
+	}
+	token := t.buf[start:t.pos]
+	if len(token) == 0 || bytes.Equal(token, []byte("trailer")) {
+		return nil, false
+	}
+	return token, true
+}
+
+func (t *tokens) int() (int64, bool) {
+	token, ok := t.next()
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(string(token), 10, 64)
+	return n, err == nil
 }
 
 // objectStreamMembers returns the numbers of the objects an object stream
@@ -259,9 +317,92 @@ func collectReferences(v pdf.Value, ids map[uint32]bool, depth int) {
 type changeChecker struct {
 	signed, current *pdf.Reader
 	p               permissions
-	// exempt holds the objects that may change freely: validation data and
-	// the document information dictionary.
+	// exempt holds the objects that may change freely: the signed
+	// revision's validation data and document information dictionary.
 	exempt map[uint32]bool
+	// roles holds, for the untyped objects the signed revision's form and
+	// pages reach, the entry that reaches them, which decides what may
+	// change in them.
+	roles map[uint32]role
+	// templates is whether the signed document defines page templates, so
+	// that instantiating one may append a page.
+	templates bool
+}
+
+// roleKind is the entry of a form, field, widget or page that reaches an
+// untyped object: an array or dictionary that says nothing about itself.
+type roleKind int
+
+const (
+	roleFields     roleKind = iota + 1 // the interactive form's /Fields, or a field's /Kids
+	roleAnnots                         // a page's /Annots
+	roleAppearance                     // a field's or widget's /AP or /MK, or a form's /DR
+	roleValue                          // a field's /V, other than a signature
+)
+
+// role is what reaches an untyped object.
+type role struct {
+	kind  roleKind
+	owner uint32 // the object holding the entry, for the message
+}
+
+// collectRoles records the untyped objects the signed revision's pages and
+// interactive form reach through entries that may change.
+func (c *changeChecker) collectRoles(root pdf.Value) {
+	note := func(container, entry pdf.Value, kind roleKind) {
+		if ptr := entry.GetPtr(); ptr != container.GetPtr() && ptr.GetID() > 0 && entry.Kind() != pdf.Stream {
+			if _, ok := c.roles[ptr.GetID()]; !ok {
+				c.roles[ptr.GetID()] = role{kind: kind, owner: container.GetPtr().GetID()}
+			}
+		}
+	}
+	var pages func(node pdf.Value, depth int)
+	visited := make(map[uint32]bool)
+	pages = func(node pdf.Value, depth int) {
+		id := node.GetPtr().GetID()
+		if depth > acroform.MaxDepth || node.Kind() != pdf.Dict || visited[id] {
+			return
+		}
+		visited[id] = true
+		if kids := node.Key("Kids"); kids.Kind() == pdf.Array {
+			for i := 0; i < kids.Len(); i++ {
+				pages(kids.Index(i), depth+1)
+			}
+			return
+		}
+		note(node, node.Key("Annots"), roleAnnots)
+		annots := node.Key("Annots")
+		for i := 0; annots.Kind() == pdf.Array && i < annots.Len(); i++ {
+			annot := annots.Index(i)
+			note(annot, annot.Key("AP"), roleAppearance)
+			note(annot, annot.Key("MK"), roleAppearance)
+		}
+	}
+	pages(root.Key("Pages"), 0)
+
+	form := root.Key("AcroForm")
+	note(form, form.Key("Fields"), roleFields)
+	note(form, form.Key("DR"), roleAppearance)
+	var fields func(kids pdf.Value, depth int)
+	fields = func(kids pdf.Value, depth int) {
+		for i := 0; depth <= acroform.MaxDepth && kids.Kind() == pdf.Array && i < kids.Len(); i++ {
+			field := kids.Index(i)
+			id := field.GetPtr().GetID()
+			if field.Kind() != pdf.Dict || visited[id] {
+				continue
+			}
+			visited[id] = true
+			note(field, field.Key("Kids"), roleFields)
+			note(field, field.Key("AP"), roleAppearance)
+			note(field, field.Key("MK"), roleAppearance)
+			note(field, field.Key("DR"), roleAppearance)
+			if fieldType(field) != "Sig" {
+				note(field, field.Key("V"), roleValue)
+			}
+			fields(field.Key("Kids"), depth+1)
+		}
+	}
+	fields(form.Key("Fields"), 0)
 }
 
 func (c *changeChecker) violation(format string, args ...any) error {
@@ -350,7 +491,29 @@ func (c *changeChecker) changed(id uint32, old, cur pdf.Value) error {
 	case old.Key("Type").Name() == "Metadata":
 		return nil // Document metadata, which a save rewrites.
 	}
+	if r, ok := c.roles[id]; ok {
+		return c.container(id, r, old, cur)
+	}
 	return c.violation("rewrites object %d (%s)", id, describe(old))
+}
+
+// container compares an untyped object by the entry that reaches it.
+func (c *changeChecker) container(id uint32, r role, old, cur pdf.Value) error {
+	switch r.kind {
+	case roleFields:
+		return c.fields(old, cur)
+	case roleAnnots:
+		return c.annots(r.owner, old, cur)
+	case roleAppearance:
+		if !c.p.formFilling {
+			return c.violation("changes the appearance object %d of object %d", id, r.owner)
+		}
+	case roleValue:
+		if !c.p.formFilling {
+			return c.violation("changes the value of field %d", r.owner)
+		}
+	}
+	return nil
 }
 
 // catalog compares the document catalog with the signed revision's.
@@ -421,30 +584,40 @@ func (c *changeChecker) page(id uint32, old, cur pdf.Value) error {
 		if key != "Annots" {
 			return c.violation("changes the entry /%s of page object %d", key, id)
 		}
-		removed, added := arrayDifference(old.Key(key), cur.Key(key))
-		if len(removed) > 0 && !c.p.annotations {
-			return c.violation("removes an annotation from page object %d", id)
+		if err := c.annots(id, old.Key(key), cur.Key(key)); err != nil {
+			return err
 		}
-		for _, annot := range added {
-			if annot.Kind() != pdf.Dict || annot.Key("Subtype").IsNull() {
-				return c.violation("adds an entry to the /Annots of page object %d that is not an annotation", id)
-			}
-			if c.p.annotations {
-				continue
-			}
-			if annot.Key("Subtype").Name() != "Widget" || fieldType(annot) != "Sig" {
-				return c.violation("adds an annotation to page object %d", id)
-			}
-			if !c.signingPermitted(fieldValue(annot)) {
-				return c.violation("adds a signature field to page object %d", id)
-			}
+	}
+	return nil
+}
+
+// annots compares the /Annots of a page: an annotation may be added or
+// removed with annotation permissions, and a signature widget by signing.
+func (c *changeChecker) annots(page uint32, old, cur pdf.Value) error {
+	removed, added := arrayDifference(old, cur)
+	if len(removed) > 0 && !c.p.annotations {
+		return c.violation("removes an annotation from page object %d", page)
+	}
+	for _, annot := range added {
+		if annot.Kind() != pdf.Dict || annot.Key("Subtype").IsNull() {
+			return c.violation("adds an entry to the /Annots of page object %d that is not an annotation", page)
+		}
+		if c.p.annotations {
+			continue
+		}
+		if annot.Key("Subtype").Name() != "Widget" || fieldType(annot) != "Sig" {
+			return c.violation("adds an annotation to page object %d", page)
+		}
+		if !c.signingPermitted(fieldValue(annot)) {
+			return c.violation("adds a signature field to page object %d", page)
 		}
 	}
 	return nil
 }
 
 // pagesNode compares a page tree node with the signed revision's: with form
-// filling, instantiating a page template appends pages to it (12.7.6).
+// filling, instantiating a page template the signed document defines (12.7.6,
+// the catalog /Names /Templates) appends pages to it.
 func (c *changeChecker) pagesNode(id uint32, old, cur pdf.Value) error {
 	for _, key := range unionKeys(old, cur) {
 		if canonicalEntry(old, old.Key(key), 0) == canonicalEntry(cur, cur.Key(key), 0) {
@@ -453,7 +626,7 @@ func (c *changeChecker) pagesNode(id uint32, old, cur pdf.Value) error {
 		switch key {
 		case "Kids":
 			removed, added := arrayDifference(old.Key(key), cur.Key(key))
-			if len(removed) > 0 || !c.p.formFilling {
+			if len(removed) > 0 || !c.p.formFilling || !c.templates {
 				return c.violation("changes the pages under page tree node %d", id)
 			}
 			for _, kid := range added {
