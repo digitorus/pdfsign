@@ -2,30 +2,17 @@ package pdfsign
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
+
+	"github.com/digitorus/pdfsign/internal/testpdf"
 )
 
-// buildPageTreePDF builds a PDF from the given objects, numbered from 1, with
-// object 1 as the catalog.
+// buildPageTreePDF opens a document built from the given objects, numbered
+// from 1, with object 1 as the catalog.
 func buildPageTreePDF(t *testing.T, objects ...string) *Document {
 	t.Helper()
-
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n")
-	offsets := make([]int, len(objects))
-	for i, obj := range objects {
-		offsets[i] = buf.Len()
-		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, obj)
-	}
-	xref := buf.Len()
-	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
-	for _, off := range offsets {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
-	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
-
-	doc, err := Open(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	b := testpdf.Bytes(objects...)
+	doc, err := Open(bytes.NewReader(b), int64(len(b)))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -52,7 +39,7 @@ func TestFindPageCycle(t *testing.T) {
 		}
 	}
 
-	if page, err := doc.findPage(3); err != nil || !page.IsNull() {
-		t.Errorf("findPage(3) = %v, %v; want no page", page, err)
+	if page, err := doc.findPage(3); err == nil || !page.IsNull() {
+		t.Errorf("findPage(3) = %v, %v; want an error and no page", page, err)
 	}
 }

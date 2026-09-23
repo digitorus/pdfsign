@@ -5,6 +5,7 @@ import (
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/forms"
+	"github.com/digitorus/pdfsign/internal/acroform"
 )
 
 // FormFields returns all form fields in the document.
@@ -42,16 +43,12 @@ func (d *Document) applyPendingFields() (map[uint32][]byte, error) {
 
 	// Map field names to their PDF values
 	fieldMap := make(map[string]pdf.Value)
-	root := d.rdr.Trailer().Key("Root")
-	acroForm := root.Key("AcroForm")
-	if !acroForm.IsNull() {
-		fields := acroForm.Key("Fields")
-		if !fields.IsNull() && fields.Kind() == pdf.Array {
-			for i := 0; i < fields.Len(); i++ {
-				forms.MapFields(fields.Index(i), "", fieldMap)
-			}
+	acroform.Fields(d.rdr.Trailer().Key("Root"), func(f acroform.Field) bool {
+		if f.Type != "" {
+			fieldMap[f.Name] = f.Dict
 		}
-	}
+		return true
+	})
 
 	for name, value := range d.pendingFields {
 		v, ok := fieldMap[name]

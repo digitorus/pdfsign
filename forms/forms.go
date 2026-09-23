@@ -42,9 +42,8 @@ type FormField struct {
 	Value any
 }
 
-// Extract returns all form fields found in the PDF: every terminal field of
-// the AcroForm field tree, with /FT inherited from its ancestors and its fully
-// qualified name (ISO 32000-1 12.7.3).
+// Extract returns the terminal form fields of the PDF (ISO 32000-1 12.7.3),
+// with their fully qualified names and the /FT and /V they carry or inherit.
 func Extract(r *pdf.Reader) []FormField {
 	if r == nil {
 		return nil
@@ -52,15 +51,14 @@ func Extract(r *pdf.Reader) []FormField {
 
 	var result []FormField
 	acroform.Fields(r.Trailer().Key("Root"), func(f acroform.Field) bool {
-		if f.Type == "" {
+		if !f.Terminal || f.Type == "" {
 			return true
 		}
-		val := f.Value.Key("V")
 		var strVal string
-		if val.Kind() == pdf.String {
-			strVal = val.RawString()
+		if f.Value.Kind() == pdf.String {
+			strVal = f.Value.RawString()
 		} else {
-			strVal = val.String()
+			strVal = f.Value.String()
 		}
 		result = append(result, FormField{
 			Name:  f.Name,
@@ -110,13 +108,13 @@ func GenerateUpdate(v pdf.Value, value any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// MapFields maps the fully qualified names of the terminal fields at or below
-// the field v to their PDF values. prefix is the name of v's parent, or "" for
-// a top-level field.
+// MapFields maps the fully qualified names of the field v and every typed
+// field below it to their dictionaries. prefix is the name of v's parent, or
+// "" for a top-level field.
 func MapFields(v pdf.Value, prefix string, m map[string]pdf.Value) {
 	acroform.FieldsOf(v, prefix, func(f acroform.Field) bool {
 		if f.Type != "" {
-			m[f.Name] = f.Value
+			m[f.Name] = f.Dict
 		}
 		return true
 	})

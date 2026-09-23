@@ -1,44 +1,22 @@
 package forms_test
 
 import (
-	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/digitorus/pdf"
 	"github.com/digitorus/pdfsign/forms"
+	"github.com/digitorus/pdfsign/internal/testpdf"
 )
 
-// buildFormPDF builds a one-page PDF whose AcroForm /Fields array is
+// buildFormPDF builds a one-page PDF with an AcroForm whose /Fields array is
 // [4 0 R], followed by the given objects numbered from 4.
 func buildFormPDF(t *testing.T, objects ...string) *pdf.Reader {
 	t.Helper()
-
-	all := append([]string{
+	return testpdf.Reader(t, append([]string{
 		"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-	}, objects...)
-
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n")
-	offsets := make([]int, len(all))
-	for i, obj := range all {
-		offsets[i] = buf.Len()
-		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, obj)
-	}
-	xref := buf.Len()
-	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(all)+1)
-	for _, off := range offsets {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
-	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(all)+1, xref)
-
-	rdr, err := pdf.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	return rdr
+	}, objects...)...)
 }
 
 // TestExtractFieldTree covers the AcroForm field tree walk behind Extract and
@@ -60,6 +38,22 @@ func TestExtractFieldTree(t *testing.T) {
 		forms.MapFields(rdr.Trailer().Key("Root").Key("AcroForm").Key("Fields").Index(0), "", m)
 		if v, ok := m["form.name"]; !ok || v.Key("V").RawString() != "Ada" {
 			t.Errorf("MapFields = %v, want form.name mapped to the terminal field", m)
+		}
+		if _, ok := m["form"]; !ok {
+			t.Errorf("MapFields = %v, want the typed parent form mapped as well", m)
+		}
+	})
+
+	t.Run("a parent's /V is the default of its kids", func(t *testing.T) {
+		rdr := buildFormPDF(t,
+			"<< /T (form) /FT /Tx /V (default) /Kids [5 0 R 6 0 R] >>",
+			"<< /Parent 4 0 R /T (a) /V (Ada) >>",
+			"<< /Parent 4 0 R /T (b) >>",
+		)
+
+		fields := forms.Extract(rdr)
+		if len(fields) != 2 || fields[0].Name != "form.a" || fields[0].Value != "Ada" || fields[1].Name != "form.b" || fields[1].Value != "default" {
+			t.Errorf("Extract = %+v, want form.a = Ada and form.b = default", fields)
 		}
 	})
 

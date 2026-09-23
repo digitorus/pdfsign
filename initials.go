@@ -144,7 +144,14 @@ const maxPageTreeDepth = 64
 func (d *Document) findPage(pageNum int) (pdf.Value, error) {
 	root := d.rdr.Trailer().Key("Root")
 	pages := root.Key("Pages")
-	p, _, err := d.findPageRec(pages, pageNum, make(map[pdf.Ptr]bool), 0)
+	visited := make(map[pdf.Ptr]bool)
+	if ptr := pages.GetPtr(); ptr != root.GetPtr() {
+		visited[ptr] = true
+	}
+	p, _, err := d.findPageRec(pages, pageNum, visited, 0)
+	if err == nil && p.IsNull() {
+		return pdf.Value{}, fmt.Errorf("page %d not found in the page tree", pageNum)
+	}
 	return p, err
 }
 
