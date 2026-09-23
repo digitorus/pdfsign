@@ -2,34 +2,21 @@ package verify
 
 import (
 	"bytes"
-	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/digitorus/pdfsign/internal/testpdf"
 )
 
 // buildFormPDF builds a one-page PDF with an AcroForm whose /Fields array is
 // [4 0 R], followed by the given objects numbered from 4.
 func buildFormPDF(t *testing.T, objects ...string) []byte {
 	t.Helper()
-
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n")
-	all := append([]string{
+	return testpdf.Bytes(append([]string{
 		"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-	}, objects...)
-	offsets := make([]int64, len(all))
-	for i, obj := range all {
-		offsets[i] = writeObj(&buf, i+1, obj)
-	}
-	xref := int64(buf.Len())
-	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(all)+1)
-	for _, off := range offsets {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
-	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(all)+1, xref)
-	return buf.Bytes()
+	}, objects...)...)
 }
 
 // TestSignatureFieldTraversal covers the AcroForm field tree walk: /FT is
