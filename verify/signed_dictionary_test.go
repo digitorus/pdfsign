@@ -2,18 +2,14 @@ package verify_test
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/x509"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/digitorus/pdf"
+	"github.com/digitorus/pdfsign"
 	"github.com/digitorus/pdfsign/internal/testpki"
-	"github.com/digitorus/pdfsign/sign"
 	"github.com/digitorus/pdfsign/verify"
 )
 
@@ -33,23 +29,16 @@ func TestVerifyRedefinedSignatureDictionary(t *testing.T) {
 	defer pki.Close()
 	key, cert := pki.IssueLeaf("Certified Signer")
 
-	signed := filepath.Join(t.TempDir(), "certified.pdf")
-	if err := sign.SignFile("../testfiles/testfile20.pdf", signed, sign.SignData{
-		Signature: sign.SignDataSignature{
-			CertType:   sign.CertificationSignature,
-			DocMDPPerm: sign.DoNotAllowAnyChangesPerms,
-		},
-		Signer:            key,
-		Certificate:       cert,
-		CertificateChains: [][]*x509.Certificate{append([]*x509.Certificate{cert}, pki.Chain()...)},
-		DigestAlgorithm:   crypto.SHA256,
-	}); err != nil {
+	doc, err := pdfsign.OpenFile("../testfiles/testfile20.pdf")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	doc.Sign(key, cert, pki.Chain()...).Type(pdfsign.CertificationSignature).Permission(pdfsign.NoChanges)
+	var certified bytes.Buffer
+	if _, err := doc.Write(&certified); err != nil {
 		t.Fatalf("sign: %v", err)
 	}
-	original, err := os.ReadFile(signed)
-	if err != nil {
-		t.Fatal(err)
-	}
+	original := certified.Bytes()
 
 	// The parser gives the signature object's number and the trailer
 	// entries; only the object's text and the last startxref are taken from

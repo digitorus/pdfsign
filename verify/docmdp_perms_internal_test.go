@@ -223,16 +223,6 @@ func TestCheckDocMDPCatalogPerms(t *testing.T) {
 	})
 }
 
-// hasWarning reports whether any warning on the signer contains text.
-func hasWarning(signer *Signer, text string) bool {
-	for _, w := range signer.Warnings {
-		if strings.Contains(w.Error(), text) {
-			return true
-		}
-	}
-	return false
-}
-
 // hasValidationError reports whether any validation error on the signer
 // contains text.
 func hasValidationError(signer *Signer, text string) bool {
