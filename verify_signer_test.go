@@ -238,10 +238,15 @@ func TestVerify_CMSTimestampSignerIdentity(t *testing.T) {
 
 func cmsTestTimestamp(t *testing.T, content []byte, key crypto.Signer, cert *x509.Certificate, decoys []*x509.Certificate) []byte {
 	t.Helper()
+	return cmsTestTimestampAt(t, content, key, cert, decoys, time.Now().UTC())
+}
+
+func cmsTestTimestampAt(t *testing.T, content []byte, key crypto.Signer, cert *x509.Certificate, decoys []*x509.Certificate, at time.Time) []byte {
+	t.Helper()
 	h := crypto.SHA256.New()
 	h.Write(content)
 	ts := &timestamp.Timestamp{
-		HashAlgorithm: crypto.SHA256, HashedMessage: h.Sum(nil), Time: time.Now().UTC(),
+		HashAlgorithm: crypto.SHA256, HashedMessage: h.Sum(nil), Time: at,
 		Policy: asn1.ObjectIdentifier{1, 2, 3, 4}, SerialNumber: big.NewInt(1), AddTSACertificate: true,
 	}
 	response, err := ts.CreateResponseWithOpts(cert, key, crypto.SHA256)

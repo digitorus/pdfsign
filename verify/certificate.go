@@ -185,13 +185,8 @@ func resolveVerificationTime(signer *Signer, options *VerifyOptions) *time.Time 
 
 	var verificationTime *time.Time
 
-	switch {
-	case signer.TimeStamp != nil && !signer.TimeStamp.Time.IsZero():
-		t := signer.TimeStamp.Time
-		verificationTime = &t
-		signer.TimeSource = "embedded_timestamp"
-		signer.TimestampStatus = "valid"
-
+	if signer.TimeStamp != nil && !signer.TimeStamp.Time.IsZero() {
+		signer.TimestampStatus = "untrusted"
 		if options.ValidateTimestampCertificates {
 			trusted, warning := validateTimestampCertificate(signer.TimeStamp, options)
 			signer.TimestampTrusted = trusted
@@ -199,7 +194,18 @@ func resolveVerificationTime(signer *Signer, options *VerifyOptions) *time.Time 
 				signer.Warnings = append(signer.Warnings, warning)
 			}
 		}
+		if signer.TimestampTrusted {
+			signer.TimestampStatus = "valid"
+		} else if !options.ValidateTimestampCertificates {
+			signer.Warnings = append(signer.Warnings, &Warning{Msg: "Timestamp certificate validation is disabled; timestamp time is not trusted"})
+		}
+	}
 
+	switch {
+	case signer.TimestampTrusted:
+		t := signer.TimeStamp.Time
+		verificationTime = &t
+		signer.TimeSource = "embedded_timestamp"
 	case options.TrustSignatureTime && signer.SignatureTime != nil:
 		verificationTime = signer.SignatureTime
 		signer.TimeSource = "signature_time"
@@ -519,7 +525,7 @@ func (s *Signer) IsRevokedBeforeSigning(revocationTime time.Time) bool {
 	}
 
 	// For embedded timestamps (trusted), we can make a proper determination
-	if s.TimeSource == "embedded_timestamp" {
+	if s.TimeSource == "embedded_timestamp" && s.TimestampTrusted {
 		return revocationTime.Before(*s.VerificationTime)
 	}
 

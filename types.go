@@ -549,6 +549,8 @@ func (b *VerifyBuilder) ValidateFullChain(validate bool) *VerifyBuilder {
 }
 
 // ValidateTimestampCertificates when true, validates the timestamp token's signing certificate.
+// Only a successfully validated timestamp can supply historical validation time.
+// Validation is enabled by default; disabling it retains timestamp metadata.
 func (b *VerifyBuilder) ValidateTimestampCertificates(validate bool) *VerifyBuilder {
 	b.validateTimestampCert = validate
 	return b

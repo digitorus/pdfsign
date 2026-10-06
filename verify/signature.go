@@ -79,7 +79,7 @@ func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt,
 	if isDocTimeStamp {
 		// DocTimeStamp: p7.Content contains the TSTInfo (embedded).
 		// We verify the PDF bytes match the TSTInfo MessageImprint.
-		pdfBytes, err := readByteRange(v, file)
+		pdfBytes, err := readByteRange(v, file, fileSize)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to read ByteRange: %v", err)})
 			return signer, revision, nil
@@ -124,7 +124,7 @@ func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt,
 	} else {
 		// Standard Detached Signature
 		// Process byte range uses the PDF content as the signed data
-		err = processByteRange(v, file, p7)
+		err = processByteRange(v, file, fileSize, p7)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to process ByteRange: %v", err)})
 			return signer, revision, nil
@@ -221,8 +221,8 @@ func verifyCertificateAlgorithmAndKeySize(cert *x509.Certificate, options *Verif
 }
 
 // processByteRange processes the byte range for signature verification.
-func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
-	content, err := readByteRange(v, file)
+func processByteRange(v pdf.Value, file io.ReaderAt, fileSize int64, p7 *pkcs7.PKCS7) error {
+	content, err := readByteRange(v, file, fileSize)
 	if err != nil {
 		return err
 	}
@@ -231,35 +231,55 @@ func processByteRange(v pdf.Value, file io.ReaderAt, p7 *pkcs7.PKCS7) error {
 }
 
 // readByteRange reads the content defined by ByteRange.
-func readByteRange(v pdf.Value, file io.ReaderAt) ([]byte, error) {
-	var parts []io.Reader
-	var totalSize int64
-
-	br := v.Key("ByteRange")
-	if br.Len()%2 != 0 {
-		return nil, fmt.Errorf("invalid ByteRange length: %d", br.Len())
-	}
-
-	for i := 0; i < br.Len(); i += 2 {
-		offset := br.Index(i).Int64()
-		length := br.Index(i + 1).Int64()
-
-		parts = append(parts, io.NewSectionReader(file, offset, length))
-		totalSize += length
-	}
-
-	// Pre-allocate the content buffer
-	content := make([]byte, totalSize)
-
-	// Use MultiReader to treat the separate ranges as a single continuous stream
-	reader := io.MultiReader(parts...)
-
-	_, err := io.ReadFull(reader, content)
+func readByteRange(v pdf.Value, file io.ReaderAt, fileSize int64) ([]byte, error) {
+	ranges, totalSize, err := checkedByteRange(v, fileSize)
 	if err != nil {
+		return nil, err
+	}
+	parts := make([]io.Reader, 0, len(ranges))
+	for _, part := range ranges {
+		parts = append(parts, io.NewSectionReader(file, part.offset, part.length))
+	}
+	content := make([]byte, totalSize)
+	if _, err := io.ReadFull(io.MultiReader(parts...), content); err != nil {
 		return nil, fmt.Errorf("failed to read signed content: %v", err)
 	}
-
 	return content, nil
+}
+
+type byteRangePart struct {
+	offset, length int64
+}
+
+// checkedByteRange validates untrusted range metadata before any read or
+// allocation. Ordered, disjoint ranges also bound the total to the file size.
+func checkedByteRange(v pdf.Value, fileSize int64) ([]byteRangePart, int64, error) {
+	br := v.Key("ByteRange")
+	if fileSize < 0 || br.Kind() != pdf.Array || br.Len() < 4 || br.Len()%2 != 0 {
+		return nil, 0, fmt.Errorf("invalid ByteRange shape or file size")
+	}
+	var ranges []byteRangePart
+	var totalSize, previousEnd int64
+	for i := 0; i < br.Len(); i += 2 {
+		if br.Index(i).Kind() != pdf.Integer || br.Index(i+1).Kind() != pdf.Integer {
+			return nil, 0, fmt.Errorf("ByteRange values must be integers")
+		}
+		offset := br.Index(i).Int64()
+		length := br.Index(i + 1).Int64()
+		if offset < 0 || length < 0 || offset > fileSize || length > fileSize-offset {
+			return nil, 0, fmt.Errorf("ByteRange is outside the file")
+		}
+		if offset < previousEnd || length > fileSize-totalSize {
+			return nil, 0, fmt.Errorf("ByteRange ranges overlap or exceed the file size")
+		}
+		totalSize += length
+		if totalSize > int64(int(^uint(0)>>1)) {
+			return nil, 0, fmt.Errorf("ByteRange exceeds the allocation limit")
+		}
+		previousEnd = offset + length // Addition is safe after the file bounds check.
+		ranges = append(ranges, byteRangePart{offset: offset, length: length})
+	}
+	return ranges, totalSize, nil
 }
 
 // processTimestamp processes timestamp information from the signature.
@@ -363,12 +383,13 @@ func bindTimestampSigner(ts *timestamp.Timestamp) error {
 // signedRangeEnd returns the end of the byte range a signature covers, and
 // false when the /ByteRange cannot describe a signed revision of this file.
 func signedRangeEnd(v pdf.Value, fileSize int64) (int64, bool) {
-	br := v.Key("ByteRange")
-	if br.Len() < 4 {
+	ranges, _, err := checkedByteRange(v, fileSize)
+	if err != nil {
 		return 0, false
 	}
-	end := br.Index(2).Int64() + br.Index(3).Int64()
-	if end <= 0 || end > fileSize {
+	last := ranges[len(ranges)-1]
+	end := last.offset + last.length
+	if end <= 0 {
 		return 0, false
 	}
 	return end, true

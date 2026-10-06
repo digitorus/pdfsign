@@ -12,7 +12,7 @@ import (
 // Verify initializes a VerifyBuilder to configure and execute signature verification.
 // The verification process is lazy and only executes when you access the results (e.g., via Valid() or Signatures()).
 func (d *Document) Verify() *VerifyBuilder {
-	return &VerifyBuilder{doc: d}
+	return &VerifyBuilder{doc: d, validateTimestampCert: true}
 }
 
 // execute performs the actual verification if not already done (lazy execution).
@@ -25,6 +25,13 @@ func (b *VerifyBuilder) execute() {
 }
 
 func (b *VerifyBuilder) doExecute() {
+	defer func() {
+		if r := recover(); r != nil {
+			b.err = fmt.Errorf("verification failed: %v", r)
+			b.signatures = nil
+		}
+	}()
+
 	// Helper to create internal options
 	vOpts := &verify.VerifyOptions{
 		RequiredEKUs: []x509.ExtKeyUsage{

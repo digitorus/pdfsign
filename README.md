@@ -90,7 +90,7 @@ The library is organized into specialized subpackages, though most users will pr
 ### Verification Examples
 
 ```bash
-# Basic verification (always uses embedded timestamps when present)
+# Basic verification (uses trusted embedded timestamps when present)
 ./pdfsign verify document.pdf
 
 # Verification with external revocation checking
