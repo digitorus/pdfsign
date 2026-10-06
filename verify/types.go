@@ -146,7 +146,7 @@ type Signer struct {
 	ValidSignature     bool                 `json:"valid_signature"`
 	TrustedIssuer      bool                 `json:"trusted_issuer"`
 	RevokedCertificate bool                 `json:"revoked_certificate"`
-	Certificates       []Certificate        `json:"certificates"`
+	Certificates       []Certificate        `json:"certificates"` // Resolved CMS signer first; remaining embedded certificates follow.
 	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
 	SignatureTime      *time.Time           `json:"signature_time,omitempty"`   // Time from the signature object, may be untrusted
 	TimestampStatus    string               `json:"timestamp_status,omitempty"` // "valid", "invalid", "missing"

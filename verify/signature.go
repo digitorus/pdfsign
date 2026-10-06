@@ -66,7 +66,12 @@ func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt,
 	rawSignature := []byte(v.Key("Contents").RawString())
 	p7, err := pkcs7.Parse(rawSignature)
 	if err != nil {
-		return signer, revision, fmt.Errorf("failed to parse PKCS#7: %w", err)
+		signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("failed to parse PKCS#7: %v", err)})
+		return signer, revision, nil
+	}
+	if _, err := signerCertificate(p7); err != nil {
+		signer.ValidationErrors = append(signer.ValidationErrors, err)
+		return signer, revision, nil
 	}
 
 	isDocTimeStamp := (v.Key("SubFilter").Name() == "ETSI.RFC3161")
@@ -86,6 +91,10 @@ func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt,
 		ts, err := timestamp.Parse(rawSignature)
 		if err != nil {
 			signer.ValidationErrors = append(signer.ValidationErrors, &ValidationError{Msg: fmt.Sprintf("Failed to parse TSTInfo: %v", err)})
+			return signer, revision, nil
+		}
+		if err := bindTimestampSigner(ts); err != nil {
+			signer.ValidationErrors = append(signer.ValidationErrors, err)
 			return signer, revision, nil
 		}
 		signer.TimeStamp = ts
@@ -155,30 +164,9 @@ func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt,
 }
 
 func verifyAlgorithmAndKeySize(signer *Signer, p7 *pkcs7.PKCS7, options *VerifyOptions) error {
-	if len(signer.Certificates) == 0 {
-		return nil
-	}
-
-	// Identify the leaf signer
-	// We try to match the signer info from p7
-	var leafCert *x509.Certificate
-	if len(p7.Signers) > 0 {
-		signerInfo := p7.Signers[0]
-		for _, cert := range p7.Certificates {
-			// Compare Serial Number
-			if cert.SerialNumber.Cmp(signerInfo.IssuerAndSerialNumber.SerialNumber) == 0 {
-				// Compare Issuer (Raw Bytes)
-				// signerInfo.IssuerAndSerialNumber.IssuerName is asn1.RawValue
-				if bytes.Equal(cert.RawIssuer, signerInfo.IssuerAndSerialNumber.IssuerName.FullBytes) {
-					leafCert = cert
-					break
-				}
-			}
-		}
-	}
-	// Fallback if not found (e.g. strict matching fail), assume first in list if single
-	if leafCert == nil && len(p7.Certificates) > 0 {
-		leafCert = p7.Certificates[0]
+	leafCert, err := signerCertificate(p7)
+	if err != nil {
+		return err
 	}
 
 	if options.ValidateFullChain {
@@ -284,6 +272,9 @@ func processTimestamp(p7 *pkcs7.PKCS7, signer *Signer) error {
 				if err != nil {
 					return fmt.Errorf("failed to parse timestamp: %v", err)
 				}
+				if err := bindTimestampSigner(ts); err != nil {
+					return err
+				}
 
 				signer.TimeStamp = ts
 
@@ -311,27 +302,61 @@ func processTimestamp(p7 *pkcs7.PKCS7, signer *Signer) error {
 
 // verifySignature verifies the digital signature.
 func verifySignature(p7 *pkcs7.PKCS7, signer *Signer) error {
-	// Directory of certificates, including OCSP
-	certPool := x509.NewCertPool()
-	for _, cert := range p7.Certificates {
-		certPool.AddCert(cert)
+	if _, err := signerCertificate(p7); err != nil {
+		return err
 	}
+	// Check cryptographic integrity only. Trust is established separately
+	// against configured roots, never against this unsigned certificate bag.
+	if err := p7.Verify(); err != nil {
+		return fmt.Errorf("signature verification failed: %v", err)
+	}
+	signer.ValidSignature = true
+	return nil
+}
 
-	// Verify the digital signature of the pdf file.
-	err := p7.VerifyWithChain(certPool)
-	if err != nil {
-		err = p7.Verify()
-		if err == nil {
-			signer.ValidSignature = true
-			signer.TrustedIssuer = false
-		} else {
-			return fmt.Errorf("signature verification failed: %v", err)
+// signerCertificate uses the same CMS identifier lookup as pkcs7.Verify.
+// The PDF result describes one signer, so missing or ambiguous identities
+// cannot be represented safely. The pinned CMS parser supports issuer and
+// serial identifiers; unsupported identifier forms fail during parsing.
+func signerCertificate(p7 *pkcs7.PKCS7) (*x509.Certificate, error) {
+	if len(p7.Signers) != 1 {
+		return nil, &ValidationError{Msg: fmt.Sprintf("expected exactly one CMS signer, got %d", len(p7.Signers))}
+	}
+	cert := p7.GetOnlySigner()
+	if cert == nil {
+		return nil, &ValidationError{Msg: "CMS signer certificate not found"}
+	}
+	for _, other := range p7.Certificates {
+		if other.SerialNumber.Cmp(cert.SerialNumber) == 0 && bytes.Equal(other.RawIssuer, cert.RawIssuer) && !other.Equal(cert) {
+			return nil, &ValidationError{Msg: "multiple certificates match the CMS signer identifier"}
 		}
-	} else {
-		signer.ValidSignature = true
-		signer.TrustedIssuer = true
 	}
+	return cert, nil
+}
 
+// signerFirst preserves certificate diagnostics while making the first
+// certificate in API results the resolved signer, regardless of CMS order.
+func signerFirst(certs []*x509.Certificate, signerCert *x509.Certificate) []*x509.Certificate {
+	ordered := make([]*x509.Certificate, 0, len(certs))
+	ordered = append(ordered, signerCert)
+	for _, cert := range certs {
+		if cert != signerCert {
+			ordered = append(ordered, cert)
+		}
+	}
+	return ordered
+}
+
+func bindTimestampSigner(ts *timestamp.Timestamp) error {
+	p7, err := pkcs7.Parse(ts.RawToken)
+	if err != nil {
+		return &ValidationError{Msg: fmt.Sprintf("failed to parse timestamp token: %v", err)}
+	}
+	cert, err := signerCertificate(p7)
+	if err != nil {
+		return err
+	}
+	ts.Certificates = signerFirst(p7.Certificates, cert)
 	return nil
 }
 

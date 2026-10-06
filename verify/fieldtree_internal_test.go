@@ -32,13 +32,21 @@ func TestSignatureFieldTraversal(t *testing.T) {
 	t.Run("/FT inherited from the parent field is honoured", func(t *testing.T) {
 		// The signature field is found (its bogus signature then fails to
 		// parse), which a walk without inheritance reports as no field at all.
-		err := verify(t, buildFormPDF(t,
+		fileBytes := buildFormPDF(t,
 			"<< /T (form) /FT /Sig /Kids [5 0 R] >>",
 			"<< /Parent 4 0 R /T (sig1) /V 6 0 R >>",
 			"<< /Type /Sig /Filter /Adobe.PPKLite /Contents <01> /ByteRange [0 0 0 0] >>",
-		))
-		if err == nil || !strings.Contains(err.Error(), "failed to process") {
-			t.Fatalf("expected the signature field to be found and its signature rejected, got %v", err)
+		)
+		result, err := VerifyWithOptions(bytes.NewReader(fileBytes), int64(len(fileBytes)), DefaultVerifyOptions())
+		if err != nil {
+			t.Fatalf("expected an invalid signature result, got %v", err)
+		}
+		if len(result.Signers) != 1 {
+			t.Fatalf("expected the inherited signature field to be found, got %d signers", len(result.Signers))
+		}
+		signer := result.Signers[0]
+		if signer.ValidSignature || len(signer.ValidationErrors) == 0 || !strings.Contains(signer.ValidationErrors[0].Error(), "failed to parse PKCS#7") {
+			t.Fatalf("expected the malformed signature to be rejected, got %+v", signer)
 		}
 	})
 
