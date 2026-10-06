@@ -18,13 +18,19 @@ import (
 // certificate, revocation data parse failures, and OCSP/CRL signature issues. None of these stop
 // certificate chain building for the remaining certificates.
 //
-// isDocTimeStamp indicates p7.Certificates[0] is a TSA's own certificate
+// isDocTimeStamp indicates the CMS signer is a TSA's own certificate
 // (the signature being verified IS a document timestamp) rather than a PDF
 // signer's certificate. The RequireDigitalSignatureKU/RequiredEKUs/
 // AllowedEKUs policy below is meant for signer certificates and does not
 // apply to it - its EKU (id-kp-timeStamping) is instead checked separately
 // by validateTimestampCertificate.
 func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo revocation.InfoArchival, options *VerifyOptions, isDocTimeStamp bool) error {
+	leafCert, err := signerCertificate(p7)
+	if err != nil {
+		return err
+	}
+	certificates := signerFirst(p7.Certificates, leafCert)
+	signer.TrustedIssuer = false
 	// PDF signing certificates conventionally carry the Document Signing EKU
 	// (1.2.840.113583.1.1.8 / RFC 9336, OID 1.3.6.1.5.5.7.3.36), which Go's
 	// x509 package does not recognize as a named ExtKeyUsage constant. Go
@@ -37,9 +43,9 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 	// clones of every certificate, which sidesteps that gate entirely. EKU
 	// *policy* (is this cert allowed to sign PDFs?) is a separate concern,
 	// already handled below via validateKeyUsage on the original certs.
-	stripped := make([]*x509.Certificate, len(p7.Certificates))
+	stripped := make([]*x509.Certificate, len(certificates))
 	certPool := x509.NewCertPool()
-	for i, cert := range p7.Certificates {
+	for i, cert := range certificates {
 		stripped[i] = stripEKUForChainTrust(cert)
 		certPool.AddCert(stripped[i])
 	}
@@ -48,7 +54,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 
 	ocspStatus, crlStatus, valErr := parseEmbeddedRevocationData(revInfo)
 
-	trustedIssuer := false
+	var signerChains [][]*x509.Certificate
 
 	createVerifyOptions := func(roots, intermediates *x509.CertPool) x509.VerifyOptions {
 		opts := x509.VerifyOptions{
@@ -61,7 +67,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		return opts
 	}
 
-	for i, cert := range p7.Certificates {
+	for i, cert := range certificates {
 		var c Certificate
 		c.Certificate = cert
 
@@ -70,7 +76,9 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 		var chainBroken bool
 		chain, err := stripped[i].Verify(createVerifyOptions(options.TrustedRoots, certPool))
 		if err == nil {
-			trustedIssuer = true
+			if i == 0 {
+				signer.TrustedIssuer = true
+			}
 		} else if options.AllowUntrustedRoots {
 			altChain, verifyErr := stripped[i].Verify(createVerifyOptions(certPool, certPool))
 			if verifyErr != nil {
@@ -89,7 +97,7 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			c.VerifyError = err.Error()
 		}
 
-		// The signer's own (leaf) certificate is always p7.Certificates[0].
+		// The resolved CMS signer is first in our local certificate list.
 		// An untrusted or unverifiable chain for it is a real validation
 		// failure, not just informational: without it, Valid() would report
 		// true for a signature whose certificate chain trusts nothing.
@@ -125,16 +133,32 @@ func buildCertificateChainsWithOptions(p7 *pkcs7.PKCS7, signer *Signer, revInfo 
 			}
 		}
 
-		// Apply embedded and external revocation status checks
-		if applyErr := applyRevocationStatus(cert, chain, ocspStatus, crlStatus, signer, &c, options); applyErr != nil && valErr == nil {
-			valErr = applyErr
+		if i == 0 {
+			signerChains = chain
+		}
+		// Only the signer and certificates in its verified chains can affect
+		// revocation validity. Unrelated certificates are merely diagnostics.
+		if i == 0 || certificateInChains(cert, signerChains) {
+			if applyErr := applyRevocationStatus(cert, chain, ocspStatus, crlStatus, signer, &c, options); applyErr != nil && valErr == nil {
+				valErr = applyErr
+			}
 		}
 
 		signer.Certificates = append(signer.Certificates, c)
 	}
 
-	signer.TrustedIssuer = trustedIssuer
 	return valErr
+}
+
+func certificateInChains(cert *x509.Certificate, chains [][]*x509.Certificate) bool {
+	for _, chain := range chains {
+		for _, member := range chain {
+			if cert.Equal(member) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // stripEKUForChainTrust returns a shallow copy of cert with its Extended Key
@@ -443,19 +467,9 @@ func validateTimestampCertificate(ts *timestamp.Timestamp, options *VerifyOption
 		certPool.AddCert(cert)
 	}
 
-	// Find the timestamp signing certificate
-	var timestampCert *x509.Certificate
-	for _, cert := range p7.Certificates {
-		// Look for the certificate that signed the timestamp
-		// Usually this will be the first one, but we should verify
-		if cert.KeyUsage&x509.KeyUsageDigitalSignature != 0 {
-			timestampCert = cert
-			break
-		}
-	}
-
-	if timestampCert == nil {
-		return false, &Warning{Msg: "No timestamp signing certificate found"}
+	timestampCert, err := signerCertificate(p7)
+	if err != nil {
+		return false, &Warning{Msg: fmt.Sprintf("Invalid timestamp signer: %v", err)}
 	}
 	for _, cert := range p7.Certificates {
 		isLeaf := cert.Equal(timestampCert)

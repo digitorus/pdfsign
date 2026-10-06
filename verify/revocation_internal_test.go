@@ -2,6 +2,7 @@ package verify
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/digitorus/pdfsign/internal/testpki"
 	"github.com/digitorus/pdfsign/revocation"
 	"github.com/digitorus/pkcs7"
 	"golang.org/x/crypto/ocsp"
@@ -314,9 +316,7 @@ func TestBuildChains_ErrorHandling(t *testing.T) {
 	// Test error accumulation logic in buildCertificateChainsWithOptions
 	// by providing invalid OCSP/CRL bytes
 
-	p7 := &pkcs7.PKCS7{
-		Certificates: []*x509.Certificate{{}},
-	}
+	p7 := chainTestCMS(t, 0, nil)
 	signer := NewSigner()
 	revInfo := revocation.InfoArchival{
 		OCSP: revocation.OCSP{{FullBytes: []byte("garbage")}},
@@ -328,6 +328,10 @@ func TestBuildChains_ErrorHandling(t *testing.T) {
 	err := buildCertificateChainsWithOptions(p7, signer, revInfo, options, false)
 	if err == nil {
 		t.Error("Expected non-nil error for unparseable OCSP/CRL data")
+	}
+	var revErr *RevocationError
+	if !errors.As(err, &revErr) {
+		t.Errorf("expected revocation parsing error, got %v", err)
 	}
 }
 
@@ -422,9 +426,7 @@ func TestApplyRevocationStatus_RevokedCertificateReturnsError(t *testing.T) {
 // error - without this, validateKeyUsage's result is computed and recorded
 // on the Certificate struct but never gates ValidSignature/Valid().
 func TestBuildChains_KeyUsagePolicyViolationReturnsError(t *testing.T) {
-	p7 := &pkcs7.PKCS7{
-		Certificates: []*x509.Certificate{{}}, // no KeyUsage, no ExtKeyUsage
-	}
+	p7 := chainTestCMS(t, x509.KeyUsageKeyEncipherment, nil)
 	signer := NewSigner()
 	options := DefaultVerifyOptions()
 
@@ -447,18 +449,50 @@ func TestBuildChains_KeyUsagePolicyViolationReturnsError(t *testing.T) {
 // Client Auth), which does not apply to it - only its own
 // id-kp-timeStamping EKU matters, checked separately.
 func TestBuildChains_DocTimeStampSkipsSignerEKUPolicy(t *testing.T) {
-	p7 := &pkcs7.PKCS7{
-		Certificates: []*x509.Certificate{{
-			KeyUsage:    x509.KeyUsageDigitalSignature,
-			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping},
-		}},
-	}
+	p7 := chainTestCMS(t, x509.KeyUsageDigitalSignature, []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping})
 	signer := NewSigner()
 	options := DefaultVerifyOptions()
 
 	err := buildCertificateChainsWithOptions(p7, signer, revocation.InfoArchival{}, options, true)
+	if len(signer.Certificates) != 1 {
+		t.Fatal("timestamp certificate was not processed")
+	}
 	var policyErr *PolicyError
 	if errors.As(err, &policyErr) {
 		t.Errorf("did not expect a KeyUsage/EKU policy error for a DocTimeStamp certificate, got: %v", policyErr)
 	}
+}
+
+func chainTestCMS(t *testing.T, ku x509.KeyUsage, ekus []x509.ExtKeyUsage) *pkcs7.PKCS7 {
+	t.Helper()
+	key := testpki.GenerateKey(t, testpki.ECDSA_P256)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42), Subject: pkix.Name{CommonName: "Chain test signer"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: ku, ExtKeyUsage: ekus,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sd, err := pkcs7.NewSignedData([]byte("chain test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sd.AddSigner(cert, key, pkcs7.SignerInfoConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	der, err = sd.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p7, err := pkcs7.Parse(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p7
 }
