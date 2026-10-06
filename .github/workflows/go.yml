@@ -36,7 +36,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Install pdfcpu
-        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.1
 
       - name: Validate signed PDFs with pdfcpu
         run: |
@@ -105,14 +105,19 @@ jobs:
             # (they only lived for the "go test" step), and pdfcpu refuses to
             # dial loopback addresses anyway. Test certificates are also
             # self-signed and never imported into pdfcpu's local certificate
-            # store, so trust cannot be resolved - pdfcpu reports
-            # "DocModified: unknown" with reason "certificate path was not
-            # resolved" for a perfectly valid signature in that case. Accept
-            # that specific, expected reason as a pass; a real integrity
-            # failure (tampered bytes) reports "DocModified: true" instead
-            # and is still caught below.
+            # store, so trust cannot be resolved. Current pdfcpu reports
+            # "Document modified: false" when integrity is verified even if
+            # trust is unknown. Older versions used "DocModified" and could
+            # report "unknown" solely because the certificate path was not
+            # resolved. Reject any explicit modification before accepting
+            # another signature's successful integrity result.
             SIG_OUT=$(pdfcpu signatures validate -f --offline "$signed_file" 2>&1)
-            if echo "$SIG_OUT" | grep -q "DocModified: false"; then
+            if echo "$SIG_OUT" | grep -Eq '(DocModified|Document modified):[[:space:]]+true'; then
+              echo "❌ Signature: Document modified"
+              echo "$SIG_OUT"
+              VALIDATION_PASSED="false"
+              touch validation_failed.flag
+            elif echo "$SIG_OUT" | grep -Eq '(DocModified|Document modified):[[:space:]]+false'; then
               echo "✅ Signature: Integrity verified (Document not modified)"
             elif echo "$SIG_OUT" | grep -q "DocModified: unknown" && echo "$SIG_OUT" | grep -q "certificate path was not resolved using the configured local certificate store"; then
               echo "✅ Signature: Integrity verified (trust unknown - self-signed test certificate, expected)"
@@ -185,7 +190,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ghostscript
-          go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@latest
+          go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.1
           
           # Install veraPDF greenfield
           curl -L https://software.verapdf.org/rel/1.28/verapdf-greenfield-1.28.2-installer.zip -o verapdf.zip
