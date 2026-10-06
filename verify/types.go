@@ -149,7 +149,7 @@ type Signer struct {
 	Certificates       []Certificate        `json:"certificates"` // Resolved CMS signer first; remaining embedded certificates follow.
 	TimeStamp          *timestamp.Timestamp `json:"time_stamp"`
 	SignatureTime      *time.Time           `json:"signature_time,omitempty"`   // Time from the signature object, may be untrusted
-	TimestampStatus    string               `json:"timestamp_status,omitempty"` // "valid", "invalid", "missing"
+	TimestampStatus    string               `json:"timestamp_status,omitempty"` // "valid", "untrusted", "invalid", "missing"
 	TimestampTrusted   bool                 `json:"timestamp_trusted"`          // Whether timestamp certificate chain is trusted
 	VerificationTime   *time.Time           `json:"verification_time"`          // Time used for certificate validation
 	TimeSource         string               `json:"time_source"`                // "embedded_timestamp", "signature_time", "current_time"
