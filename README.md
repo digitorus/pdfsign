@@ -213,6 +213,22 @@ if err := doc.SetField("Comments", ""); err != nil {
 doc.Sign(signer, cert).Reason("Form Filled").Write(output)
 ```
 
+#### Sign an Existing Signature Field
+By default each signature gets a new field. To sign an unsigned signature field
+that is already in the document, such as one placed by a form editor, name it
+by its fully qualified name. The field keeps its widgets and appearance, so
+`Field` cannot be combined with `Appearance`.
+
+```go
+doc.Sign(signer, cert).Field("Signature1")
+doc.Sign(signer2, cert2).Field("parties.buyer")
+if _, err := doc.Write(output); err != nil {
+    log.Fatal(err)
+}
+```
+
+With the `sign` package, set `SignData.FieldName`.
+
 ### Signature Extraction
 
 You can iterate over all signatures in a document to inspect their properties or extract raw data without performing full cryptographic verification.
