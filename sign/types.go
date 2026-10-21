@@ -44,6 +44,13 @@ type SignData struct {
 	RevocationFunction RevocationFunction
 	Appearance         Appearance
 
+	// FieldName is the fully qualified name (ISO 32000-1 12.7.3.2) of an
+	// existing, unsigned signature field to sign, such as one a form editor
+	// placed on a page. The field keeps its entries and widgets and only
+	// receives the signature value, so it cannot be combined with a visible
+	// Appearance. When empty, a new signature field is added.
+	FieldName string
+
 	// Updates contains raw byte updates for existing PDF objects.
 	// The key is the object ID, use it with SignContext.UpdateObject.
 	Updates map[uint32][]byte

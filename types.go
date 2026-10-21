@@ -242,6 +242,7 @@ type SignBuilder struct {
 	format          Format
 	appearance      *Appearance
 	appPage         int
+	fieldName       string
 	appX, appY      float64
 	tsa             string
 	tsaUser         string
@@ -350,6 +351,15 @@ func (b *SignBuilder) Appearance(a *Appearance, x, y float64) *SignBuilder {
 // called. Can be chained before or after Appearance.
 func (b *SignBuilder) Page(page int) *SignBuilder {
 	b.appPage = page
+	return b
+}
+
+// Field signs the existing, unsigned signature field with the given fully
+// qualified name, such as "Signature1" or "parent.child", instead of adding a
+// new one. The field keeps its own widgets, so Field cannot be combined with
+// Appearance.
+func (b *SignBuilder) Field(name string) *SignBuilder {
+	b.fieldName = name
 	return b
 }
 

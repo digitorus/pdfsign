@@ -117,6 +117,66 @@ func TestWrite_MultipleStagedSignatures(t *testing.T) {
 	}
 }
 
+// TestWrite_SignExistingFields signs the existing signature fields of a
+// document one after another through the fluent API: each signature lands in
+// the field it names and no new field is added.
+func TestWrite_SignExistingFields(t *testing.T) {
+	pki := testpki.NewTestPKI(t)
+	pki.StartCRLServer()
+	defer pki.Close()
+
+	keyAlice, certAlice := pki.IssueLeaf("Alice")
+	keyBob, certBob := pki.IssueLeaf("Bob")
+
+	doc, err := OpenFile("testfiles/testfile_signature_fields.pdf")
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+
+	doc.Sign(keyAlice, certAlice, pki.Chain()...).Format(PAdES_B).Field("Signature1")
+	doc.Sign(keyBob, certBob, pki.Chain()...).Format(PAdES_B).Field("parent.child")
+
+	outPath := t.TempDir() + "/fields.pdf"
+	out, err := os.Create(outPath)
+	if err != nil {
+		t.Fatalf("failed to create output file: %v", err)
+	}
+	if _, err := doc.Write(out); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("close output: %v", err)
+	}
+
+	signedDoc, err := OpenFile(outPath)
+	if err != nil {
+		t.Fatalf("re-opening signed document: %v", err)
+	}
+
+	vr := signedDoc.Verify().TrustSelfSigned(true)
+	if err := vr.Err(); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if vr.Count() != 2 {
+		t.Fatalf("expected 2 signatures, got %d", vr.Count())
+	}
+	for _, sig := range vr.Signatures() {
+		if !sig.Valid {
+			t.Errorf("signature %s invalid: %v", sig.SignerName, sig.Errors)
+		}
+	}
+
+	var signatureFields []string
+	for _, field := range signedDoc.FormFields() {
+		if field.Type == "Sig" {
+			signatureFields = append(signatureFields, field.Name)
+		}
+	}
+	if len(signatureFields) != 2 || signatureFields[0] != "Signature1" || signatureFields[1] != "parent.child" {
+		t.Errorf("expected signature fields [Signature1 parent.child], got %v", signatureFields)
+	}
+}
+
 // TestAddInitials_PreservesInlinePageAttributes is a regression test for a
 // bug in addAnnotToPage where inline (non-indirect) page attributes -
 // Resources, Rotate, and each element of MediaBox/CropBox - were corrupted
