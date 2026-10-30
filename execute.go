@@ -131,6 +131,8 @@ func (d *Document) Write(output io.Writer) (*Result, error) {
 			signData.TSA.Password = sb.tsaPass
 		}
 
+		signData.FieldName = sb.fieldName
+
 		// Appearance configuration
 		if sb.appearance != nil {
 			signData.Appearance.Visible = true
