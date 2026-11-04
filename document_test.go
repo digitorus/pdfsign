@@ -128,7 +128,7 @@ func TestWrite_SignExistingFields(t *testing.T) {
 	keyAlice, certAlice := pki.IssueLeaf("Alice")
 	keyBob, certBob := pki.IssueLeaf("Bob")
 
-	doc, err := OpenFile("testfiles/testfile_signature_fields.pdf")
+	doc, err := OpenFile("testfiles/fields/signature_fields.pdf")
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}

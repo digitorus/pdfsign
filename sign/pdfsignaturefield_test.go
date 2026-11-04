@@ -18,7 +18,7 @@ import (
 // field and widget "Signature1", the signature field "parent.child", whose
 // type is inherited from "parent" and whose widget is a separate kid, and
 // the text field "Text1".
-const signatureFieldsFile = "../testfiles/testfile_signature_fields.pdf"
+const signatureFieldsFile = "../testfiles/fields/signature_fields.pdf"
 
 func existingFieldSignData(t *testing.T, fieldName string) sign.SignData {
 	t.Helper()

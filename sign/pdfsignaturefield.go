@@ -54,8 +54,12 @@ func (context *SignContext) findSignatureField(name string) (pdf.Value, error) {
 		return pdf.Value{}, fmt.Errorf("signature field %q has child fields, name one of them instead", name)
 	case !field.Value.IsNull():
 		return pdf.Value{}, fmt.Errorf("signature field %q is already signed", name)
-	case field.Dict.GetPtr().GetID() == 0:
+	case !field.Indirect:
 		return pdf.Value{}, fmt.Errorf("signature field %q is a direct object and cannot be updated incrementally", name)
+	}
+
+	if field.Dict.GetPtr().GetGen() != 0 {
+		return pdf.Value{}, fmt.Errorf("signature field %q has a nonzero generation and cannot be updated", name)
 	}
 
 	return field.Dict, nil
@@ -71,6 +75,9 @@ func (context *SignContext) createFilledSignatureField(field pdf.Value) ([]byte,
 	// from references to other objects such as /P, /Parent and /AP.
 	fieldObjId := field.GetPtr().GetID()
 	for _, key := range field.Keys() {
+		if key == "V" {
+			continue // Replace an explicit null value rather than emitting a duplicate key.
+		}
 		_, _ = fmt.Fprintf(&buf, "  %s ", pdfName(key))
 		if err := context.serializeCatalogEntry(&buf, fieldObjId, field.Key(key)); err != nil {
 			return nil, fmt.Errorf("failed to serialize signature field entry %q: %w", key, err)

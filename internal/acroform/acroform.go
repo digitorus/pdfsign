@@ -13,6 +13,8 @@ const MaxDepth = 64
 type Field struct {
 	// Dict is the field dictionary.
 	Dict pdf.Value
+	// Indirect reports whether Dict is an indirect object rather than an inline dictionary.
+	Indirect bool
 	// Name is the fully qualified field name: the partial names (/T) of the
 	// field and its ancestors joined with periods (12.7.3.2).
 	Name string
@@ -105,6 +107,7 @@ func node(field, container pdf.Value, parent Field, visited map[visit]bool, dept
 	// A dictionary written directly into the array carries the array's own
 	// pointer, so only an indirect object identifies a node.
 	if ptr := field.GetPtr(); container.IsNull() || ptr != container.GetPtr() {
+		f.Indirect = ptr.GetID() != 0
 		key := visit{ptr, f.Type}
 		if visited[key] {
 			return true
