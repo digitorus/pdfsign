@@ -109,7 +109,8 @@ func verifyFile(t *testing.T, filePath string) {
 	}
 	defer func() { _ = file.Close() }()
 
-	verifySignedFile(t, file, filepath.Base(filePath))
+	// Keep the source fixture identifiable by the external-validation workflow.
+	verifySignedFile(t, file, "signature_fields_"+filepath.Base(filePath))
 }
 
 func TestSignExistingField(t *testing.T) {

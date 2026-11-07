@@ -54,7 +54,7 @@ jobs:
 
           # Build list of source files that have pre-existing errors (baseline)
           echo "Running baseline check..."
-          for source_file in testfiles/*.pdf; do
+          for source_file in testfiles/*.pdf testfiles/fields/*.pdf; do
             [ -e "$source_file" ] || continue
             filename=$(basename "$source_file")
             if ! pdfcpu validate --mode strict "$source_file" > /dev/null 2>&1; then
@@ -72,6 +72,13 @@ jobs:
             # e.g., testfile14_TestSignPDFVisibleAll.pdf -> testfile14.pdf
             source_filename=$(echo "$filename" | sed 's/_TestSignPDF.pdf/.pdf/' | sed 's/_TestSignPDFVisibleAll.pdf/.pdf/')
             
+            # Existing-field tests retain the field name in their output name.
+            # pdfcpu rejects the fixture's separate field/widget dictionaries
+            # even before signing, so compare these outputs with that source.
+            case "$filename" in
+              signature_fields_*) source_filename=signature_fields.pdf ;;
+            esac
+
             # Skip if source had pre-existing errors
             if [ -f baseline_errors.txt ] && grep -q "^$source_filename$" baseline_errors.txt; then
               echo "--------------------------------------------------"
