@@ -47,3 +47,50 @@ func TestExistingFieldInlineAndNull(t *testing.T) {
 		})
 	}
 }
+
+func TestExistingFieldKeepsIndirectAcroForm(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		certType  CertType
+		sigFlags  string
+		wantFlags string
+	}{
+		{"approval merges flags", ApprovalSignature, "/SigFlags 1", "/SigFlags 3"},
+		{"approval without flags", ApprovalSignature, "", "/SigFlags 3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objects := []string{
+				"<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+				"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+				"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+				"<< /Fields 5 0 R /DA (/Helv 12 Tf) /DR << /Font << /Helv 7 0 R >> >> " + tc.sigFlags + " >>",
+				"[6 0 R]",
+				"<< /FT /Sig /T (sig) >>",
+				"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+			}
+			ctx := &SignContext{
+				PDFReader: testpdf.Reader(t, objects...),
+				SignData:  SignData{FieldName: "sig", Signature: SignDataSignature{CertType: tc.certType}},
+			}
+			if _, err := ctx.findSignatureField("sig"); err != nil {
+				t.Fatal(err)
+			}
+			catalog, err := ctx.createCatalog()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(catalog)
+			for _, want := range []string{"/Fields 5 0 R", "/DA (/Helv 12 Tf)", "/Helv 7 0 R", tc.wantFlags} {
+				if !strings.Contains(got, want) {
+					t.Errorf("catalog lacks %q: %s", want, got)
+				}
+			}
+			if strings.Count(got, "/SigFlags") != 1 {
+				t.Errorf("expected exactly one /SigFlags: %s", got)
+			}
+			if strings.Contains(got, "/AcroForm 4 0 R") {
+				t.Errorf("AcroForm should be rewritten inline: %s", got)
+			}
+		})
+	}
+}

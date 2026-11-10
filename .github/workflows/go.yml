@@ -73,8 +73,12 @@ jobs:
             source_filename=$(echo "$filename" | sed 's/_TestSignPDF.pdf/.pdf/' | sed 's/_TestSignPDFVisibleAll.pdf/.pdf/')
             
             # Existing-field tests retain the field name in their output name.
-            # pdfcpu rejects the fixture's separate field/widget dictionaries
-            # even before signing, so compare these outputs with that source.
+            # pdfcpu already rejects the fixture before signing (strict mode:
+            # a font descriptor without /FontFamily; relaxed mode: a field
+            # dictionary without /Rect). Both are valid PDF: /FontFamily is
+            # optional, and /Rect belongs to the widget annotation, which the
+            # fixture keeps separate from its field on purpose. So these
+            # outputs are compared with that source and skipped here.
             case "$filename" in
               signature_fields_*) source_filename=signature_fields.pdf ;;
             esac

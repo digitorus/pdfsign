@@ -229,6 +229,9 @@ if _, err := doc.Write(output); err != nil {
 
 With the `sign` package, set `SignData.FieldName`.
 
+Only the signature value is written to the field. Field-level `/Lock` and `/SV` (seed value)
+constraints are not applied or checked.
+
 ### Signature Extraction
 
 You can iterate over all signatures in a document to inspect their properties or extract raw data without performing full cryptographic verification.

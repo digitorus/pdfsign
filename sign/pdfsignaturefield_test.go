@@ -164,6 +164,35 @@ func TestSignExistingFieldsOneAfterAnother(t *testing.T) {
 	verifyFile(t, second)
 }
 
+func TestSignExistingFieldCertification(t *testing.T) {
+	signData := existingFieldSignData(t, "Signature1")
+	signData.Signature.CertType = sign.CertificationSignature
+	signData.Signature.DocMDPPerm = sign.AllowFillingExistingFormFieldsAndSignaturesPerms
+
+	outputFilePath := filepath.Join(t.TempDir(), "certified.pdf")
+	if err := sign.SignFile(signatureFieldsFile, outputFilePath, signData); err != nil {
+		t.Fatalf("failed to certify field: %v", err)
+	}
+
+	assertSignatureFields(t, outputFilePath, map[string]bool{"Signature1": true, "parent.child": false})
+
+	// The signature has to be referenced from /Perms /DocMDP as well.
+	signed, err := os.ReadFile(outputFilePath)
+	if err != nil {
+		t.Fatalf("%s", err.Error())
+	}
+	if !bytes.Contains(signed, []byte("/DocMDP")) {
+		t.Error("certified document has no /DocMDP entry")
+	}
+
+	// A second signature may still fill the other field under this permission level.
+	second := signExistingField(t, outputFilePath, "parent.child")
+	assertSignatureFields(t, second, map[string]bool{"Signature1": true, "parent.child": true})
+
+	// verifyFile moves the file away, so it comes last.
+	verifyFile(t, second)
+}
+
 func TestSignExistingFieldRejectsField(t *testing.T) {
 	signed := signExistingField(t, signatureFieldsFile, "Signature1")
 
