@@ -62,6 +62,25 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 		}
 	}
 
+	// Filling an existing field does not change the form tree. Preserve its
+	// dictionary, including resources, defaults and indirect field arrays.
+	if context.SignData.FieldName != "" {
+		catalog_buffer.WriteString("  /AcroForm <<\n")
+		form := root.Key("AcroForm")
+		for _, key := range form.Keys() {
+			if key == "SigFlags" {
+				continue
+			}
+			fmt.Fprintf(&catalog_buffer, "    %s ", pdfName(key))
+			if err := context.serializeCatalogEntry(&catalog_buffer, form.GetPtr().GetID(), form.Key(key)); err != nil {
+				return nil, fmt.Errorf("failed to serialize AcroForm entry %q: %w", key, err)
+			}
+			catalog_buffer.WriteString("\n")
+		}
+		fmt.Fprintf(&catalog_buffer, "    /SigFlags %d\n  >>\n>>\n", form.Key("SigFlags").Int64()|3)
+		return catalog_buffer.Bytes(), nil
+	}
+
 	// Start the AcroForm dictionary with /NeedAppearances
 	catalog_buffer.WriteString("  /AcroForm <<\n")
 	catalog_buffer.WriteString("    /Fields [")
@@ -87,7 +106,7 @@ func (context *SignContext) createCatalog() ([]byte, error) {
 		}
 	}
 
-	// Add the visual signature field to the AcroForm dictionary
+	// Add the visual signature field to the AcroForm dictionary.
 	if fieldsAdded > 0 {
 		catalog_buffer.WriteString(" ")
 	}

@@ -232,6 +232,10 @@ func (context *SignContext) validateSignData() error {
 		return err
 	}
 
+	if context.SignData.FieldName != "" && context.SignData.Appearance.Visible {
+		return errors.New("a visible appearance cannot be set when signing an existing field: the field keeps its own widgets")
+	}
+
 	if key := context.permsKey(); key != "" {
 		if err := context.validatePermsSignature(key); err != nil {
 			return err
@@ -484,6 +488,10 @@ func (context *SignContext) addSignatureObject() error {
 }
 
 func (context *SignContext) handleVisualSignature() error {
+	if context.SignData.FieldName != "" {
+		return context.fillSignatureField()
+	}
+
 	// Create visual signature (visible or invisible based on CertType)
 	visible := false
 	rectangle := [4]float64{0, 0, 0, 0}
