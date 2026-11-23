@@ -43,6 +43,11 @@ func verifyDocumentSignature(v pdf.Value, current *pdf.Reader, file io.ReaderAt,
 		return signer, revision, nil
 	}
 
+	if ranges, _, err := checkedByteRange(v, fileSize); err == nil {
+		for _, r := range ranges {
+			signer.ByteRange = append(signer.ByteRange, r.offset, r.length)
+		}
+	}
 	signer.Name = v.Key("Name").Text()
 	signer.Reason = v.Key("Reason").Text()
 	signer.Location = v.Key("Location").Text()

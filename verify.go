@@ -136,6 +136,9 @@ func (b *VerifyBuilder) doExecute() {
 			sigResult.Valid = false
 		}
 
+		if len(signer.ByteRange) == 4 {
+			copy(sigResult.ByteRange[:], signer.ByteRange)
+		}
 		if signer.SignatureTime != nil {
 			sigResult.SigningTime = *signer.SignatureTime
 		}

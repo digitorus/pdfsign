@@ -144,6 +144,7 @@ type Signer struct {
 	Location           string               `json:"location"`
 	ContactInfo        string               `json:"contact_info"`
 	ValidSignature     bool                 `json:"valid_signature"`
+	ByteRange          []int64              `json:"byte_range,omitempty"` // Signed /ByteRange as offset and length pairs; nil if invalid.
 	TrustedIssuer      bool                 `json:"trusted_issuer"`
 	RevokedCertificate bool                 `json:"revoked_certificate"`
 	Certificates       []Certificate        `json:"certificates"` // Resolved CMS signer first; remaining embedded certificates follow.
