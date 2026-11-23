@@ -399,3 +399,44 @@ func TestVerify_TimestampInfoIsPopulated(t *testing.T) {
 }
 
 // Integration verification tests for specific options are covered in pdf_test.go
+
+func TestVerify_ByteRangeIsPopulated(t *testing.T) {
+	pki := testpki.NewTestPKI(t)
+	pki.StartCRLServer()
+	defer pki.Close()
+	key, cert := pki.IssueLeaf("Byte Range Tester")
+
+	// Sign twice: the first signature covers the first revision only.
+	doc, err := pdfsign.OpenFile("testfiles/testfile_form.pdf")
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	ends := map[string]int64{}
+	var signed bytes.Buffer
+	for _, name := range []string{"First", "Second"} {
+		doc.Sign(key, cert, pki.Chain()...).SignerName(name)
+		signed.Reset()
+		if _, err := doc.Write(&signed); err != nil {
+			t.Fatalf("Write %s: %v", name, err)
+		}
+		ends[name] = int64(signed.Len())
+		if doc, err = pdfsign.Open(bytes.NewReader(bytes.Clone(signed.Bytes())), int64(signed.Len())); err != nil {
+			t.Fatalf("Open after %s: %v", name, err)
+		}
+	}
+
+	result := doc.Verify().TrustedRoots(pki.RootPool())
+	if err := result.Err(); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	sigs := result.Signatures()
+	if len(sigs) != 2 {
+		t.Fatalf("expected 2 signatures, got %d", len(sigs))
+	}
+	for _, sig := range sigs {
+		br := sig.ByteRange
+		if br[0] != 0 || br[2] <= br[1] || br[2]+br[3] != ends[sig.SignerName] {
+			t.Errorf("%s: ByteRange = %v, want [0 a b c] with a < b and b+c = %d", sig.SignerName, br, ends[sig.SignerName])
+		}
+	}
+}
